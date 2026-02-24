@@ -1,0 +1,77 @@
+# Draco floating-base WBIC example for contact-constrained balance.
+#
+# Notes:
+# - This config is designed for the demo simulator
+#   `example_controller_wbc_contact_sim`.
+# - Contacts are activated explicitly by state machine (not collision-triggered).
+
+robot_model:
+  base_frame: "torso_link"
+  end_effector_frame: "l_foot_contact"
+  floating_base: true
+
+  expected_num_qdot: 33
+  expected_num_active_dof: 27
+  expected_num_float_dof: 6
+
+solver_params_yaml: "qp_param.yaml"
+
+task_pool:
+  - name: "com_task"
+    type: "ComTask"
+    kp: [40, 40, 40]
+    kd: [8, 8, 8]
+    kp_ik: [1.0, 1.0, 1.0]
+    weight: [50, 50, 50]
+
+contact_pool:
+  - name: "lfoot_contact"
+    type: "SurfaceContact"
+    link_name: "l_foot_contact"
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+
+  - name: "rfoot_contact"
+    type: "SurfaceContact"
+    link_name: "r_foot_contact"
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+
+global_constraints:
+  - name: "joint_limit"
+    type: "JointPosLimitConstraint"
+
+  - name: "joint_vel_limit"
+    type: "JointVelLimitConstraint"
+
+  - name: "joint_tau_limit"
+    type: "JointTrqLimitConstraint"
+
+state_machine:
+  - id: 0
+    name: "initialize"
+    params:
+      duration: 1.0
+      wait_time: 0.1
+      next_state_id: 1
+    motion_tasks:
+      - name: "com_task"
+        priority: 0
+    contact_constraints:
+      - name: "lfoot_contact"
+      - name: "rfoot_contact"
+
+  - id: 1
+    name: "balance"
+    params:
+      duration: 1.0
+      wait_time: 0.0
+      b_stay_here: true
+    motion_tasks:
+      - name: "com_task"
+        priority: 0
+    contact_constraints:
+      - name: "lfoot_contact"
+      - name: "rfoot_contact"

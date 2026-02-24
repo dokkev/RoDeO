@@ -1,0 +1,112 @@
+# ============================================================================
+# RPC Example WBIC Configuration (documented)
+# ============================================================================
+#
+# This file is intentionally minimal and focused on a single JointPosTask.
+# It is useful for debugging the WBIC stack, state machine flow, and gain effects.
+#
+# Important conceptual split in this stack:
+# 1) IK-like command channel:
+#    - Outputs: q_cmd, qdot_cmd
+#    - Main gain: kp_ik
+# 2) Dynamic command channel:
+#    - Outputs: qddot_cmd -> tau_cmd
+#    - Main gains: kp, kd (inside op_cmd)
+#
+# In code, task op_cmd is:
+#   op_cmd = des_acc + kp * pos_err + kd * vel_err
+#
+# For this example simulator (`example_controller_rbd_sim`), plant integration
+# is torque-driven. That means final motion is primarily governed by tau_cmd.
+# q_cmd/qdot_cmd are still computed by WBIC and logged for inspection.
+
+# ----------------------------------------------------------------------------
+# Robot model contract
+# ----------------------------------------------------------------------------
+robot_model:
+  # Default reference frame for teleop Pose commands when TaskReference
+  # does not provide `reference_frame`.
+  base_frame: "base_link"
+
+  # Default end-effector frame name used by examples that define EE tasks.
+  end_effector_frame: "link7"
+
+  # Sanity checks against the loaded robot model.
+  expected_num_qdot: 7
+  expected_num_active_dof: 7
+  expected_num_float_dof: 0
+
+# ----------------------------------------------------------------------------
+# Solver weights
+# ----------------------------------------------------------------------------
+# Path is resolved relative to this YAML file.
+solver_params_yaml: "qp_param.yaml"
+
+# ----------------------------------------------------------------------------
+# Task pool (reusable task definitions)
+# ----------------------------------------------------------------------------
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+
+    # Dynamic-layer gains for op_cmd:
+    #   op_cmd = des_acc + kp * (q_des - q) + kd * (qdot_des - qdot)
+    # These affect qddot/tau generation.
+    #
+    kp: [10, 0, 0, 0, 0, 0, 0]
+    kd: [0, 0, 0, 0, 0, 0, 0]
+
+    # IK-layer gain for q_cmd creation.
+    # In this implementation, q_cmd is built from delta_q_cmd that scales
+    # position error with kp_ik. Practical range is often around 0.5~2.0.
+    # Large values can make q_cmd numerically aggressive.
+    kp_ik: [1, 1, 1, 1, 1, 1, 1]
+
+# ----------------------------------------------------------------------------
+# Global constraints (always active)
+# ----------------------------------------------------------------------------
+global_constraints:
+  # Enforces joint position feasibility during optimization.
+  - name: "joint_limit"
+    type: "JointPosLimitConstraint"
+
+  # Enforces joint velocity feasibility during optimization.
+  - name: "joint_vel_limit"
+    type: "JointVelLimitConstraint"
+
+# ----------------------------------------------------------------------------
+# State machine recipe
+# ----------------------------------------------------------------------------
+# Common params available in every state `params` block:
+# - duration [s]: default 3.0
+# - wait_time [s]: default 1.0
+# - next_state_id: default current state's id (self-transition)
+# - b_stay_here (alias: stay_here): default false
+#   * If b_stay_here=true, next_state_id is ignored while staying.
+state_machine:
+  - id: 0
+    name: "initialize"
+    params:
+      # Duration of min-jerk interpolation from current q to target_jpos.
+      duration: 1.0
+
+      # Additional dwell time after trajectory completion before transition.
+      wait_time: 0.2
+
+      # Next state id after EndOfState() is satisfied.
+      next_state_id: 1
+      # Initialize target. If equal to initial pose, this state mostly verifies
+      # hold behavior and state transition logic.
+      target_jpos: [0.0, 3.3, 0.0, -2.35, 0.0, -1.13, 0.0]
+    motion_tasks:
+      - name: "jpos_task"
+
+  - id: 1
+    name: "home"
+    params:
+      target_jpos: [1.57, 3.3, 0.0, -2.35, 0.0, -1.13, 0.0]
+      duration: 1.0
+      wait_time: 0.0
+      b_stay_here: true 
+    motion_tasks:
+      - name: "jpos_task"
