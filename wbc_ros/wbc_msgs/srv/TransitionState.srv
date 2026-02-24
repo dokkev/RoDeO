@@ -1,0 +1,7 @@
+# Activate/deactivate the controller's state profile (transition).
+
+string state_name              # Target state profile name
+bool active                    # true: activate state_name, false: deactivate
+---
+bool success
+string message

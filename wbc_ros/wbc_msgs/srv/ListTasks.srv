@@ -1,0 +1,6 @@
+# Query all registered tasks and contacts in the controller.
+---
+string[] task_names
+string[] task_types
+string[] contact_names
+string[] contact_types

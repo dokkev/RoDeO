@@ -1,0 +1,15 @@
+# Add, modify, or remove a task in the controller's task registry.
+# Call this service during setup (before or after controller activation).
+
+string name                    # Unique task name
+string type                    # "joint", "selected_joint", "link_pos", "link_ori", "com"
+string target_link             # Link name (for link_pos / link_ori tasks)
+int32[] joint_indices          # Joint indices (for selected_joint task only)
+float64[] kp                   # Proportional gains
+float64[] kd                   # Derivative gains
+float64[] ki                   # Integral gains
+float64[] weight               # Task weight in QP cost
+bool remove                    # If true, remove the task from registry
+---
+bool success
+string message

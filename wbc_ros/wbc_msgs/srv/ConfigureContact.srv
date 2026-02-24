@@ -1,0 +1,16 @@
+# Add, modify, or remove a contact in the controller's contact registry.
+# Call this service during setup (before or after controller activation).
+
+string name                    # Unique contact name
+string type                    # "point" or "surface"
+string target_link             # Link name for the contact frame
+float64 mu                     # Friction coefficient
+float64 max_fz                 # Maximum normal force
+float64[] kp                   # Contact control proportional gains
+float64[] kd                   # Contact control derivative gains
+float64 foot_half_length       # For surface contact only (meters)
+float64 foot_half_width        # For surface contact only (meters)
+bool remove                    # If true, remove the contact from registry
+---
+bool success
+string message
