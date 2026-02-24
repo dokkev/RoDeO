@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:macro name="optimo_mujoco_hardware" params="mujoco_model:='' headless:=false">
+        <hardware>
+            <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+            <xacro:if value="${mujoco_model != ''}">
+                <param name="mujoco_model">${mujoco_model}</param>
+            </xacro:if>
+            <xacro:unless value="${mujoco_model != ''}">
+                <param name="mujoco_model">$(find mujoco_sim)/mjcf/scene.xml</param>
+            </xacro:unless>
+            <param name="pids_config_file">$(find optimo_controller)/config/mujoco_pid.yaml</param>
+            <param name="sim_speed_factor">1.0</param>
+            <param name="headless">${headless}</param>
+        </hardware>
+    </xacro:macro>
+
+</robot>

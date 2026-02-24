@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- URDF for the standalone Optimo 7-DOF arm, including controls -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="optimo">
+    <xacro:arg name="use_sim_hardware" default="false" />
+    <xacro:arg name="use_mock_hardware" default="false" />
+    <xacro:arg name="use_mukoco_sim" default="false" />
+    <xacro:arg name="mujoco_model" default="" />
+    <xacro:arg name="headless" default="false" />
+    <xacro:arg name="prefix" default=""/>
+    <xacro:arg name="robot_index" default="0"/>
+    <xacro:arg name="ns" default="optimo"/>
+    <!-- Import files -->
+    <xacro:include filename="$(find optimo_description)/urdf/xacro/optimo.common.xacro" />
+    <xacro:include filename="$(find optimo_description)/urdf/xacro/optimo.xacro" />
+    <xacro:include filename="$(find optimo_description)/urdf/ros2_control/optimo.ros2_control.xacro" />
+
+    <link name="world"/>
+
+    <!-- Actually add the arm, and ros2 control -->
+    <xacro:optimo
+      prefix="$(arg prefix)"/>
+    <xacro:optimo_ros2_control use_sim_hardware="$(arg use_sim_hardware)" use_mock_hardware="$(arg use_mock_hardware)" use_mukoco_sim="$(arg use_mukoco_sim)" mujoco_model="$(arg mujoco_model)" headless="$(arg headless)" prefix="$(arg prefix)" robot_index="$(arg robot_index)" ns="$(arg ns)" />
+
+</robot>

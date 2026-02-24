@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <!-- Constants for robot dimensions -->
+    <xacro:property name="PI" value="3.1415926535897931" />
+    <xacro:property name="DtR" value=".01745329251" />
+
+    <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0" />
+    </material>
+
+    <material name="blue">
+        <color rgba="0.5 0.5 1 1.0" />
+    </material>
+</robot>
