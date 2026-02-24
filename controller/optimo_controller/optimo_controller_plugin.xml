@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<library path="optimo_controller">
+  <class
+    name="optimo_controller/OptimoWbcController"
+    type="optimo_controller::OptimoWbcController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      ros2_control controller plugin wrapping Optimo WBIC.
+    </description>
+  </class>
+</library>

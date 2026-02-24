@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>optimo_controller</name>
+  <version>0.1.0</version>
+  <description>ROS 2 C++ package for Optimo controller components.</description>
+  <maintainer email="dongho@utexas.edu">dk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ament_index_cpp</depend>
+  <depend>controller_interface</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>Eigen3</depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>yaml-cpp</depend>
+  <depend>wbc_formulation</depend>
+  <depend>wbc_fsm</depend>
+  <depend>wbc_robot_system</depend>
+  <depend>wbc_solver</depend>
+  <depend>wbc_architecture</depend>
+  <depend>wbc_trajectory</depend>
+  <depend>wbc_util</depend>
+  <exec_depend>optimo_description</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <controller_interface plugin="${prefix}/optimo_controller_plugin.xml"/>
+  </export>
+</package>

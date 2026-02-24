@@ -1,0 +1,19 @@
+/**:
+  ros__parameters:
+    pid_gains:
+      position:
+        joint1: {p: 120.0, i: 0.0, d: 6.0}
+        joint2: {p: 120.0, i: 0.0, d: 6.0}
+        joint3: {p: 120.0, i: 0.0, d: 6.0}
+        joint4: {p: 120.0, i: 0.0, d: 6.0}
+        joint5: {p: 100.0, i: 0.0, d: 5.0}
+        joint6: {p: 80.0, i: 0.0, d: 4.0}
+        joint7: {p: 60.0, i: 0.0, d: 3.0}
+      velocity:
+        joint1: {p: 25.0, i: 0.0, d: 0.8}
+        joint2: {p: 25.0, i: 0.0, d: 0.8}
+        joint3: {p: 25.0, i: 0.0, d: 0.8}
+        joint4: {p: 25.0, i: 0.0, d: 0.8}
+        joint5: {p: 20.0, i: 0.0, d: 0.6}
+        joint6: {p: 18.0, i: 0.0, d: 0.5}
+        joint7: {p: 15.0, i: 0.0, d: 0.4}

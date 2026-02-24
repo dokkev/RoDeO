@@ -1,0 +1,69 @@
+# =============================================================
+# Optimo WBC Configuration
+# =============================================================
+
+# 1. 로봇 모델 설정
+robot_model:
+  urdf_path: "package://optimo_description/urdf/optimo.urdf"
+  base_frame: "base_link"
+  end_effector_frame: "link7"
+
+# 1.5. Solver 가중치 파일 (자주 안 바뀌는 QP 파라미터 분리)
+solver_params_yaml: "qp_params.yaml"
+
+# 2. 태스크 풀 (사용 가능한 모든 도구함)
+# 여기서 'name'은 곧 시스템이 인식하는 고유 역할(Role)입니다.
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+    # Optimo 7-DoF 예시 (어깨에서 손목 순서)
+    kp: [200.0, 200.0, 150.0, 150.0, 100.0, 80.0, 50.0]
+    kd: [ 20.0,  20.0,  15.0,  15.0,  10.0,  8.0,  5.0]
+
+  - name: "ee_pos"
+    type: "LinkPosTask"
+    link_name: "link7"
+    kp: [400.0, 400.0, 400.0]
+    kd: [40.0, 40.0, 40.0]
+    kp_ik : [400.0, 400.0, 400.0] # IK 솔버용 가중치
+
+
+  - name: "ee_ori"
+    type: "LinkOriTask"
+    link_name: "link7"
+    kp: [400.0, 400.0, 400.0]
+    kd: [40.0, 40.0, 40.0]
+    kp_ik : [400.0, 400.0, 400.0] # IK 솔버용 가중치
+
+
+   
+# 3. 컨택트 풀 (환경과의 상호작용)
+contact_pool:
+  - name: "ee_contact"
+    type: "SurfaceContact"
+    link_name: "link7"
+    mu: 0.3 # 마찰 계수
+
+# 4. 전역 제약 조건 (모든 상태에서 상시 가동)
+global_constraints:
+  - name: "joint_limit"
+    type: "JointPosLimitConstraint"
+  - name: "joint_vel_limit"
+    type: "JointVelLimitConstraint"
+
+# 5. 상태별 WBC 레시피 (계층 구조 설계)
+# 리스트 순서가 곧 WBC의 우선순위(Priority)가 됩니다.
+state_machine:
+  - id: 0
+    name: "initialize"
+    params:
+      duration: 3.0
+      wait_time: 1.0
+    motion_tasks:
+      - name: "jpos_task"   # 초기 자세 유지 (0순위)
+  - id: 1
+    name: "initialize"
+    params:
+      target_jpos: [0.0, 3.3, 0.0, -2.36, 0.0, -1.13, 0.0]
+    motion_tasks:
+      - name: "jpos_task"   # 홈 자세로 이동 (0순위)
