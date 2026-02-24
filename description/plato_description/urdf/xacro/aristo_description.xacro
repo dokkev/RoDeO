@@ -1,0 +1,377 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Macro: builds the hand geometry/tree rooted at `${prefix}hand_mount`.
+    Usage:
+      <xacro:aristo_description/>
+  -->
+  <xacro:macro name="aristo_description" params="prefix:='aristo_'">
+
+
+    <!-- Create hand_mount link as intermediate frame -->
+    <link name="${prefix}hand_mount">
+    </link>
+
+    <!-- Rotate hand_base 90 degrees around Z to point in +X direction -->
+    <joint name="${prefix}hand_mount_to_base" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 1.5708"/>
+      <parent link="${prefix}hand_mount"/>
+      <child link="${prefix}hand_base"/>
+    </joint>
+
+    <!-- Base link of the hand -->
+    <link name="${prefix}hand_base">
+      <inertial>
+        <origin xyz="1.14624e-05 -0.0735402 0.00270001" rpy="0 0 0"/>
+        <mass value="0.739028"/>
+        <inertia ixx="0.00120378" ixy="-5.74097e-07" ixz="9.38706e-08" iyy="0.000581026" iyz="0.000226035" izz="0.00122618"/>
+      </inertial>
+      <visual>
+        <origin xyz="1.14624e-05 -0.0735402 0.00270001" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/hand_base.stl"/>
+        </geometry>
+        <material name="hand_base_parts_material">
+          <color rgba="0.582976 0.583383 0.583584 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="1.14624e-05 -0.0735402 0.00270001" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/hand_base.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- thumb_distal_tactile: tactile sensor frame 4.73 cm distal of thumb_distal -->
+    <link name="${prefix}thumb_distal_tactile" />
+
+    <joint name="${prefix}thumb_distal_to_tactile" type="fixed">
+      <!-- translate 0.0473 m (4.73 cm) along the distal link local +x -->
+  <!-- orient tactile frame so Z+ points downward while keeping +X forward: rotate pi around X -->
+  <!-- keep thumb translation, mirror orientation of index (invert yaw) -->
+  <origin xyz="-0.0523 0.01 -0.0025" rpy="0 1.57 1.57"/>
+      <parent link="${prefix}thumb_distal"/>
+      <child link="${prefix}thumb_distal_tactile"/>
+    </joint>
+
+    <!-- thumb_fingertip: fingertip frame at the end of thumb -->
+    <link name="${prefix}thumb_fingertip" />
+
+    <joint name="${prefix}thumb_distal_to_fingertip" type="fixed">
+      <origin xyz="-0.066 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}thumb_distal"/>
+      <child link="${prefix}thumb_fingertip"/>
+    </joint>
+
+    <!-- thumb_metacarpal -->
+    <link name="${prefix}thumb_metacarpal">
+      <inertial>
+        <origin xyz="5.08388e-05 -0.0186588 0.0228524" rpy="0 0 0"/>
+        <mass value="0.120521"/>
+        <inertia ixx="2.56992e-05" ixy="5.49331e-08" ixz="-4.85452e-08" iyy="3.3197e-05" iyz="2.03706e-06" izz="2.19064e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="5.08388e-05 -0.0186588 0.0228524" rpy="-1.5708 0 -2.97318e-15"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_metacarpal.stl"/>
+        </geometry>
+        <material name="thumb_metacarpal_parts_material">
+          <color rgba="0.55008 0.55008 0.55008 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="5.08388e-05 -0.0186588 0.0228524" rpy="-1.5708 0 -2.97318e-15"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_metacarpal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- thumb_actuators -->
+    <link name="${prefix}thumb_actuators">
+      <inertial>
+        <origin xyz="0.00119788 -0.0189545 -0.0225138" rpy="0 0 0"/>
+        <mass value="0.240831"/>
+        <inertia ixx="4.65934e-05" ixy="4.93309e-06" ixz="-5.99186e-07" iyy="0.00017164" iyz="-1.38804e-06" izz="0.000155026"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.00119788 -0.0189545 -0.0225138" rpy="0 0 -1.5708"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_actuators.stl"/>
+        </geometry>
+        <material name="thumb_actuators_parts_material">
+          <color rgba="0.545814 0.546439 0.546747 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0.00119788 -0.0189545 -0.0225138" rpy="0 0 -1.5708"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_actuators.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- thumb_proximal -->
+    <link name="${prefix}thumb_proximal">
+      <inertial>
+        <origin xyz="0.0275353 8.61887e-05 0.00673205" rpy="0 0 0"/>
+        <mass value="0.0306406"/>
+        <inertia ixx="1.81672e-06" ixy="-4.24383e-08" ixz="-6.4245e-07" iyy="1.85497e-05" iyz="-2.07897e-09" izz="1.81545e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.0275353 8.61887e-05 0.00673205" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_proximal.stl"/>
+        </geometry>
+        <material name="thumb_proximal_parts_material">
+          <color rgba="0.63463 0.635887 0.633109 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0.0275353 8.61887e-05 0.00673205" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_proximal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- thumb_distal -->
+    <link name="${prefix}thumb_distal">
+      <inertial>
+        <origin xyz="-0.0330685 -0.00101822 -0.00300906" rpy="0 0 0"/>
+        <mass value="0.0219871"/>
+        <inertia ixx="1.21431e-06" ixy="-1.08631e-07" ixz="-2.69395e-09" iyy="9.73575e-06" iyz="2.19882e-10" izz="9.42439e-06"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.0330685 -0.00101822 -0.00300906" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_distal.stl"/>
+        </geometry>
+        <material name="thumb_distal_parts_material">
+          <color rgba="0.670015 0.670243 0.668779 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="-0.0330685 -0.00101822 -0.00300906" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/thumb_distal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+
+    
+
+    <!-- Thumb joints -->
+
+
+    <joint name="${prefix}joint1" type="revolute">
+      <origin xyz="4.56293e-16 -0.044 -0.0285" rpy="1.5708 0 0"/>
+      <parent link="${prefix}hand_base"/>
+      <child link="${prefix}thumb_metacarpal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-0.785398" upper="0.785398"/>
+    </joint>
+
+    <joint name="${prefix}joint2" type="revolute">
+      <origin xyz="-1.42383e-10 -0.0315 0.025" rpy="-1.5708 1.5708 0"/>
+      <parent link="${prefix}thumb_metacarpal"/>
+      <child link="${prefix}thumb_actuators"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.5708" upper="1.5708"/>
+    </joint>
+
+    <joint name="${prefix}joint3" type="revolute">
+      <origin xyz="-0.022 -0.0305 -0.0235" rpy="-1.5708 0 3.14159"/>
+      <parent link="${prefix}thumb_actuators"/>
+      <child link="${prefix}thumb_proximal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.0472" upper="1.0472"/>
+    </joint>
+
+    <joint name="${prefix}joint4" type="revolute">
+      <origin xyz="0.06 0 0.0105" rpy="0 0 3.14159"/>
+      <parent link="${prefix}thumb_proximal"/>
+      <child link="${prefix}thumb_distal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-2.0944" upper="1.0472"/>
+    </joint>
+
+
+
+    <!-- index_proximal -->
+    <link name="${prefix}index_proximal">
+      <inertial>
+        <origin xyz="0.0275353 -8.61566e-05 0.00673211" rpy="0 0 0"/>
+        <mass value="0.0306406"/>
+        <inertia ixx="1.81666e-06" ixy="4.24695e-08" ixz="-6.42349e-07" iyy="1.85498e-05" iyz="1.97055e-09" izz="1.81546e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.0275353 -8.61566e-05 0.00673211" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/index_proximal.stl"/>
+        </geometry>
+        <material name="index_proximal_parts_material">
+          <color rgba="0.63463 0.635887 0.633109 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0.0275353 -8.61566e-05 0.00673211" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/index_proximal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- index_distal -->
+    <link name="${prefix}index_distal">
+      <inertial>
+        <origin xyz="-0.0330685 0.00101822 -0.00299094" rpy="0 0 0"/>
+        <mass value="0.0219871"/>
+        <inertia ixx="1.21431e-06" ixy="1.08631e-07" ixz="2.69395e-09" iyy="9.73575e-06" iyz="2.19882e-10" izz="9.42439e-06"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.0330685 0.00101822 -0.00299094" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/index_distal.stl"/>
+        </geometry>
+        <material name="index_distal_parts_material">
+          <color rgba="0.670015 0.670243 0.668779 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="-0.0330685 0.00101822 -0.00299094" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/index_distal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- Index joints -->
+    <joint name="${prefix}joint5" type="revolute">
+      <origin xyz="0.0305 -0.113 0.0145" rpy="-1.5708 0 -1.5708"/>
+      <parent link="${prefix}hand_base"/>
+      <child link="${prefix}index_proximal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.0472" upper="1.0472"/>
+    </joint>
+
+    <joint name="${prefix}joint6" type="revolute">
+      <origin xyz="0.06 0 0.0105" rpy="0 0 3.14159"/>
+      <parent link="${prefix}index_proximal"/>
+      <child link="${prefix}index_distal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.0472" upper="2.0944"/>
+    </joint>
+
+    <!-- index_distal_tactile: tactile sensor frame 4.73 cm distal of index_distal -->
+    <link name="${prefix}index_distal_tactile" />
+
+    <joint name="${prefix}index_distal_to_tactile" type="fixed">
+      <!-- translate 0.0473 m (4.73 cm) along the distal link local +x -->
+  <!-- orient tactile frame so Z+ points downward while keeping +X forward: rotate pi around X -->
+  <origin xyz="-0.0523 -0.01 -0.0025" rpy="0 -1.57 1.57"/>
+      <parent link="${prefix}index_distal"/>
+      <child link="${prefix}index_distal_tactile"/>
+    </joint>
+
+    <!-- index_fingertip: fingertip frame at the end of index finger -->
+    <link name="${prefix}index_fingertip" />
+
+    <joint name="${prefix}index_distal_to_fingertip" type="fixed">
+      <origin xyz="-0.066 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}index_distal"/>
+      <child link="${prefix}index_fingertip"/>
+    </joint>
+
+      <!-- Middle joints -->
+    <joint name="${prefix}joint7" type="revolute">
+      <origin xyz="-0.0305 -0.113 0.0145" rpy="-1.5708 0 -1.5708"/>
+      <parent link="${prefix}hand_base"/>
+      <child link="${prefix}middle_proximal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.0472" upper="1.0472"/>
+    </joint>
+
+    <joint name="${prefix}joint8" type="revolute">
+      <origin xyz="0.06 0 -0.0105" rpy="0 0 -3.14159"/>
+      <parent link="${prefix}middle_proximal"/>
+      <child link="${prefix}middle_distal"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10" velocity="10" lower="-1.0472" upper="2.0944"/>
+    </joint>
+
+
+    <!-- middle_proximal -->
+    <link name="${prefix}middle_proximal">
+      <inertial>
+        <origin xyz="0.0275353 -8.61887e-05 -0.00673205" rpy="0 0 0"/>
+        <mass value="0.0306406"/>
+        <inertia ixx="1.81672e-06" ixy="4.24383e-08" ixz="6.4245e-07" iyy="1.85497e-05" iyz="-2.07897e-09" izz="1.81545e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.0275353 -8.61887e-05 -0.00673205" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/middle_proximal.stl"/>
+        </geometry>
+        <material name="middle_proximal_parts_material">
+          <color rgba="0.63463 0.635887 0.633109 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0.0275353 -8.61887e-05 -0.00673205" rpy="1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/middle_proximal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- middle_distal -->
+    <link name="${prefix}middle_distal">
+      <inertial>
+        <origin xyz="-0.0330685 0.00101822 0.00300906" rpy="0 0 0"/>
+        <mass value="0.0219871"/>
+        <inertia ixx="1.21431e-06" ixy="1.08631e-07" ixz="2.69395e-09" iyy="9.73575e-06" iyz="2.19882e-10" izz="9.42439e-06"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.0330685 0.00101822 0.00300906" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/middle_distal.stl"/>
+        </geometry>
+        <material name="middle_distal_parts_material">
+          <color rgba="0.670015 0.670243 0.668779 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="-0.0330685 0.00101822 0.00300906" rpy="-1.5708 -1.5708 0"/>
+        <geometry>
+          <mesh filename="package://plato_description/meshes/middle_distal.stl"/>
+        </geometry>
+      </collision>
+    </link>
+
+
+    <!-- middle_distal_tactile: tactile sensor frame 4.73 cm distal of middle_distal -->
+    <link name="${prefix}middle_distal_tactile" />
+
+    <joint name="${prefix}middle_distal_to_tactile" type="fixed">
+      <!-- translate 0.0473 m (4.73 cm) along the distal link local +x -->
+  <!-- orient tactile frame so Z+ points downward while keeping +X forward: rotate pi around X -->
+  <origin xyz="-0.0523 -0.01 -0.0025" rpy="0 -1.57 1.57"/>
+      <parent link="${prefix}middle_distal"/>
+      <child link="${prefix}middle_distal_tactile"/>
+    </joint>
+
+    <!-- middle_fingertip: fingertip frame at the end of middle finger -->
+    <link name="${prefix}middle_fingertip" />
+
+    <joint name="${prefix}middle_distal_to_fingertip" type="fixed">
+      <origin xyz="-0.066 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}middle_distal"/>
+      <child link="${prefix}middle_fingertip"/>
+    </joint>
+
+  </xacro:macro>
+</robot>

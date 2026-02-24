@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<robot name="aristo_hand" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Root link for TF tree -->
+  <link name="world"/>
+
+  <!-- Includes -->
+    <xacro:include filename="$(find plato_description)/urdf/xacro/aristo_description.xacro"/>
+    <xacro:include filename="$(find plato_description)/urdf/ros2_control/aristo.ros2_control.xacro"/>
+
+
+  <!-- Instantiate geometry/tree and ros2_control -->
+  <xacro:aristo_description
+    prefix=""/>
+  <joint name="connector_to_hand_mount" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child link="hand_mount"/>
+  </joint>
+  <xacro:aristo_ros2_control name="aristo_ros2_control"/>
+
+</robot>

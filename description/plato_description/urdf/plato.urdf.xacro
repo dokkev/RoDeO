@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- Full URDF for Plato (Optimo arm + optional Aristo hand), including controls -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="plato">
+    <xacro:arg name="use_aristo_hand" default="false" />
+    <xacro:arg name="use_sim_hardware" default="false" />
+    <xacro:arg name="prefix" default=""/>
+    <xacro:arg name="robot_index" default="0"/>
+    <xacro:arg name="ns" default="optimo"/>
+    <!-- Import files -->
+    <xacro:include filename="$(find plato_description)/urdf/xacro/optimo.common.xacro" />
+    <xacro:include filename="$(find plato_description)/urdf/xacro/optimo.xacro" />
+    <xacro:include filename="$(find plato_description)/urdf/ros2_control/optimo.ros2_control.xacro" />
+    <xacro:include filename="$(find plato_description)/urdf/xacro/aristo_description.xacro" />
+
+    <link name="world"/>
+
+    <!-- Add the arm, optional hand, and ros2_control -->
+    <xacro:optimo
+      prefix="$(arg prefix)"/>
+    <xacro:if value="$(arg use_aristo_hand)">
+      <xacro:aristo_description
+        prefix="aristo_" />
+      <joint name="aristo_connector_to_hand_mount" type="fixed">
+        <origin xyz="0 0 0.01" rpy="0 -1.57 3.1416"/>
+        <parent link="end_effector"/>
+        <child link="aristo_hand_mount"/>
+      </joint>
+    </xacro:if>
+    <xacro:optimo_ros2_control use_sim_hardware="$(arg use_sim_hardware)" prefix="$(arg prefix)" robot_index="$(arg robot_index)" ns="$(arg ns)" />
+
+</robot>

@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!-- Wrapper URDF that calls the aristo ros2_control macro with mock hardware enabled -->
+<robot name="aristo_hand" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Root and hand connector -->
+  <link name="base_link"/>
+  <link name="end_effector"/>
+  <joint name="base_link_to_end_effector" type="fixed">
+    <parent link="base_link"/>
+    <child link="end_effector"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Include the full robot description and the ros2_control definition -->
+  <xacro:include filename="$(find plato_description)/urdf/xacro/aristo_description.xacro"/>
+  <xacro:include filename="$(find plato_description)/urdf/ros2_control/aristo.ros2_control.xacro"/>
+
+  <!-- Instantiate geometry/tree and ros2_control with mock hardware enabled -->
+  <xacro:aristo_description
+    prefix=""/>
+  <joint name="connector_to_hand_mount" type="fixed">
+    <origin xyz="0 0 0" rpy="0 1.57 1.5708"/>
+    <parent link="end_effector"/>
+    <child link="hand_mount"/>
+  </joint>
+  <xacro:aristo_ros2_control name="aristo_mock" fake_hardware="true"/>
+
+</robot>
