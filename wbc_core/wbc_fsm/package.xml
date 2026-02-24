@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wbc_fsm</name>
+  <version>0.0.1</version>
+  <description>FSM core package for state factory and state transition handler.</description>
+  <maintainer email="dk@todo.todo">dk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>yaml-cpp</depend>
+  <depend>wbc_formulation</depend>
+  <depend>wbc_robot_system</depend>
+  <depend>wbc_util</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
