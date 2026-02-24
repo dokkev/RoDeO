@@ -1,0 +1,25 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    wbc_controller:
+      type: optimo_controller/OptimoWbcController
+
+wbc_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+      - joint7
+
+    fixed_base: true
+
+    urdf_path: "package://optimo_description/urdf/optimo.urdf"
+    wbc_yaml_path: "package://optimo_controller/config/optimo_wbc.yaml"
