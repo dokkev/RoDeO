@@ -1,0 +1,15 @@
+<launch>
+  <arg name="urdf_file" default="$(find-pkg-share draco_description)/urdf/draco_modified_rviz.urdf"/>
+  <arg name="rviz_config" default="$(find-pkg-share draco_description)/rviz/draco.rviz"/>
+
+  <node
+    pkg="robot_state_publisher"
+    exec="robot_state_publisher"
+    name="robot_state_publisher"
+    output="screen"
+    args="$(var urdf_file)"/>
+
+  <node pkg="joint_state_publisher" exec="joint_state_publisher" name="joint_state_publisher" output="screen"/>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" args="-d $(var rviz_config)"/>
+</launch>
