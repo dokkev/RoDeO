@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_util/src/task_registry.cpp
+ * @brief Doxygen documentation for task_registry module.
+ */
 #include "wbc_util/task_registry.hpp"
 
 #include "wbc_formulation/force_task.hpp"

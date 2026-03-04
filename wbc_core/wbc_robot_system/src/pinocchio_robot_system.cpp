@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_robot_system/src/pinocchio_robot_system.cpp
+ * @brief Doxygen documentation for pinocchio_robot_system module.
+ */
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 
 #include <cassert>
@@ -67,7 +71,9 @@ void PinocchioRobotSystem::Initialize() {
     link_name_to_frame_idx_[frame_name] = static_cast<int>(i);
 
     if (frame_name != "universe" && frame_name != "root_joint") {
-      if (i % 2 == 0) {
+      const auto frame_type = model_.frames[i].type;
+      if (frame_type == pinocchio::FrameType::BODY ||
+          frame_type == pinocchio::FrameType::FIXED_JOINT) {
         link_idx_map_[static_cast<int>(model_.getFrameId(frame_name))] =
             frame_name;
       }
@@ -111,6 +117,10 @@ void PinocchioRobotSystem::Initialize() {
     joint_torque_limits_.leftCols<1>() = -model_.effortLimit;
     joint_torque_limits_.rightCols<1>() = model_.effortLimit;
   } else {
+    // Position limits index into nq-space: floating base = 3 pos + 4 quat = 7
+    // elements, so actuated joints start at num_floating_dof_ + 1 = 7.
+    // Velocity/torque limits index into nv-space: floating base = 6 elements,
+    // so actuated joints start at num_floating_dof_ = 6.
     joint_position_limits_.leftCols<1>() =
         model_.lowerPositionLimit.segment(num_floating_dof_ + 1, num_actuated_);
     joint_position_limits_.rightCols<1>() =
@@ -135,6 +145,7 @@ void PinocchioRobotSystem::Initialize() {
   nonlinear_effects_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   gravity_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   coriolis_cache_ = Eigen::VectorXd::Zero(num_qdot_);
+  link_jac_scratch_ = Eigen::MatrixXd::Zero(6, num_qdot_);
   InvalidateDynamicsCache();
 }
 
@@ -153,6 +164,7 @@ void PinocchioRobotSystem::InitializeRootFrame() {
 void PinocchioRobotSystem::InvalidateDynamicsCache() {
   acceleration_kinematics_valid_ = false;
   mass_matrix_valid_ = false;
+  mass_matrix_inverse_valid_ = false;
   nonlinear_effects_valid_ = false;
   gravity_valid_ = false;
   coriolis_valid_ = false;
@@ -216,14 +228,14 @@ void PinocchioRobotSystem::PrintRobotInfo() const {
   std::cout << "=======================" << std::endl;
 
   std::cout << "============ robot link ================" << std::endl;
-  for (const auto& kv : link_idx_map_) {
-    std::cout << "constexpr int " << kv.second << " = " << kv.first << ";"
+  for (const auto& [link_idx, link_name] : link_idx_map_) {
+    std::cout << "constexpr int " << link_name << " = " << link_idx << ";"
               << std::endl;
   }
 
   std::cout << "============ robot joint ================" << std::endl;
-  for (const auto& kv : joint_idx_map_) {
-    std::cout << "constexpr int " << kv.second << " = " << kv.first << ";"
+  for (const auto& [joint_idx, joint_name] : joint_idx_map_) {
+    std::cout << "constexpr int " << joint_name << " = " << joint_idx << ";"
               << std::endl;
   }
 
@@ -288,14 +300,14 @@ void PinocchioRobotSystem::UpdateState(
         "UpdateState requires complete joint position/velocity maps");
   }
 
-  for (const auto& kv : joint_name_to_q_idx_) {
-    const auto pos_it = joint_positions.find(kv.first);
-    const auto vel_it = joint_velocities.find(kv.first);
+  for (const auto& [joint_name, q_idx] : joint_name_to_q_idx_) {
+    const auto pos_it = joint_positions.find(joint_name);
+    const auto vel_it = joint_velocities.find(joint_name);
     if (pos_it == joint_positions.end() || vel_it == joint_velocities.end()) {
-      throw std::runtime_error("UpdateState missing joint entry: " + kv.first);
+      throw std::runtime_error("UpdateState missing joint entry: " + joint_name);
     }
-    q_[kv.second] = pos_it->second;
-    qdot_[GetQdotIndex(kv.first)] = vel_it->second;
+    q_[q_idx] = pos_it->second;
+    qdot_[GetQdotIndex(joint_name)] = vel_it->second;
   }
 
   if (!fixed_base_) {
@@ -393,27 +405,25 @@ Eigen::VectorXd PinocchioRobotSystem::GetQdot() const { return qdot_; }
 
 ////////////////////////////////////////////////////////////////////////////////
 int PinocchioRobotSystem::GetQIdx(int joint_idx) const {
-  if (joint_idx < 0 || joint_idx >= num_actuated_) {
-    throw std::out_of_range("GetQIdx out of range");
-  }
+  // Range guaranteed by SelectedJointTask construction; assert fires in debug builds.
+  assert(joint_idx >= 0 && joint_idx < num_actuated_);
   return (fixed_base_ ? 0 : 7) + joint_idx;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 int PinocchioRobotSystem::GetQdotIdx(int joint_idx) const {
-  if (joint_idx < 0 || joint_idx >= num_actuated_) {
-    throw std::out_of_range("GetQdotIdx out of range");
-  }
+  // Range guaranteed by SelectedJointTask construction; assert fires in debug builds.
+  assert(joint_idx >= 0 && joint_idx < num_actuated_);
   return (fixed_base_ ? 0 : 6) + joint_idx;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Eigen::VectorXd PinocchioRobotSystem::GetJointPos() const {
+Eigen::Ref<const Eigen::VectorXd> PinocchioRobotSystem::GetJointPos() const {
   return q_.tail(num_actuated_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Eigen::VectorXd PinocchioRobotSystem::GetJointVel() const {
+Eigen::Ref<const Eigen::VectorXd> PinocchioRobotSystem::GetJointVel() const {
   return qdot_.tail(num_actuated_);
 }
 
@@ -508,10 +518,27 @@ PinocchioRobotSystem::GetLinkJacobianDotQdot(int link_idx) {
   return ret;
 }
 
-Eigen::Matrix<double, 6, 1>
+////////////////////////////////////////////////////////////////////////////////
+void PinocchioRobotSystem::FillLinkJacobian(int link_idx, Eigen::MatrixXd& out) {
+  link_jac_scratch_.setZero();
+  pinocchio::getFrameJacobian(model_, data_, link_idx,
+                              pinocchio::LOCAL_WORLD_ALIGNED, link_jac_scratch_);
+  out.topRows<3>()    = link_jac_scratch_.bottomRows<3>();
+  out.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
-PinocchioRobotSystem::GetLinkBodySpatialVel(int link_idx) const {
+void PinocchioRobotSystem::FillLinkBodyJacobian(int link_idx, Eigen::MatrixXd& out) {
+  link_jac_scratch_.setZero();
+  pinocchio::getFrameJacobian(model_, data_, link_idx, pinocchio::LOCAL,
+                              link_jac_scratch_);
+  out.topRows<3>()    = link_jac_scratch_.bottomRows<3>();
+  out.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+Eigen::Matrix<double, 6, 1>
+PinocchioRobotSystem::GetLinkLocalSpatialVelocity(int link_idx) const {
   Eigen::Matrix<double, 6, 1> ret = Eigen::Matrix<double, 6, 1>::Zero();
   const pinocchio::Motion fv =
       pinocchio::getFrameVelocity(model_, data_, link_idx, pinocchio::LOCAL);
@@ -520,14 +547,12 @@ PinocchioRobotSystem::GetLinkBodySpatialVel(int link_idx) const {
   return ret;
 }
 
-Eigen::Matrix<double, 6, Eigen::Dynamic>
-
 ////////////////////////////////////////////////////////////////////////////////
-PinocchioRobotSystem::GetLinkBodyJacobian(int link_idx) {
+Eigen::Matrix<double, 6, Eigen::Dynamic>
+PinocchioRobotSystem::GetLinkLocalJacobian(int link_idx) {
   Eigen::Matrix<double, 6, Eigen::Dynamic> jac(6, num_qdot_);
   jac.setZero();
   pinocchio::getFrameJacobian(model_, data_, link_idx, pinocchio::LOCAL, jac);
-
   Eigen::Matrix<double, 6, Eigen::Dynamic> ret(6, num_qdot_);
   ret.setZero();
   ret.topRows<3>() = jac.bottomRows<3>();
@@ -535,14 +560,12 @@ PinocchioRobotSystem::GetLinkBodyJacobian(int link_idx) {
   return ret;
 }
 
-Eigen::Matrix<double, 6, 1>
-
 ////////////////////////////////////////////////////////////////////////////////
-PinocchioRobotSystem::GetLinkBodyJacobianDotQdot(int link_idx) {
+Eigen::Matrix<double, 6, 1>
+PinocchioRobotSystem::GetLinkLocalJacobianDotQdot(int link_idx) {
   EnsureAccelerationKinematics();
   const pinocchio::Motion fa = pinocchio::getFrameClassicalAcceleration(
       model_, data_, link_idx, pinocchio::LOCAL);
-
   Eigen::Matrix<double, 6, 1> ret = Eigen::Matrix<double, 6, 1>::Zero();
   ret.segment<3>(0) = fa.angular();
   ret.segment<3>(3) = fa.linear();
@@ -551,17 +574,18 @@ PinocchioRobotSystem::GetLinkBodyJacobianDotQdot(int link_idx) {
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Vector3d PinocchioRobotSystem::GetComPosition() {
-  return GetRobotComPos();
+  return pinocchio::centerOfMass(model_, data_, q_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Vector3d PinocchioRobotSystem::GetComVelocity() {
-  return GetRobotComLinVel();
+  pinocchio::centerOfMass(model_, data_, q_, qdot_);
+  return data_.vcom[0];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Matrix3Xd PinocchioRobotSystem::GetComJacobian() {
-  return GetComLinJacobian();
+  return pinocchio::jacobianCenterOfMass(model_, data_, q_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -570,44 +594,49 @@ Eigen::Matrix3Xd PinocchioRobotSystem::GetComJacobianDot() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetRobotComPos() {
-  return pinocchio::centerOfMass(model_, data_, q_);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetRobotComLinVel() {
-  pinocchio::centerOfMass(model_, data_, q_, qdot_);
-  return data_.vcom[0];
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Matrix<double, 3, Eigen::Dynamic> PinocchioRobotSystem::GetComLinJacobian() {
-  return pinocchio::jacobianCenterOfMass(model_, data_, q_);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Matrix<double, 3, 1> PinocchioRobotSystem::GetComLinJacobianDotQdot() {
-  return (pinocchio::computeCentroidalMapTimeVariation(model_, data_, q_, qdot_)
-              .topRows<3>()) /
-         total_mass_ * qdot_;
-}
-
-////////////////////////////////////////////////////////////////////////////////
 Eigen::Matrix3d PinocchioRobotSystem::GetBaseOrientation() {
-  return GetBodyOriRot();
+  if (fixed_base_) {
+    return Eigen::Matrix3d::Identity();
+  }
+  Eigen::Quaterniond world_q_body;
+  world_q_body.coeffs() = q_.segment<4>(3);
+  return world_q_body.normalized().toRotationMatrix();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Vector3d PinocchioRobotSystem::GetBaseOrientationYPR() {
-  return GetBodyOriYPR();
+  if (fixed_base_) {
+    return Eigen::Vector3d::Zero();
+  }
+  Eigen::Quaterniond world_q_body;
+  world_q_body.coeffs() = q_.segment<4>(3);
+  return QuaternionToEulerZYX(world_q_body.normalized());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetBasePosition() { return GetBodyPos(); }
+Eigen::Vector3d PinocchioRobotSystem::GetBasePosition() {
+  if (fixed_base_) {
+    return Eigen::Vector3d::Zero();
+  }
+  Eigen::Quaterniond world_q_body;
+  world_q_body.coeffs() = q_.segment<4>(3);
+  const Eigen::Matrix3d world_r_body = world_q_body.normalized().toRotationMatrix();
+  return q_.head<3>() + world_r_body * base_local_com_pos_;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Vector3d PinocchioRobotSystem::GetBaseLinearVelocity() {
-  return GetBodyVel();
+  if (fixed_base_) {
+    return Eigen::Vector3d::Zero();
+  }
+  const Eigen::Vector3d base_lin_vel_in_base = qdot_.head<3>();
+  const Eigen::Vector3d base_ang_vel_in_base = qdot_.segment<3>(3);
+  const Eigen::Vector3d base_com_lin_vel_in_base =
+      base_lin_vel_in_base - base_local_com_pos_.cross(base_ang_vel_in_base);
+  Eigen::Quaterniond world_q_body;
+  world_q_body.coeffs() = q_.segment<4>(3);
+  const Eigen::Matrix3d world_r_body = world_q_body.normalized().toRotationMatrix();
+  return world_r_body * base_com_lin_vel_in_base;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -620,61 +649,7 @@ Eigen::Vector3d PinocchioRobotSystem::GetBaseAngularVelocity() {
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Matrix3d PinocchioRobotSystem::GetBaseYawRotationMatrix() {
-  return GetBodyYawRotationMatrix();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Matrix3d PinocchioRobotSystem::GetBodyOriRot() {
-  if (fixed_base_) {
-    return Eigen::Matrix3d::Identity();
-  }
-  Eigen::Quaterniond world_q_body;
-  world_q_body.coeffs() = q_.segment<4>(3);
-  return world_q_body.normalized().toRotationMatrix();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetBodyOriYPR() {
-  if (fixed_base_) {
-    return Eigen::Vector3d::Zero();
-  }
-  Eigen::Quaterniond world_q_body;
-  world_q_body.coeffs() = q_.segment<4>(3);
-  return QuaternionToEulerZYX(world_q_body.normalized());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetBodyPos() {
-  if (fixed_base_) {
-    return Eigen::Vector3d::Zero();
-  }
-  Eigen::Quaterniond world_q_body;
-  world_q_body.coeffs() = q_.segment<4>(3);
-  const Eigen::Matrix3d world_r_body = world_q_body.normalized().toRotationMatrix();
-  return q_.head<3>() + world_r_body * base_local_com_pos_;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3d PinocchioRobotSystem::GetBodyVel() {
-  if (fixed_base_) {
-    return Eigen::Vector3d::Zero();
-  }
-
-  const Eigen::Vector3d base_lin_vel_in_base = qdot_.head<3>();
-  const Eigen::Vector3d base_ang_vel_in_base = qdot_.segment<3>(3);
-  const Eigen::Vector3d base_com_lin_vel_in_base =
-      base_lin_vel_in_base - base_local_com_pos_.cross(base_ang_vel_in_base);
-
-  Eigen::Quaterniond world_q_body;
-  world_q_body.coeffs() = q_.segment<4>(3);
-  const Eigen::Matrix3d world_r_body = world_q_body.normalized().toRotationMatrix();
-
-  return world_r_body * base_com_lin_vel_in_base;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-Eigen::Matrix3d PinocchioRobotSystem::GetBodyYawRotationMatrix() {
-  const Eigen::Vector3d ypr = GetBodyOriYPR();
+  const Eigen::Vector3d ypr = GetBaseOrientationYPR();
   return SO3FromRPY(0.0, 0.0, ypr(0));
 }
 
@@ -751,9 +726,12 @@ Eigen::MatrixXd PinocchioRobotSystem::GetMassMatrixInverse() {
 ////////////////////////////////////////////////////////////////////////////////
 const pinocchio::Data::RowMatrixXs&
 PinocchioRobotSystem::GetMassMatrixInverseRef() {
-  pinocchio::computeMinverse(model_, data_, q_);
-  data_.Minv.triangularView<Eigen::StrictlyLower>() =
-      data_.Minv.transpose().triangularView<Eigen::StrictlyLower>();
+  if (!mass_matrix_inverse_valid_) {
+    pinocchio::computeMinverse(model_, data_, q_);
+    data_.Minv.triangularView<Eigen::StrictlyLower>() =
+        data_.Minv.transpose().triangularView<Eigen::StrictlyLower>();
+    mass_matrix_inverse_valid_ = true;
+  }
   return data_.Minv;
 }
 

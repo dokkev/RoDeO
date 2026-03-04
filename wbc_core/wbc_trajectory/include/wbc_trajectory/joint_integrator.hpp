@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_trajectory/include/wbc_trajectory/joint_integrator.hpp
+ * @brief Doxygen documentation for joint_integrator module.
+ */
 #pragma once
 
 #include <Eigen/Dense>
@@ -31,7 +35,7 @@ public:
                  const Eigen::VectorXd& curr_jvel, Eigen::VectorXd& cmd_jpos,
                  Eigen::VectorXd& cmd_jvel);
 
-  bool IsInitialized() const { return b_initialized_; }
+  bool IsInitialized() const { return is_initialized_; }
 
 private:
   static double GetAlphaFromFrequency(double hz, double dt);
@@ -50,7 +54,7 @@ private:
 
   Eigen::VectorXd jpos_;
   Eigen::VectorXd jvel_;
-  bool b_initialized_;
+  bool is_initialized_;
 };
 
 } // namespace util

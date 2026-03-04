@@ -1,17 +1,24 @@
+/**
+ * @file wbc_core/wbc_architecture/test/test_control_architecture_behavior.cpp
+ * @brief Doxygen documentation for test_control_architecture_behavior module.
+ */
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <limits>
+#include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
 #include <gtest/gtest.h>
 
-#include "wbc_architecture/interface/control_architecture.hpp"
+#include "wbc_architecture/control_architecture.hpp"
 #include "wbc_fsm/state_factory.hpp"
+#include "wbc_formulation/motion_task.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 
 namespace wbc {
@@ -45,10 +52,77 @@ public:
   StateId GetNextState() override { return 999; }
 };
 
+class UnitAutoTransitionFromState final : public StateMachine {
+public:
+  UnitAutoTransitionFromState(StateId id, const std::string& name,
+                              PinocchioRobotSystem* robot,
+                              TaskRegistry* task_reg,
+                              ConstraintRegistry* const_reg,
+                              StateProvider* state_provider)
+      : StateMachine(id, name, robot, task_reg, const_reg, state_provider) {}
+
+  void FirstVisit() override {}
+  void OneStep() override {}
+  void LastVisit() override {}
+  bool EndOfState() override { return true; }
+  StateId GetNextState() override { return 2; }
+};
+
+class UnitAutoTransitionToState final : public StateMachine {
+public:
+  UnitAutoTransitionToState(StateId id, const std::string& name,
+                            PinocchioRobotSystem* robot,
+                            TaskRegistry* task_reg,
+                            ConstraintRegistry* const_reg,
+                            StateProvider* state_provider)
+      : StateMachine(id, name, robot, task_reg, const_reg, state_provider) {}
+
+  void FirstVisit() override {
+    JointTask* joint_task = GetMotionTask<JointTask>("jpos_task");
+    if (joint_task == nullptr || robot_ == nullptr) {
+      return;
+    }
+    const Eigen::VectorXd q_curr = robot_->GetJointPos();
+    Eigen::VectorXd q_des = q_curr;
+    q_des.array() += 0.25;
+    const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(q_des.size());
+    joint_task->UpdateDesired(q_des, zeros, zeros);
+  }
+
+  void OneStep() override {}
+  void LastVisit() override {}
+  bool EndOfState() override { return false; }
+  StateId GetNextState() override { return id(); }
+};
+
+void UpdateWithJointState(ControlArchitecture* architecture,
+                          const Eigen::VectorXd& q,
+                          const Eigen::VectorXd& qdot, double t, double dt) {
+  ASSERT_NE(architecture, nullptr);
+  RobotJointState joint_state;
+  joint_state.q = q;
+  joint_state.qdot = qdot;
+  joint_state.tau = Eigen::VectorXd::Zero(q.size());
+  architecture->Update(joint_state, t, dt);
+}
+
+void UpdateWithFloatingBase(ControlArchitecture* architecture,
+                            const Eigen::VectorXd& q,
+                            const Eigen::VectorXd& qdot,
+                            const RobotBaseState& base_state,
+                            double t, double dt) {
+  ASSERT_NE(architecture, nullptr);
+  RobotJointState joint_state;
+  joint_state.q = q;
+  joint_state.qdot = qdot;
+  joint_state.tau = Eigen::VectorXd::Zero(q.size());
+  architecture->Update(joint_state, base_state, t, dt);
+}
+
 WBC_REGISTER_STATE(
     "ut_home_state",
     [](StateId id, const std::string& state_name,
-       const StateBuildContext& context) -> std::unique_ptr<StateMachine> {
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
       return std::make_unique<UnitStayState>(
           id, state_name, context.robot, context.task_registry,
           context.constraint_registry, context.state_provider);
@@ -57,7 +131,7 @@ WBC_REGISTER_STATE(
 WBC_REGISTER_STATE(
     "ut_teleop_state",
     [](StateId id, const std::string& state_name,
-       const StateBuildContext& context) -> std::unique_ptr<StateMachine> {
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
       return std::make_unique<UnitStayState>(
           id, state_name, context.robot, context.task_registry,
           context.constraint_registry, context.state_provider);
@@ -66,8 +140,26 @@ WBC_REGISTER_STATE(
 WBC_REGISTER_STATE(
     "ut_latch_state",
     [](StateId id, const std::string& state_name,
-       const StateBuildContext& context) -> std::unique_ptr<StateMachine> {
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
       return std::make_unique<UnitLatchState>(
+          id, state_name, context.robot, context.task_registry,
+          context.constraint_registry, context.state_provider);
+    });
+
+WBC_REGISTER_STATE(
+    "ut_auto_transition_from_state",
+    [](StateId id, const std::string& state_name,
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
+      return std::make_unique<UnitAutoTransitionFromState>(
+          id, state_name, context.robot, context.task_registry,
+          context.constraint_registry, context.state_provider);
+    });
+
+WBC_REGISTER_STATE(
+    "ut_auto_transition_to_state",
+    [](StateId id, const std::string& state_name,
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
+      return std::make_unique<UnitAutoTransitionToState>(
           id, state_name, context.robot, context.task_registry,
           context.constraint_registry, context.state_provider);
     });
@@ -125,22 +217,22 @@ protected:
     std::filesystem::create_directories(temp_dir_);
     urdf_path_ = temp_dir_ / "test_robot.urdf";
     WriteFile(urdf_path_, TwoDofUrdf());
-
-    robot_ = std::make_unique<PinocchioRobotSystem>(
-        urdf_path_.string(), "", true, false, nullptr);
   }
 
   void TearDown() override {
-    robot_.reset();
+    robot_ = nullptr;
     std::error_code ec;
     std::filesystem::remove_all(temp_dir_, ec);
   }
 
   std::unique_ptr<ControlArchitecture> MakeArchitecture(
       const std::filesystem::path& yaml_path) {
-    return BuildControlArchitecture(
-        robot_.get(), yaml_path.string(), 0.001,
-        std::make_unique<StateProvider>(0.001), std::make_unique<FSMHandler>());
+    auto arch_config = ControlArchitectureConfig::FromYaml(yaml_path.string(), 0.001);
+    arch_config.state_provider = std::make_unique<StateProvider>(0.001);
+    auto arch = std::make_unique<ControlArchitecture>(std::move(arch_config));
+    arch->Initialize();
+    robot_ = arch->GetRobot();
+    return arch;
   }
 
   Eigen::VectorXd ActuatedGravity() const {
@@ -168,9 +260,24 @@ protected:
     return path;
   }
 
+  std::string WithRobotModel(const std::string& yaml,
+                             bool is_floating_base = false,
+                             const std::string& robot_model_extra = "") const {
+    std::ostringstream oss;
+    oss << "robot_model:\n"
+        << "  urdf_path: \"" << urdf_path_.string() << "\"\n"
+        << "  is_floating_base: " << (is_floating_base ? "true" : "false")
+        << "\n";
+    if (!robot_model_extra.empty()) {
+      oss << robot_model_extra;
+    }
+    oss << yaml;
+    return oss.str();
+  }
+
   std::filesystem::path temp_dir_;
   std::filesystem::path urdf_path_;
-  std::unique_ptr<PinocchioRobotSystem> robot_;
+  PinocchioRobotSystem* robot_{nullptr};
 
   static inline int counter_ = 0;
 };
@@ -178,25 +285,25 @@ protected:
 TEST_F(ControlArchitectureBehaviorTest, RequestStateByNameSwitchesState) {
   const auto yaml_path = WriteYaml(
       "state_switch.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: ee_pos
     type: LinkPosTask
-    link_name: link2
+    target_frame: link2
   - name: ee_ori
     type: LinkOriTask
-    link_name: link2
+    target_frame: link2
   - name: jpos_task
     type: JointTask
 state_machine:
   - id: 1
     name: ut_home_state
-    motion_tasks: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
+    task_hierarchy: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
   - id: 2
     name: ut_teleop_state
-    motion_tasks: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
-)");
+    task_hierarchy: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
@@ -204,155 +311,141 @@ state_machine:
   const Eigen::VectorXd q = Eigen::Vector2d::Zero();
   const Eigen::VectorXd qdot = Eigen::Vector2d::Zero();
 
-  arch->Update(q, qdot, 0.0, 0.001);
-  EXPECT_EQ(arch->CurrentStateId(), 1);
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
+  ASSERT_NE(arch->GetFsmHandler(), nullptr);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), 1);
 
-  EXPECT_TRUE(arch->RequestStateByName("ut_teleop_state"));
-  EXPECT_FALSE(arch->RequestStateByName("no_such_state"));
-  arch->Update(q, qdot, 0.001, 0.001);
-  EXPECT_EQ(arch->CurrentStateId(), 2);
+  EXPECT_TRUE(arch->GetFsmHandler()->RequestStateByName("ut_teleop_state"));
+  EXPECT_FALSE(arch->GetFsmHandler()->RequestStateByName("no_such_state"));
+  UpdateWithJointState(arch.get(), q, qdot, 0.001, 0.001);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), 2);
 }
 
 TEST_F(ControlArchitectureBehaviorTest,
-       TeleopCommandAppliesOnlyInTeleopState) {
+       SameStateTypeCanBeInstantiatedWithDifferentNames) {
   const auto yaml_path = WriteYaml(
-      "teleop_gate.yaml",
-      R"(
+      "state_type_vs_instance_name.yaml",
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
-  - name: ee_pos
-    type: LinkPosTask
-    link_name: link2
-  - name: ee_ori
-    type: LinkOriTask
-    link_name: link2
   - name: jpos_task
     type: JointTask
 state_machine:
   - id: 1
-    name: ut_home_state
-    motion_tasks: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
+    name: swing_left
+    type: ut_home_state
+    task_hierarchy: [{name: jpos_task}]
   - id: 2
-    name: ut_teleop_state
-    motion_tasks: [{name: ee_pos}, {name: ee_ori}, {name: jpos_task}]
-)");
+    name: swing_right
+    type: ut_home_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
-  ASSERT_NE(arch->compiled_config(), nullptr);
-
-  TaskReference teleop;
-  teleop.x_des = Eigen::Vector3d(0.2, -0.3, 0.4);
-  teleop.quat_des = Eigen::Quaterniond(0.7, 0.2, 0.1, -0.3); // not unit
-  teleop.joint_pos = Eigen::Vector2d(0.5, -0.25);
-  arch->SetTeleopCommand(teleop);
+  ASSERT_NE(arch->GetFsmHandler(), nullptr);
 
   const Eigen::VectorXd q = Eigen::Vector2d::Zero();
   const Eigen::VectorXd qdot = Eigen::Vector2d::Zero();
-  arch->Update(q, qdot, 0.0, 0.001);
 
-  const CompiledState* s_home = arch->compiled_config()->FindState(1);
-  ASSERT_NE(s_home, nullptr);
-  ASSERT_NE(s_home->ee_pos, nullptr);
-  ASSERT_NE(s_home->ee_ori, nullptr);
-  ASSERT_NE(s_home->joint, nullptr);
-  EXPECT_TRUE(s_home->ee_pos->DesiredPos().isApprox(Eigen::Vector3d::Zero()));
-  EXPECT_TRUE(s_home->joint->DesiredPos().isApprox(Eigen::Vector2d::Zero()));
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), 1);
 
-  arch->RequestStateByName("ut_teleop_state");
-  arch->Update(q, qdot, 0.001, 0.001);
-
-  const CompiledState* s_teleop = arch->compiled_config()->FindState(2);
-  ASSERT_NE(s_teleop, nullptr);
-  ASSERT_NE(s_teleop->ee_pos, nullptr);
-  ASSERT_NE(s_teleop->ee_ori, nullptr);
-  ASSERT_NE(s_teleop->joint, nullptr);
-
-  EXPECT_TRUE(s_teleop->ee_pos->DesiredPos().isApprox(*teleop.x_des, 1.0e-12));
-  EXPECT_TRUE(
-      s_teleop->joint->DesiredPos().isApprox(*teleop.joint_pos, 1.0e-12));
-
-  const Eigen::Quaterniond qn = teleop.quat_des->normalized();
-  Eigen::Vector4d quat_xyzw;
-  quat_xyzw << qn.x(), qn.y(), qn.z(), qn.w();
-  EXPECT_TRUE(s_teleop->ee_ori->DesiredPos().isApprox(quat_xyzw, 1.0e-12));
+  EXPECT_TRUE(arch->GetFsmHandler()->RequestStateByName("swing_right"));
+  UpdateWithJointState(arch.get(), q, qdot, 0.001, 0.001);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), 2);
 }
 
 TEST_F(ControlArchitectureBehaviorTest,
-       TeleopReferenceFrameDefaultsToBaseFrameAndSupportsOverride) {
+       AutoTransitionAppliesNextStateFirstVisitInSameTick) {
   const auto yaml_path = WriteYaml(
-      "teleop_reference_frame.yaml",
-      R"(
+      "auto_transition_first_visit_same_tick.yaml",
+      WithRobotModel(R"(
 start_state_id: 1
-robot_model:
-  base_frame: link1
 task_pool:
-  - name: ee_pos
-    type: LinkPosTask
-    link_name: link2
-  - name: ee_ori
-    type: LinkOriTask
-    link_name: link2
+  - name: jpos_task
+    type: JointTask
 state_machine:
   - id: 1
-    name: ut_teleop_state
-    motion_tasks: [{name: ee_pos}, {name: ee_ori}]
-)");
+    name: ut_auto_transition_from_state
+    task_hierarchy: [{name: jpos_task}]
+  - id: 2
+    name: ut_auto_transition_to_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
-  ASSERT_NE(arch->compiled_config(), nullptr);
+  ASSERT_NE(arch->GetFsmHandler(), nullptr);
+  ASSERT_NE(arch->GetConfig(), nullptr);
 
-  Eigen::Vector2d q;
-  q << 1.5707963267948966, 0.0;
+  const Eigen::Vector2d q = Eigen::Vector2d::Zero();
   const Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
 
-  TaskReference local_ref;
-  local_ref.x_des = Eigen::Vector3d(1.0, 0.0, 0.0);
-  local_ref.quat_des =
-      Eigen::Quaterniond(Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitX()));
-  arch->SetTeleopCommand(local_ref);
-  arch->Update(q, qdot, 0.0, 0.001);
+  // One tick should transition 1->2 and run state's FirstVisit immediately.
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), 2);
 
-  const CompiledState* state = arch->compiled_config()->FindState(1);
-  ASSERT_NE(state, nullptr);
-  ASSERT_NE(state->ee_pos, nullptr);
-  ASSERT_NE(state->ee_ori, nullptr);
+  const StateConfig* state2 = arch->GetConfig()->FindState(2);
+  ASSERT_NE(state2, nullptr);
+  ASSERT_NE(state2->joint, nullptr);
+  EXPECT_TRUE(state2->joint->DesiredPos().isApprox(Eigen::Vector2d::Constant(0.25),
+                                                   1.0e-12));
+}
 
-  const Eigen::Isometry3d world_iso_base = robot_->GetLinkIsometry("link1");
-  const Eigen::Vector3d expected_pos =
-      world_iso_base.linear() * (*local_ref.x_des) + world_iso_base.translation();
-  EXPECT_TRUE(state->ee_pos->DesiredPos().isApprox(expected_pos, 1.0e-12));
+TEST_F(ControlArchitectureBehaviorTest,
+       StateGainOverrideFallsBackToPoolDefaultWhenMissingInNextState) {
+  const auto yaml_path = WriteYaml(
+      "state_gain_fallback.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: 10.0
+state_machine:
+  - id: 1
+    name: ut_home_state
+    task_hierarchy:
+      - name: jpos_task
+        kp: 100.0
+  - id: 2
+    name: ut_teleop_state
+    task_hierarchy:
+      - name: jpos_task
+)"));
 
-  const Eigen::Quaterniond expected_quat =
-      (Eigen::Quaterniond(world_iso_base.linear()) *
-       local_ref.quat_des->normalized())
-          .normalized();
-  Eigen::Vector4d expected_quat_xyzw;
-  expected_quat_xyzw << expected_quat.x(), expected_quat.y(), expected_quat.z(),
-      expected_quat.w();
-  EXPECT_TRUE(
-      state->ee_ori->DesiredPos().isApprox(expected_quat_xyzw, 1.0e-12));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+  ASSERT_NE(arch->GetConfig(), nullptr);
+  ASSERT_NE(arch->GetFsmHandler(), nullptr);
 
-  TaskReference world_ref;
-  world_ref.reference_frame = "world";
-  world_ref.x_des = Eigen::Vector3d(0.1, -0.2, 0.3);
-  world_ref.quat_des = Eigen::Quaterniond(0.9, 0.1, -0.2, 0.3);
-  arch->SetTeleopCommand(world_ref);
-  arch->Update(q, qdot, 0.001, 0.001);
+  const Eigen::VectorXd q = Eigen::Vector2d::Zero();
+  const Eigen::VectorXd qdot = Eigen::Vector2d::Zero();
 
-  EXPECT_TRUE(state->ee_pos->DesiredPos().isApprox(*world_ref.x_des, 1.0e-12));
-  const Eigen::Quaterniond qn = world_ref.quat_des->normalized();
-  Eigen::Vector4d world_quat_xyzw;
-  world_quat_xyzw << qn.x(), qn.y(), qn.z(), qn.w();
-  EXPECT_TRUE(state->ee_ori->DesiredPos().isApprox(world_quat_xyzw, 1.0e-12));
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
+  const StateConfig* state_a = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state_a, nullptr);
+  ASSERT_NE(state_a->joint, nullptr);
+  ASSERT_EQ(state_a->joint->Kp().size(), 2);
+  EXPECT_TRUE(state_a->joint->Kp().isApprox(Eigen::Vector2d::Constant(100.0),
+                                            1.0e-12));
+
+  EXPECT_TRUE(arch->GetFsmHandler()->RequestStateByName("ut_teleop_state"));
+  UpdateWithJointState(arch.get(), q, qdot, 0.001, 0.001);
+  const StateConfig* state_b = arch->GetConfig()->FindState(2);
+  ASSERT_NE(state_b, nullptr);
+  ASSERT_NE(state_b->joint, nullptr);
+  ASSERT_EQ(state_b->joint->Kp().size(), 2);
+  EXPECT_TRUE(state_b->joint->Kp().isApprox(Eigen::Vector2d::Constant(10.0),
+                                            1.0e-12));
 }
 
 TEST_F(ControlArchitectureBehaviorTest,
        SafeCommandIsLatchedWhenTransitionTargetMissing) {
   const auto yaml_path = WriteYaml(
       "safe_on_missing_next.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -360,8 +453,8 @@ task_pool:
 state_machine:
   - id: 1
     name: ut_latch_state
-    motion_tasks: [{name: jpos_task}]
-)");
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
@@ -369,9 +462,10 @@ state_machine:
   Eigen::Vector2d q;
   q << 0.15, -0.35;
   Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
-  arch->Update(q, qdot, 0.0, 0.001);
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
 
-  EXPECT_EQ(arch->CurrentStateId(), -1);
+  ASSERT_NE(arch->GetFsmHandler(), nullptr);
+  EXPECT_EQ(arch->GetFsmHandler()->GetCurrentStateId(), -1);
   const RobotCommand cmd = arch->GetCommand();
   ASSERT_EQ(cmd.q.size(), 2);
   ASSERT_EQ(cmd.qdot.size(), 2);
@@ -384,7 +478,7 @@ state_machine:
 TEST_F(ControlArchitectureBehaviorTest, GravityComp_JointHold) {
   const auto yaml_path = WriteYaml(
       "gravity_joint_hold.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -392,8 +486,8 @@ task_pool:
 state_machine:
   - id: 1
     name: ut_teleop_state
-    motion_tasks: [{name: jpos_task}]
-)");
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
@@ -402,10 +496,12 @@ state_machine:
   q << 0.4, -0.6;
   const Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
 
-  TaskReference teleop;
-  teleop.joint_pos = q;
-  arch->SetTeleopCommand(teleop);
-  arch->Update(q, qdot, 0.0, 0.001);
+  // Set joint desired = q so position error is zero; WBIC outputs gravity only.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero());
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
 
   const RobotCommand cmd = arch->GetCommand();
   ASSERT_EQ(cmd.tau.size(), 2);
@@ -417,25 +513,25 @@ state_machine:
 TEST_F(ControlArchitectureBehaviorTest, GravityComp_EEHold) {
   const auto yaml_path = WriteYaml(
       "gravity_ee_hold.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: ee_pos
     type: LinkPosTask
-    link_name: link2
+    target_frame: link2
   - name: ee_ori
     type: LinkOriTask
-    link_name: link2
+    target_frame: link2
   - name: jpos_task
     type: JointTask
 state_machine:
   - id: 1
     name: ut_teleop_state
-    motion_tasks:
+    task_hierarchy:
       - {name: ee_pos, priority: 0}
       - {name: ee_ori, priority: 1}
       - {name: jpos_task, priority: 2}
-)");
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
@@ -449,13 +545,20 @@ state_machine:
                            qdot, false);
   const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry("link2");
 
-  TaskReference teleop;
-  teleop.x_des = ee_iso.translation();
-  teleop.quat_des = Eigen::Quaterniond(ee_iso.linear());
-  teleop.joint_pos = q;
-  arch->SetTeleopCommand(teleop);
+  // Set desired = current pose/joints so errors are zero; WBIC outputs gravity only.
+  const Eigen::Quaterniond q_curr(ee_iso.linear());
+  Eigen::Vector4d quat_xyzw;
+  quat_xyzw << q_curr.x(), q_curr.y(), q_curr.z(), q_curr.w();
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->ee_pos, nullptr);
+  ASSERT_NE(state->ee_ori, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->ee_pos->UpdateDesired(ee_iso.translation(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  state->ee_ori->UpdateDesired(quat_xyzw,            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  state->joint->UpdateDesired(q, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero());
 
-  arch->Update(q, qdot, 0.0, 0.001);
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
   const RobotCommand cmd = arch->GetCommand();
 
   ASSERT_EQ(cmd.tau.size(), 2);
@@ -467,7 +570,7 @@ state_machine:
 TEST_F(ControlArchitectureBehaviorTest, FailureFallback_HoldPrevTorque) {
   const auto yaml_path = WriteYaml(
       "fallback_hold_prev.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -475,8 +578,8 @@ task_pool:
 state_machine:
   - id: 1
     name: ut_teleop_state
-    motion_tasks: [{name: jpos_task}]
-)");
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
@@ -485,25 +588,25 @@ state_machine:
   q << 0.3, -0.2;
   const Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
 
-  TaskReference valid;
-  valid.joint_pos = q;
-  arch->SetTeleopCommand(valid);
-  arch->Update(q, qdot, 0.0, 0.001);
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero());
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
   const RobotCommand cmd_ok = arch->GetCommand();
   ASSERT_EQ(cmd_ok.tau.size(), 2);
 
-  TaskReference invalid;
-  invalid.joint_pos =
-      Eigen::Vector2d(std::numeric_limits<double>::quiet_NaN(), 0.0);
-  arch->SetTeleopCommand(invalid);
-  arch->Update(q, qdot, 0.001, 0.001);
+  state->joint->UpdateDesired(
+      Eigen::Vector2d(std::numeric_limits<double>::quiet_NaN(), 0.0),
+      Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero());
+  UpdateWithJointState(arch.get(), q, qdot, 0.001, 0.001);
   const RobotCommand cmd_hold = arch->GetCommand();
   EXPECT_TRUE(cmd_hold.tau.isApprox(cmd_ok.tau, 1.0e-12));
   EXPECT_TRUE(cmd_hold.q.isApprox(q, 1.0e-12));
   EXPECT_TRUE(cmd_hold.qdot.isApprox(Eigen::Vector2d::Zero(), 1.0e-12));
 
   arch->SetHoldPreviousTorqueOnFailure(false);
-  arch->Update(q, qdot, 0.002, 0.001);
+  UpdateWithJointState(arch.get(), q, qdot, 0.002, 0.001);
   const RobotCommand cmd_zero = arch->GetCommand();
   EXPECT_TRUE(cmd_zero.tau.isApprox(Eigen::Vector2d::Zero(), 1.0e-12));
   EXPECT_TRUE(cmd_zero.q.isApprox(q, 1.0e-12));
@@ -513,7 +616,8 @@ state_machine:
 TEST_F(ControlArchitectureBehaviorTest, GravityComp_JointHold_FloatingBase) {
   const auto yaml_path = WriteYaml(
       "gravity_joint_hold_floating.yaml",
-      R"(
+      WithRobotModel(
+          R"(
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -521,49 +625,47 @@ task_pool:
 state_machine:
   - id: 1
     name: ut_teleop_state
-    motion_tasks: [{name: jpos_task}]
-)");
+    task_hierarchy: [{name: jpos_task}]
+)",
+          false));
 
-  auto floating_robot = std::make_unique<PinocchioRobotSystem>(
-      urdf_path_.string(), "", false, false, nullptr);
-  auto arch = BuildControlArchitecture(
-      floating_robot.get(), yaml_path.string(), 0.001,
-      std::make_unique<StateProvider>(0.001), std::make_unique<FSMHandler>());
+  auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
 
   Eigen::Vector2d q;
   q << -0.2, 0.55;
   const Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
 
-  TaskReference teleop;
-  teleop.joint_pos = q;
-  arch->SetTeleopCommand(teleop);
-  arch->Update(q, qdot, 0.0, 0.001);
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero());
+  UpdateWithJointState(arch.get(), q, qdot, 0.0, 0.001);
 
   const RobotCommand cmd = arch->GetCommand();
-  ASSERT_EQ(cmd.tau.size(), floating_robot->NumActiveDof());
+  ASSERT_EQ(cmd.tau.size(), robot_->NumActiveDof());
   const Eigen::VectorXd expected_grav =
-      floating_robot->GetGravityRef().tail(floating_robot->NumActiveDof());
+      robot_->GetGravityRef().tail(robot_->NumActiveDof());
   EXPECT_TRUE(cmd.tau.isApprox(expected_grav, 1.0e-5));
 }
 
 TEST_F(ControlArchitectureBehaviorTest, EmptyMotionStateIsRejectedByCompiler) {
   const auto yaml_path = WriteYaml(
       "empty_motion_state.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 state_machine:
   - id: 1
     name: ut_home_state
-)");
+)"));
 
   EXPECT_THROW((void)MakeArchitecture(yaml_path), std::runtime_error);
 }
 
-TEST_F(ControlArchitectureBehaviorTest, UpdateThrowsOnActuatedDimensionMismatch) {
+TEST_F(ControlArchitectureBehaviorTest, UpdateUsesSafeFallbackOnActuatedDimensionMismatch) {
   const auto yaml_path = WriteYaml(
       "update_dim_guard.yaml",
-      R"(
+      WithRobotModel(R"(
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -571,16 +673,984 @@ task_pool:
 state_machine:
   - id: 1
     name: ut_home_state
-    motion_tasks: [{name: jpos_task}]
-)");
+    task_hierarchy: [{name: jpos_task}]
+)"));
 
   auto arch = MakeArchitecture(yaml_path);
   ASSERT_NE(arch, nullptr);
 
   const Eigen::VectorXd q_wrong = Eigen::VectorXd::Zero(1);
   const Eigen::VectorXd qdot_wrong = Eigen::VectorXd::Zero(1);
-  EXPECT_THROW(arch->Update(q_wrong, qdot_wrong, 0.0, 0.001),
-               std::runtime_error);
+  EXPECT_NO_THROW(UpdateWithJointState(arch.get(), q_wrong, qdot_wrong, 0.0, 0.001));
+}
+
+// =============================================================================
+// Safety Clamping Tests
+// =============================================================================
+
+TEST_F(ControlArchitectureBehaviorTest, SafetyClampingEnforcesPositionLimits) {
+  // pos_scale: 0.1 → range ≈ [-0.314, 0.314].
+  // UnitAutoTransitionToState sets q_des = q_curr + 0.25.
+  // With kp_ik=10, delta_q = 10 * 0.25 = 2.5, which exceeds the limit.
+  const auto yaml_path = WriteYaml(
+      "safety_pos_clamp.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0]
+    kd: [1.0, 1.0]
+    kp_ik: [10.0, 10.0]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.1
+state_machine:
+  - id: 1
+    name: ut_auto_transition_to_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
+
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const Eigen::Vector2d q_init = Eigen::Vector2d::Zero();
+  const Eigen::Vector2d qdot_zero = Eigen::Vector2d::Zero();
+
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q_init, qdot_zero, i * 0.001, 0.001);
+  }
+
+  const auto& cmd = arch->GetCommand();
+  // URDF range [-3.14, 3.14], pos_scale=0.1 → [-0.314, 0.314].
+  const double pos_limit = 3.14 * 0.1;
+  for (int i = 0; i < cmd.q.size(); ++i) {
+    EXPECT_GE(cmd.q[i], -pos_limit - 1e-9)
+        << "Joint " << i << " below pos_min";
+    EXPECT_LE(cmd.q[i], pos_limit + 1e-9)
+        << "Joint " << i << " above pos_max";
+  }
+}
+
+TEST_F(ControlArchitectureBehaviorTest, SafetyClampingEnforcesTorqueLimits) {
+  // Tight torque limits: trq_scale 0.01 → ±1.0 Nm (URDF effort=100).
+  // With kp=100 and kp_ik=10, the solver produces substantial torque that exceeds ±1 Nm.
+  const auto yaml_path = WriteYaml(
+      "safety_trq_clamp.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+controller:
+  enable_gravity_compensation: true
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [100.0, 100.0]
+    kd: [10.0, 10.0]
+    kp_ik: [10.0, 10.0]
+global_constraints:
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.01
+state_machine:
+  - id: 1
+    name: ut_auto_transition_to_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
+
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const Eigen::Vector2d q_init = Eigen::Vector2d::Zero();
+  const Eigen::Vector2d qdot_zero = Eigen::Vector2d::Zero();
+
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q_init, qdot_zero, i * 0.001, 0.001);
+  }
+
+  const auto& cmd = arch->GetCommand();
+  const double trq_limit = 100.0 * 0.01;  // ±1.0 Nm
+  for (int i = 0; i < cmd.tau.size(); ++i) {
+    EXPECT_GE(cmd.tau[i], -trq_limit - 1e-9)
+        << "Joint " << i << " torque below trq_min";
+    EXPECT_LE(cmd.tau[i], trq_limit + 1e-9)
+        << "Joint " << i << " torque above trq_max";
+  }
+}
+
+TEST_F(ControlArchitectureBehaviorTest, DisabledConstraintSkipsClamping) {
+  // Position constraint disabled → position should NOT be clamped.
+  // With kp_ik=10 and error=0.25, IK produces cmd.q ≈ 2.5 (well beyond 0.0314).
+  const auto yaml_path = WriteYaml(
+      "safety_disabled_no_clamp.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0]
+    kd: [1.0, 1.0]
+    kp_ik: [10.0, 10.0]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: false
+    scale: 0.01
+state_machine:
+  - id: 1
+    name: ut_auto_transition_to_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
+
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const Eigen::Vector2d q_init = Eigen::Vector2d::Zero();
+  const Eigen::Vector2d qdot_zero = Eigen::Vector2d::Zero();
+
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q_init, qdot_zero, i * 0.001, 0.001);
+  }
+
+  const auto& cmd = arch->GetCommand();
+  // pos_scale=0.01 → tiny range [-0.0314, 0.0314]. But constraint is disabled,
+  // so IK output of ~2.5 should NOT be clamped.
+  const double tiny_limit = 3.14 * 0.01;
+  bool any_exceeds = false;
+  for (int i = 0; i < cmd.q.size(); ++i) {
+    if (std::abs(cmd.q[i]) > tiny_limit + 1e-6) {
+      any_exceeds = true;
+    }
+  }
+  EXPECT_TRUE(any_exceeds)
+      << "Disabled constraint should not clamp — expected q outside the tiny range";
+}
+
+// =============================================================================
+// Performance Benchmark
+// =============================================================================
+
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_MaxLoopFrequency) {
+  const auto yaml_path = WriteYaml(
+      "benchmark.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+task_pool:
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: link2
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: link2
+  - name: jpos_task
+    type: JointTask
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: ee_pos, priority: 0}
+      - {name: ee_ori, priority: 1}
+      - {name: jpos_task, priority: 2}
+)"));
+
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  Eigen::Vector2d q;
+  q << 0.4, -0.6;
+  const Eigen::Vector2d qdot = Eigen::Vector2d::Zero();
+
+  // Set desired = current so solver runs normally.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::Vector2d::Zero(),
+                              Eigen::Vector2d::Zero());
+
+  // Warm-up: run a few iterations to trigger lazy initialization.
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Benchmark: measure N iterations.
+  constexpr int kIterations = 1000;
+  const auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < kIterations; ++i) {
+    const double t = (10 + i) * 0.001;
+    UpdateWithJointState(arch.get(), q, qdot, t, 0.001);
+  }
+  const auto end = std::chrono::high_resolution_clock::now();
+
+  const double elapsed_sec =
+      std::chrono::duration<double>(end - start).count();
+  const double avg_us = (elapsed_sec / kIterations) * 1.0e6;
+  const double max_hz = kIterations / elapsed_sec;
+
+  std::cout << "\n===== WBC Loop Benchmark (2-DOF, 3 tasks, ProxQP) =====\n"
+            << "  Iterations : " << kIterations << "\n"
+            << "  Total time : " << elapsed_sec * 1e3 << " ms\n"
+            << "  Avg / tick : " << avg_us << " us\n"
+            << "  Max freq   : " << max_hz << " Hz\n"
+            << "======================================================\n";
+
+  // Sanity: each tick should be < 10 ms (>100 Hz) for a 2-DOF robot.
+  EXPECT_LT(avg_us, 10000.0) << "Average tick time exceeds 10 ms";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_Optimo7DOF) {
+  // Use the actual Optimo 7-DOF URDF for a realistic benchmark.
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found — skipping benchmark";
+  }
+
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+controller:
+  enable_gravity_compensation: true
+  enable_coriolis_compensation: false
+  enable_inertia_compensation: false
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100.0, 100.0, 100.0]
+    kd: [10.0, 10.0, 10.0]
+    kp_ik: [1.0, 1.0, 1.0]
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100.0, 100.0, 100.0]
+    kd: [10.0, 10.0, 10.0]
+    kp_ik: [1.0, 1.0, 1.0]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.9
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: ee_pos, priority: 0}
+      - {name: ee_ori, priority: 1}
+      - {name: jpos_task, priority: 2}
+)";
+
+  const auto yaml_path = WriteYaml("benchmark_optimo.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  ASSERT_EQ(n_act, 7);
+
+  // Start at a non-trivial pose (mid-range).
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  // Set desired = current for steady-state benchmarking.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  // Warm-up: trigger lazy init (Pinocchio model, ProxQP, etc.)
+  for (int i = 0; i < 20; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Benchmark.
+  constexpr int kIterations = 1000;
+  const auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < kIterations; ++i) {
+    const double t = (20 + i) * 0.001;
+    UpdateWithJointState(arch.get(), q, qdot, t, 0.001);
+  }
+  const auto end = std::chrono::high_resolution_clock::now();
+
+  const double elapsed_sec =
+      std::chrono::duration<double>(end - start).count();
+  const double avg_us = (elapsed_sec / kIterations) * 1.0e6;
+  const double max_hz = kIterations / elapsed_sec;
+
+  std::cout
+      << "\n===== WBC Loop Benchmark (Optimo 7-DOF, 3 tasks, constraints, ProxQP) =====\n"
+      << "  Robot      : Optimo (7-DOF fixed-base)\n"
+      << "  Tasks      : ee_pos + ee_ori + jpos_task (3 priority levels)\n"
+      << "  Constraints: JointPosLimit + JointVelLimit\n"
+      << "  Torque reg : w_tau = 1e-3\n"
+      << "  Iterations : " << kIterations << "\n"
+      << "  Total time : " << elapsed_sec * 1e3 << " ms\n"
+      << "  Avg / tick : " << avg_us << " us\n"
+      << "  Max freq   : " << max_hz << " Hz\n"
+      << "===========================================================================\n";
+
+  // 7-DOF should comfortably run at >1 kHz (< 1000 us per tick).
+  EXPECT_LT(avg_us, 1000.0) << "Average tick time exceeds 1 ms for 7-DOF robot";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, SoftConstraintYamlParsing) {
+  // Verify is_soft/soft_weight YAML fields are parsed and routed to WBIC.
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  // Map format with is_soft toggled per constraint type.
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: 10.0
+    kd: 1.0
+    kp_ik: 1.0
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    is_soft: true
+    soft_weight: 2.0e+4
+  JointVelLimitConstraint:
+    enabled: true
+    is_soft: false
+  JointTrqLimitConstraint:
+    enabled: true
+    is_soft: true
+    soft_weight: 5.0e+3
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+
+  const auto yaml_path = WriteYaml("soft_constraint_test.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  // Verify RuntimeConfig parsed soft flags.
+  const auto* cfg = arch->GetConfig();
+  EXPECT_TRUE(cfg->SoftConfig("JointPosLimitConstraint").is_soft);
+  EXPECT_DOUBLE_EQ(cfg->SoftConfig("JointPosLimitConstraint").weight, 2.0e+4);
+  EXPECT_FALSE(cfg->SoftConfig("JointVelLimitConstraint").is_soft);
+  EXPECT_TRUE(cfg->SoftConfig("JointTrqLimitConstraint").is_soft);
+  EXPECT_DOUBLE_EQ(cfg->SoftConfig("JointTrqLimitConstraint").weight, 5.0e+3);
+
+  // Run a few ticks to verify the solver works with mixed soft/hard constraints.
+  const int n_act = robot_->NumActiveDof();
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  const StateConfig* state = cfg->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+  const auto& cmd = arch->GetCommand();
+  EXPECT_TRUE(cmd.tau.allFinite()) << "Torque must be finite with mixed soft/hard constraints";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, SoftConstraintSequenceFormat) {
+  // Verify is_soft works with legacy sequence YAML format too.
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: 10.0
+    kd: 1.0
+    kp_ik: 1.0
+global_constraints:
+  - name: joint_limit
+    type: JointPosLimitConstraint
+    is_soft: true
+    soft_weight: 8.0e+4
+  - name: joint_vel_limit
+    type: JointVelLimitConstraint
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+
+  const auto yaml_path = WriteYaml("soft_constraint_seq.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const auto* cfg = arch->GetConfig();
+  EXPECT_TRUE(cfg->SoftConfig("JointPosLimitConstraint").is_soft);
+  EXPECT_DOUBLE_EQ(cfg->SoftConfig("JointPosLimitConstraint").weight, 8.0e+4);
+  EXPECT_FALSE(cfg->SoftConfig("JointVelLimitConstraint").is_soft);
+
+  // Run a few ticks.
+  const int n_act = robot_->NumActiveDof();
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  const StateConfig* state = cfg->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+  const auto& cmd = arch->GetCommand();
+  EXPECT_TRUE(cmd.tau.allFinite()) << "Torque must be finite with soft pos constraint";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3) {
+  // Draco3 single-knee: 25-DOF floating-base humanoid with CoM task,
+  // surface contacts, force tasks, and all kinematic constraints.
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found — skipping benchmark";
+  }
+
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << draco_urdf << "\"\n"
+       << R"(  is_floating_base: true
+  base_frame: torso_link
+controller:
+  enable_gravity_compensation: false
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: com_task
+    type: ComTask
+    kp: [40, 40, 40]
+    kd: [8, 8, 8]
+    kp_ik: [1.0, 1.0, 1.0]
+    weight: [50, 50, 50]
+  - name: jpos_task
+    type: JointTask
+    kp: 30.0
+    kd: 3.0
+    kp_ik: 1.0
+    weight: 1.0
+  - name: lfoot_force
+    type: ForceTask
+    contact_name: lfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+  - name: rfoot_force
+    type: ForceTask
+    contact_name: rfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+contact_pool:
+  - name: lfoot_contact
+    type: SurfaceContact
+    target_frame: l_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+  - name: rfoot_contact
+    type: SurfaceContact
+    target_frame: r_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.9
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: com_task, priority: 0}
+      - {name: jpos_task, priority: 1}
+    contact_constraints:
+      - {name: lfoot_contact}
+      - {name: rfoot_contact}
+    force_tasks:
+      - {name: lfoot_force}
+      - {name: rfoot_force}
+)";
+
+  const auto yaml_path = WriteYaml("benchmark_draco3.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  ASSERT_EQ(n_act, 25);
+
+  // Standing configuration (from rpc_source, single-knee model).
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q(2)  = -0.565;  // l_hip_fe
+  q(3)  =  0.565;  // l_knee_fe_jd
+  q(4)  = -0.565;  // l_ankle_fe
+  q(7)  =  0.523;  // l_shoulder_aa
+  q(9)  = -1.57;   // l_elbow_fe
+  q(15) = -0.565;  // r_hip_fe
+  q(16) =  0.565;  // r_knee_fe_jd
+  q(17) = -0.565;  // r_ankle_fe
+  q(20) = -0.523;  // r_shoulder_aa
+  q(22) = -1.57;   // r_elbow_fe
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  // Base state: standing at height 0.841 m.
+  RobotBaseState base_state;
+  base_state.pos = Eigen::Vector3d(0.0, 0.0, 0.841);
+  base_state.quat = Eigen::Quaterniond::Identity();
+  base_state.lin_vel = Eigen::Vector3d::Zero();
+  base_state.ang_vel = Eigen::Vector3d::Zero();
+  base_state.rot_world_local = Eigen::Matrix3d::Identity();
+
+  // Set desired = current for steady-state benchmarking.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  // Warm-up: trigger lazy init (Pinocchio model, ProxQP, etc.)
+  for (int i = 0; i < 20; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, base_state, i * 0.001, 0.001);
+  }
+
+  // Benchmark.
+  constexpr int kIterations = 1000;
+  const auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < kIterations; ++i) {
+    const double t = (20 + i) * 0.001;
+    UpdateWithFloatingBase(arch.get(), q, qdot, base_state, t, 0.001);
+  }
+  const auto end = std::chrono::high_resolution_clock::now();
+
+  const double elapsed_sec =
+      std::chrono::duration<double>(end - start).count();
+  const double avg_us = (elapsed_sec / kIterations) * 1.0e6;
+  const double max_hz = kIterations / elapsed_sec;
+
+  std::cout
+      << "\n===== WBC Loop Benchmark (Draco3 25-DOF floating-base, ProxQP) =====\n"
+      << "  Robot      : Draco3 (25-DOF floating-base humanoid)\n"
+      << "  Tasks      : com_task + jpos_task (2 priority levels)\n"
+      << "  Contacts   : lfoot + rfoot (SurfaceContact, 6D)\n"
+      << "  Constraints: JointPosLimit + JointVelLimit + JointTrqLimit\n"
+      << "  Torque reg : w_tau = 1e-3\n"
+      << "  Iterations : " << kIterations << "\n"
+      << "  Total time : " << elapsed_sec * 1e3 << " ms\n"
+      << "  Avg / tick : " << avg_us << " us\n"
+      << "  Max freq   : " << max_hz << " Hz\n"
+      << "====================================================================\n";
+
+  // 25-DOF floating-base with contacts should run at >500 Hz.
+  EXPECT_LT(avg_us, 2000.0) << "Average tick time exceeds 2 ms for Draco3";
+}
+
+// ---------------------------------------------------------------------------
+// Combinatorial Draco3 Benchmark: all {Pos, Vel, Trq} × {off, hard, soft}
+// ---------------------------------------------------------------------------
+
+enum class CMode { Off, Hard, Soft };
+
+const char* CModeName(CMode m) {
+  switch (m) {
+    case CMode::Off:  return "off ";
+    case CMode::Hard: return "hard";
+    case CMode::Soft: return "soft";
+  }
+  return "????";
+}
+
+void AppendConstraintYaml(std::ostringstream& yaml,
+                          const std::string& type,
+                          CMode mode, double scale) {
+  if (mode == CMode::Off) return;
+  yaml << "  " << type << ":\n"
+       << "    enabled: true\n"
+       << "    scale: " << scale << "\n";
+  if (mode == CMode::Soft) {
+    yaml << "    is_soft: true\n"
+         << "    soft_weight: 1.0e+5\n";
+  }
+}
+
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3_ConstraintCombinations) {
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found — skipping benchmark";
+  }
+
+  // All 27 combinations: 3 constraints × 3 modes (off/hard/soft).
+  struct ConstraintCombo {
+    CMode pos, vel, trq;
+  };
+  std::vector<CMode> modes = {CMode::Off, CMode::Hard, CMode::Soft};
+  std::vector<ConstraintCombo> combos;
+  for (auto p : modes)
+    for (auto v : modes)
+      for (auto t : modes)
+        combos.push_back({p, v, t});
+
+  // Standing configuration (from rpc_source, single-knee model).
+  const int n_act = 25;
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q(2)  = -0.565;  // l_hip_fe
+  q(3)  =  0.565;  // l_knee_fe_jd
+  q(4)  = -0.565;  // l_ankle_fe
+  q(7)  =  0.523;  // l_shoulder_aa
+  q(9)  = -1.57;   // l_elbow_fe
+  q(15) = -0.565;  // r_hip_fe
+  q(16) =  0.565;  // r_knee_fe_jd
+  q(17) = -0.565;  // r_ankle_fe
+  q(20) = -0.523;  // r_shoulder_aa
+  q(22) = -1.57;   // r_elbow_fe
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  RobotBaseState base_state;
+  base_state.pos = Eigen::Vector3d(0.0, 0.0, 0.841);
+  base_state.quat = Eigen::Quaterniond::Identity();
+  base_state.lin_vel = Eigen::Vector3d::Zero();
+  base_state.ang_vel = Eigen::Vector3d::Zero();
+  base_state.rot_world_local = Eigen::Matrix3d::Identity();
+
+  struct BenchResult {
+    int idx;
+    CMode pos, vel, trq;
+    double avg_us;
+    double max_hz;
+  };
+  std::vector<BenchResult> results;
+
+  constexpr int kWarmup = 20;
+  constexpr int kIterations = 500;
+
+  for (int ci = 0; ci < static_cast<int>(combos.size()); ++ci) {
+    const auto& c = combos[ci];
+
+    // Build YAML with varying constraint section.
+    std::ostringstream yaml;
+    yaml << "robot_model:\n"
+         << "  urdf_path: \"" << draco_urdf << "\"\n"
+         << R"(  is_floating_base: true
+  base_frame: torso_link
+controller:
+  enable_gravity_compensation: false
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: com_task
+    type: ComTask
+    kp: [40, 40, 40]
+    kd: [8, 8, 8]
+    kp_ik: [1.0, 1.0, 1.0]
+    weight: [50, 50, 50]
+  - name: jpos_task
+    type: JointTask
+    kp: 30.0
+    kd: 3.0
+    kp_ik: 1.0
+    weight: 1.0
+  - name: lfoot_force
+    type: ForceTask
+    contact_name: lfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+  - name: rfoot_force
+    type: ForceTask
+    contact_name: rfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+contact_pool:
+  - name: lfoot_contact
+    type: SurfaceContact
+    target_frame: l_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+  - name: rfoot_contact
+    type: SurfaceContact
+    target_frame: r_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+)";
+    // Global constraints section.
+    yaml << "global_constraints:\n";
+    AppendConstraintYaml(yaml, "JointPosLimitConstraint", c.pos, 0.9);
+    AppendConstraintYaml(yaml, "JointVelLimitConstraint", c.vel, 0.8);
+    AppendConstraintYaml(yaml, "JointTrqLimitConstraint", c.trq, 0.9);
+    // If all off, still need the key (empty map).
+    if (c.pos == CMode::Off && c.vel == CMode::Off && c.trq == CMode::Off) {
+      yaml << "  {}\n";
+    }
+
+    yaml << R"(state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: com_task, priority: 0}
+      - {name: jpos_task, priority: 1}
+    contact_constraints:
+      - {name: lfoot_contact}
+      - {name: rfoot_contact}
+    force_tasks:
+      - {name: lfoot_force}
+      - {name: rfoot_force}
+)";
+
+    const std::string fname =
+        "bench_draco3_combo_" + std::to_string(ci) + ".yaml";
+    const auto yaml_path = WriteYaml(fname, yaml.str());
+    auto arch = MakeArchitecture(yaml_path);
+    ASSERT_NE(arch, nullptr) << "Failed to build config #" << ci;
+
+    // Set desired = current for steady-state.
+    const StateConfig* state = arch->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    ASSERT_NE(state->joint, nullptr);
+    state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                                Eigen::VectorXd::Zero(n_act));
+
+    // Warmup.
+    for (int i = 0; i < kWarmup; ++i) {
+      UpdateWithFloatingBase(arch.get(), q, qdot, base_state, i * 0.001, 0.001);
+    }
+
+    // Benchmark.
+    const auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kIterations; ++i) {
+      const double t = (kWarmup + i) * 0.001;
+      UpdateWithFloatingBase(arch.get(), q, qdot, base_state, t, 0.001);
+    }
+    const auto end = std::chrono::high_resolution_clock::now();
+
+    const double elapsed_sec =
+        std::chrono::duration<double>(end - start).count();
+    const double avg_us = (elapsed_sec / kIterations) * 1.0e6;
+    const double max_hz = kIterations / elapsed_sec;
+
+    results.push_back({ci + 1, c.pos, c.vel, c.trq, avg_us, max_hz});
+  }
+
+  // Print summary table.
+  std::cout
+      << "\n===== Draco3 Constraint Combination Benchmark (27 configs) =====\n"
+      << "  Robot      : Draco3 (25-DOF floating-base humanoid)\n"
+      << "  Tasks      : com_task + jpos_task (2 priority levels)\n"
+      << "  Contacts   : lfoot + rfoot (SurfaceContact, 6D)\n"
+      << "  Iterations : " << kIterations << " per config\n"
+      << "----------------------------------------------------------------\n"
+      << "  #  | Pos  | Vel  | Trq  | Avg (us) | Freq (Hz)\n"
+      << " ----+------+------+------+----------+-----------\n";
+  for (const auto& r : results) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf),
+                  " %3d | %s | %s | %s | %8.1f | %9.1f\n",
+                  r.idx, CModeName(r.pos), CModeName(r.vel), CModeName(r.trq),
+                  r.avg_us, r.max_hz);
+    std::cout << buf;
+  }
+  std::cout
+      << "================================================================\n";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_Optimo7DOF_ConstraintCombinations) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found — skipping benchmark";
+  }
+
+  // All 27 combinations: 3 constraints × 3 modes (off/hard/soft).
+  struct ConstraintCombo {
+    CMode pos, vel, trq;
+  };
+  std::vector<CMode> modes = {CMode::Off, CMode::Hard, CMode::Soft};
+  std::vector<ConstraintCombo> combos;
+  for (auto p : modes)
+    for (auto v : modes)
+      for (auto t : modes)
+        combos.push_back({p, v, t});
+
+  const int n_act = 7;
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  struct BenchResult {
+    int idx;
+    CMode pos, vel, trq;
+    double avg_us;
+    double max_hz;
+  };
+  std::vector<BenchResult> results;
+
+  constexpr int kWarmup = 20;
+  constexpr int kIterations = 500;
+
+  for (int ci = 0; ci < static_cast<int>(combos.size()); ++ci) {
+    const auto& c = combos[ci];
+
+    // Build YAML with varying constraint section.
+    std::ostringstream yaml;
+    yaml << "robot_model:\n"
+         << "  urdf_path: \"" << optimo_urdf << "\"\n"
+         << R"(  is_floating_base: false
+  base_frame: base_link
+controller:
+  enable_gravity_compensation: true
+  enable_coriolis_compensation: false
+  enable_inertia_compensation: false
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100.0, 100.0, 100.0]
+    kd: [10.0, 10.0, 10.0]
+    kp_ik: [1.0, 1.0, 1.0]
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100.0, 100.0, 100.0]
+    kd: [10.0, 10.0, 10.0]
+    kp_ik: [1.0, 1.0, 1.0]
+)";
+    // Global constraints section.
+    yaml << "global_constraints:\n";
+    AppendConstraintYaml(yaml, "JointPosLimitConstraint", c.pos, 0.9);
+    AppendConstraintYaml(yaml, "JointVelLimitConstraint", c.vel, 0.8);
+    AppendConstraintYaml(yaml, "JointTrqLimitConstraint", c.trq, 0.9);
+    // If all off, still need the key (empty map).
+    if (c.pos == CMode::Off && c.vel == CMode::Off && c.trq == CMode::Off) {
+      yaml << "  {}\n";
+    }
+
+    yaml << R"(state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: ee_pos, priority: 0}
+      - {name: ee_ori, priority: 1}
+      - {name: jpos_task, priority: 2}
+)";
+
+    const std::string fname =
+        "bench_optimo_combo_" + std::to_string(ci) + ".yaml";
+    const auto yaml_path = WriteYaml(fname, yaml.str());
+    auto arch = MakeArchitecture(yaml_path);
+    ASSERT_NE(arch, nullptr) << "Failed to build config #" << ci;
+
+    // Set desired = current for steady-state.
+    const StateConfig* state = arch->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    ASSERT_NE(state->joint, nullptr);
+    state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                                Eigen::VectorXd::Zero(n_act));
+
+    // Warmup.
+    for (int i = 0; i < kWarmup; ++i) {
+      UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+    }
+
+    // Benchmark.
+    const auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kIterations; ++i) {
+      const double t = (kWarmup + i) * 0.001;
+      UpdateWithJointState(arch.get(), q, qdot, t, 0.001);
+    }
+    const auto end = std::chrono::high_resolution_clock::now();
+
+    const double elapsed_sec =
+        std::chrono::duration<double>(end - start).count();
+    const double avg_us = (elapsed_sec / kIterations) * 1.0e6;
+    const double max_hz = kIterations / elapsed_sec;
+
+    results.push_back({ci + 1, c.pos, c.vel, c.trq, avg_us, max_hz});
+  }
+
+  // Print summary table.
+  std::cout
+      << "\n===== Optimo 7-DOF Constraint Combination Benchmark (27 configs) =====\n"
+      << "  Robot      : Optimo (7-DOF fixed-base)\n"
+      << "  Tasks      : ee_pos + ee_ori + jpos_task (3 priority levels)\n"
+      << "  Iterations : " << kIterations << " per config\n"
+      << "----------------------------------------------------------------------\n"
+      << "  #  | Pos  | Vel  | Trq  | Avg (us) | Freq (Hz)\n"
+      << " ----+------+------+------+----------+-----------\n";
+  for (const auto& r : results) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf),
+                  " %3d | %s | %s | %s | %8.1f | %9.1f\n",
+                  r.idx, CModeName(r.pos), CModeName(r.vel), CModeName(r.trq),
+                  r.avg_us, r.max_hz);
+    std::cout << buf;
+  }
+  std::cout
+      << "======================================================================\n";
 }
 
 } // namespace

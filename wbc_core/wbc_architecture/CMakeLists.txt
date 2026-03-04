@@ -12,16 +12,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ament_cmake REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(rclcpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(wbc_formulation REQUIRED)
 find_package(wbc_fsm REQUIRED)
 find_package(wbc_robot_system REQUIRED)
 find_package(wbc_solver REQUIRED)
+find_package(wbc_trajectory REQUIRED)
 find_package(wbc_util REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
-  src/interface/control_architecture.cpp
-  src/wbc_compiled_config.cpp
+  src/control_architecture.cpp
+  src/config_compiler.cpp
+  src/runtime_config.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -35,10 +38,12 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
   wbc_formulation
   wbc_fsm
   wbc_robot_system
   wbc_solver
+  wbc_trajectory
   wbc_util
 )
 
@@ -82,6 +87,27 @@ if(BUILD_TESTING)
       yaml-cpp
     )
   endif()
+
+  ament_add_gtest(test_review_improvements
+    test/test_review_improvements.cpp
+  )
+  if(TARGET test_review_improvements)
+    target_link_libraries(test_review_improvements
+      ${PROJECT_NAME}
+      Eigen3::Eigen
+      yaml-cpp
+    )
+  endif()
+
+  ament_add_gtest(test_cascade_pid
+    test/test_cascade_pid.cpp
+  )
+  if(TARGET test_cascade_pid)
+    target_link_libraries(test_cascade_pid
+      ${PROJECT_NAME}
+      Eigen3::Eigen
+    )
+  endif()
 endif()
 
 ament_export_include_directories(include)
@@ -90,11 +116,13 @@ ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   eigen3_cmake_module
   Eigen3
+  rclcpp
   yaml-cpp
   wbc_formulation
   wbc_fsm
   wbc_robot_system
   wbc_solver
+  wbc_trajectory
   wbc_util
 )
 

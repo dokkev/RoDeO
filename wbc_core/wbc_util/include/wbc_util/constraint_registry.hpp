@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_util/include/wbc_util/constraint_registry.hpp
+ * @brief Doxygen documentation for constraint_registry module.
+ */
 #pragma once
 
 #include <memory>
@@ -12,19 +16,24 @@ class Contact;
 
 namespace wbc {
 
+/**
+ * @brief Ownership registry for named constraints/contacts.
+ */
 class ConstraintRegistry {
 public:
   ConstraintRegistry() = default;
   ~ConstraintRegistry() = default;
 
+  /**
+   * @brief Add or replace a constraint entry.
+   */
   void AddConstraint(const std::string& name, std::unique_ptr<Constraint> constraint);
   
   // 단순 포인터 반환은 전방 선언만으로 가능
   Constraint* GetConstraint(const std::string& name) const;
 
   /**
-   * @brief Contact 타입으로 캐스팅하여 반환
-   * @note 이 함수의 구현부는 상속 관계를 알아야 하므로 .cpp 파일에 두는 것이 좋습니다.
+   * @brief Return as `Contact*` when the named constraint is a contact.
    */
   Contact* GetContact(const std::string& name) const;
 

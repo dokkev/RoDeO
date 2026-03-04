@@ -46,7 +46,17 @@ install(EXPORT ${PROJECT_NAME}Targets
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_joint_teleop_handler
+    test/test_joint_teleop_handler.cpp
+  )
+  if(TARGET test_joint_teleop_handler)
+    target_link_libraries(test_joint_teleop_handler
+      ${PROJECT_NAME}
+    )
+  endif()
 endif()
 
 ament_export_include_directories(include)

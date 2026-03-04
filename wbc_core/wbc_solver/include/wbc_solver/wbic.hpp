@@ -1,39 +1,57 @@
+/**
+ * @file wbc_core/wbc_solver/include/wbc_solver/wbic.hpp
+ * @brief Doxygen documentation for wbic module.
+ */
 #pragma once
 
 #include <Eigen/Dense>
 #include <memory>
 #include <vector>
 
-#include "wbc_solver/quadprog/QuadProg++.hh"
+#include <proxsuite/proxqp/dense/dense.hpp>
+
 #include "wbc_solver/interface/wbc.hpp"
 #include "wbc_formulation/wbc_formulation.hpp"
 
 namespace wbc {
+/**
+ * @brief Runtime QP weight set for WBIC correction stage.
+ */
 struct QPParams {
-  QPParams(int num_float, int dim_contact)
-      : W_delta_qddot_(Eigen::VectorXd::Zero(num_float)),
+  QPParams(int num_qdot, int dim_contact)
+      : W_delta_qddot_(Eigen::VectorXd::Zero(num_qdot)),
         W_delta_rf_(Eigen::VectorXd::Zero(dim_contact)),
         W_xc_ddot_(Eigen::VectorXd::Zero(dim_contact)),
-        W_force_rate_of_change_(Eigen::VectorXd::Zero(dim_contact)) {}
+        W_f_dot_(Eigen::VectorXd::Zero(dim_contact)),
+        W_tau_(Eigen::VectorXd::Zero(num_qdot)),
+        W_tau_dot_(Eigen::VectorXd::Zero(num_qdot)) {}
 
   Eigen::VectorXd W_delta_qddot_;
   Eigen::VectorXd W_delta_rf_;
   Eigen::VectorXd W_xc_ddot_;
-  Eigen::VectorXd W_force_rate_of_change_;
+  Eigen::VectorXd W_f_dot_;
+  Eigen::VectorXd W_tau_;
+  Eigen::VectorXd W_tau_dot_;
 };
 
+/**
+ * @brief WBIC internal buffers and solve results.
+ */
 struct WBICData {
-  WBICData(int num_float, int num_qdot, QPParams* qp_params)
+  WBICData(int num_qdot, QPParams* qp_params)
       : qp_params_(qp_params),
-        delta_qddot_(Eigen::VectorXd::Zero(num_float)),
+        delta_qddot_(Eigen::VectorXd::Zero(num_qdot)),
         delta_rf_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         delta_qddot_cost_(0.0),
         delta_rf_cost_(0.0),
         Xc_ddot_cost_(0.0),
+        tau_cost_(0.0),
+        tau_dot_cost_(0.0),
         corrected_wbc_qddot_cmd_(Eigen::VectorXd::Zero(num_qdot)),
         rf_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         rf_prev_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
-        Xc_ddot_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())) {}
+        Xc_ddot_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
+        tau_prev_(Eigen::VectorXd::Zero(num_qdot)) {}
 
   QPParams* qp_params_;
   Eigen::VectorXd delta_qddot_;
@@ -41,17 +59,26 @@ struct WBICData {
   double delta_qddot_cost_;
   double delta_rf_cost_;
   double Xc_ddot_cost_;
+  double tau_cost_;
+  double tau_dot_cost_;
   Eigen::VectorXd corrected_wbc_qddot_cmd_;
   Eigen::VectorXd rf_cmd_;
   Eigen::VectorXd rf_prev_cmd_;
   Eigen::VectorXd Xc_ddot_;
+  Eigen::VectorXd tau_prev_;
 };
 
+/**
+ * @brief Whole-Body Impulse Control (WBIC) solver implementation.
+ */
 class WBIC : public WBC {
 public:
   WBIC(const std::vector<bool>& act_qdot_list, QPParams* qp_params);
   ~WBIC() override = default;
 
+  /**
+   * @brief Compute joint-space configuration command (q, qdot, qddot).
+   */
   bool FindConfiguration(const WbcFormulation& formulation,
                          const Eigen::VectorXd& curr_jpos,
                          Eigen::VectorXd& jpos_cmd, Eigen::VectorXd& jvel_cmd,
@@ -62,7 +89,20 @@ public:
                   Eigen::VectorXd& jtrq_cmd) override;
 
   void SetParameters() override {}
-  WBICData* GetWBICData() { return wbic_data_.get(); }
+  WBICData* GetWbicData() { return wbic_data_.get(); }
+
+  /// Per-constraint soft/hard toggle and penalty weights.
+  /// When soft, the constraint becomes a slack variable with quadratic penalty
+  /// in the QP cost, allowing controlled violation. When hard, it becomes a
+  /// box constraint (or diagonal-M box approximation for torque).
+  struct SoftLimitParams {
+    bool pos{false};   ///< Joint position limit: soft (slack) or hard (box)
+    bool vel{false};   ///< Joint velocity limit: soft (slack) or hard (box)
+    bool trq{false};   ///< Joint torque limit: soft (slack+full dynamics) or hard (box+diag M)
+    double w_pos{1e5}; ///< Position slack penalty weight
+    double w_vel{1e5}; ///< Velocity slack penalty weight
+    double w_trq{1e5}; ///< Torque slack penalty weight
+  } soft_params_;
 
 private:
   void PseudoInverse(const Eigen::MatrixXd& jac, Eigen::MatrixXd& jac_inv);
@@ -74,19 +114,34 @@ private:
   void GetDesiredReactionForce(const std::vector<ForceTask*>& force_task_vector);
   void SetQPCost(const Eigen::VectorXd& wbc_qddot_cmd);
   void SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd);
-  void SetQPInEqualityConstraint();
+  void SetQPInEqualityConstraint(const WbcFormulation& formulation,
+                                 const Eigen::VectorXd& wbc_qddot_cmd);
+  void ExtractBoxBounds(const Constraint* c, const Eigen::VectorXd& wbc_qddot_cmd);
   bool SolveQP(const Eigen::VectorXd& wbc_qddot_cmd);
   void GetSolution(const Eigen::VectorXd& wbc_qddot_cmd,
                    Eigen::VectorXd& jtrq_cmd);
 
   double threshold_;
   Eigen::MatrixXd Ni_dyn_;
-  Eigen::MatrixXd Ni_Nci_dyn_;
+  Eigen::MatrixXd N_pre_;
+  Eigen::MatrixXd N_pre_dyn_;
+  Eigen::MatrixXd N_nx_;
+  Eigen::MatrixXd N_nx_dyn_;
+  Eigen::MatrixXd Jc_bar_;
+  Eigen::VectorXd qddot_cmd_;
+  Eigen::VectorXd delta_q_cmd_;
+  Eigen::VectorXd qdot_cmd_;
+  Eigen::VectorXd prev_qddot_cmd_;
+  Eigen::VectorXd prev_delta_q_cmd_;
+  Eigen::VectorXd prev_qdot_cmd_;
+  Eigen::VectorXd trq_;
+  Eigen::MatrixXd UNi_;
+  Eigen::MatrixXd UNi_bar_;
 
   // Reused buffers for contact/task stacking in control loop.
-  Eigen::MatrixXd Jc_cfg_;
-  Eigen::VectorXd JcDotQdot_cfg_;
-  Eigen::VectorXd xc_ddot_des_cfg_;
+  Eigen::MatrixXd stacked_contact_jacobian_;
+  Eigen::VectorXd stacked_contact_jdot_qdot_;
+  Eigen::VectorXd stacked_contact_op_cmd_;
 
   Eigen::MatrixXd Jc_;
   Eigen::VectorXd JcDotQdot_;
@@ -95,23 +150,39 @@ private:
   Eigen::VectorXd des_rf_;
   std::unique_ptr<WBICData> wbic_data_;
 
+  // QP matrices (Eigen — passed directly to ProxQP)
   Eigen::MatrixXd H_;
   Eigen::VectorXd g_;
   Eigen::MatrixXd A_;
   Eigen::VectorXd b_;
   Eigen::MatrixXd C_;
   Eigen::VectorXd l_;
+  Eigen::VectorXd u_;
+  Eigen::VectorXd l_box_;
+  Eigen::VectorXd u_box_;
 
-  GolDIdnani::GVect<double> x_;
-  GolDIdnani::GMatr<double> G_;
-  GolDIdnani::GVect<double> g0_;
-  GolDIdnani::GMatr<double> CE_;
-  GolDIdnani::GVect<double> ce0_;
-  GolDIdnani::GMatr<double> CI_;
-  GolDIdnani::GVect<double> ci0_;
-  int qp_dim_cache_;
-  int qp_eq_cache_;
-  int qp_ineq_cache_;
+  // Torque regularization buffer
+  Eigen::VectorXd tau_0_;
+
+  // Slack variable dimensions (0 when corresponding limit is hard or absent)
+  int dim_slack_pos_{0};
+  int dim_slack_vel_{0};
+  int dim_slack_trq_{0};
+  int dim_slack_total_{0};
+
+  // Scratch buffers for per-DOF bound extraction
+  Eigen::VectorXd l_bnd_;
+  Eigen::VectorXd u_bnd_;
+
+  // Reused buffers for per-task nullspace projection in FindConfiguration.
+  // Declared as members to avoid per-tick heap allocation inside the task loop.
+  Eigen::MatrixXd JtPre_;      // task jacobian projected into null space (dim x N)
+  Eigen::MatrixXd JtPre_pinv_; // pseudo-inverse of JtPre_
+  Eigen::MatrixXd JtPre_dyn_;  // dynamically-weighted projected jacobian
+  Eigen::MatrixXd JtPre_bar_;  // weighted pseudo-inverse of JtPre_dyn_
+
+  // ProxQP dense solver (lazy-initialized on first SolveQP call)
+  std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_solver_;
 };
 
 } // namespace wbc

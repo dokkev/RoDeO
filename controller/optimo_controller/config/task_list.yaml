@@ -1,0 +1,25 @@
+# =============================================================
+# Optimo Task Pool
+# =============================================================
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+  - name: "ee_pos_task"
+    type: "LinkPosTask"
+    target_frame: "optimo_ee_link"
+    reference_frame: "base_link"
+    kp: [10.0, 10.0, 10.0]
+    kd: [1.0,  1.0,  1.0]
+    kp_ik: [1.0, 1.0, 1.0]
+
+  - name: "ee_ori_task"
+    type: "LinkOriTask"
+    target_frame: "optimo_ee_link"
+    reference_frame: "base_link"
+    kp: [10.0, 10.0, 10.0]
+    kd: [1.0,  1.0,  1.0]
+    kp_ik: [1.0, 1.0, 1.0]

@@ -13,6 +13,7 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>mujoco_ros2_control</exec_depend>
+  <exec_depend>optimo_bringup</exec_depend>
   <exec_depend>optimo_description</exec_depend>
 
   <export>

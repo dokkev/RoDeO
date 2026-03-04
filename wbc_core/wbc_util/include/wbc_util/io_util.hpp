@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_util/include/wbc_util/io_util.hpp
+ * @brief Doxygen documentation for io_util module.
+ */
 #pragma once
 
 #include <iosfwd>

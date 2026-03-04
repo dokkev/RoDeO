@@ -1,6 +1,10 @@
+/**
+ * @file wbc_core/wbc_formulation/include/wbc_formulation/basic_contact.hpp
+ * @brief Doxygen documentation for basic_contact module.
+ */
 #pragma once
 
-#include "wbc_formulation/friction_cone.hpp"
+#include "wbc_formulation/contact.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 
 namespace wbc {
@@ -17,6 +21,11 @@ public:
   void UpdateConeConstraint() override;
   void UpdateOpCommand() override;
   void SetParameters(const ContactConfig& config) override;
+
+private:
+  // Pre-allocated 6xN scratch used by UpdateJacobian to avoid per-tick
+  // heap allocation from GetLinkBodyJacobian() returning by value.
+  Eigen::MatrixXd full_jac_scratch_;
 };
 
 /**

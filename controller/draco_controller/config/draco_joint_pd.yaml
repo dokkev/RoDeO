@@ -1,0 +1,109 @@
+# Per-joint direct-PD gains for Draco (draco_modified_single_knee.urdf, 25 DOF).
+#
+# Mode: direct-PD (velocity loop disabled — kp_vel/ki_vel/kd_vel all absent = 0).
+#
+#   tau = kp_pos*(q_des - q) + kd_pos*(qdot_des - qdot)
+#
+# Active joint order (pinocchio):
+#   [0]  l_hip_ie        [1]  l_hip_aa        [2]  l_hip_fe
+#   [3]  l_knee_fe_jd    [4]  l_ankle_fe      [5]  l_ankle_ie
+#   [6]  l_shoulder_fe   [7]  l_shoulder_aa   [8]  l_shoulder_ie
+#   [9]  l_elbow_fe      [10] l_wrist_ps      [11] l_wrist_pitch
+#   [12] neck_pitch
+#   [13] r_hip_ie        [14] r_hip_aa        [15] r_hip_fe
+#   [16] r_knee_fe_jd    [17] r_ankle_fe      [18] r_ankle_ie
+#   [19] r_shoulder_fe   [20] r_shoulder_aa   [21] r_shoulder_ie
+#   [22] r_elbow_fe      [23] r_wrist_ps      [24] r_wrist_pitch
+#
+# Any joint not listed under 'joints' gets the 'default' gains.
+
+default:
+  kp_pos: 100.0
+  kd_pos: 10.0
+
+joints:
+
+  # ── Left leg ──────────────────────────────────────────────────────────────
+  l_hip_ie:
+    kp_pos: 200.0
+    kd_pos: 20.0
+  l_hip_aa:
+    kp_pos: 200.0
+    kd_pos: 20.0
+  l_hip_fe:
+    kp_pos: 300.0
+    kd_pos: 30.0
+  l_knee_fe_jd:
+    kp_pos: 300.0
+    kd_pos: 30.0
+  l_ankle_fe:
+    kp_pos: 250.0
+    kd_pos: 25.0
+  l_ankle_ie:
+    kp_pos: 200.0
+    kd_pos: 20.0
+
+  # ── Right leg ─────────────────────────────────────────────────────────────
+  r_hip_ie:
+    kp_pos: 200.0
+    kd_pos: 20.0
+  r_hip_aa:
+    kp_pos: 200.0
+    kd_pos: 20.0
+  r_hip_fe:
+    kp_pos: 300.0
+    kd_pos: 30.0
+  r_knee_fe_jd:
+    kp_pos: 300.0
+    kd_pos: 30.0
+  r_ankle_fe:
+    kp_pos: 250.0
+    kd_pos: 25.0
+  r_ankle_ie:
+    kp_pos: 200.0
+    kd_pos: 20.0
+
+  # ── Left arm ──────────────────────────────────────────────────────────────
+  l_shoulder_fe:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  l_shoulder_aa:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  l_shoulder_ie:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  l_elbow_fe:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  l_wrist_ps:
+    kp_pos: 50.0
+    kd_pos: 5.0
+  l_wrist_pitch:
+    kp_pos: 50.0
+    kd_pos: 5.0
+
+  # ── Right arm ─────────────────────────────────────────────────────────────
+  r_shoulder_fe:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  r_shoulder_aa:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  r_shoulder_ie:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  r_elbow_fe:
+    kp_pos: 100.0
+    kd_pos: 10.0
+  r_wrist_ps:
+    kp_pos: 50.0
+    kd_pos: 5.0
+  r_wrist_pitch:
+    kp_pos: 50.0
+    kd_pos: 5.0
+
+  # ── Neck ──────────────────────────────────────────────────────────────────
+  neck_pitch:
+    kp_pos: 50.0
+    kd_pos: 5.0

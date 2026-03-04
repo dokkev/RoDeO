@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_trajectory/include/wbc_trajectory/interpolation.hpp
+ * @brief Doxygen documentation for interpolation module.
+ */
 #pragma once
 
 #include <algorithm>
@@ -11,6 +15,9 @@
 
 namespace util
 {
+/**
+ * @brief Scalar/vector/quaternion interpolation and trajectory curve utilities.
+ */
 double SmoothPos(
   double ini, double end, double moving_duration,
   double curr_time);
@@ -32,8 +39,6 @@ void SinusoidTrajectory(
   Eigen::VectorXd & v, Eigen::VectorXd & a,
   double smoothing_dur = 1.0);
 double Smooth(double ini, double fin, double rat);
-
-} // namespace util
 
 class HermiteCurve {
 public:
@@ -58,7 +63,7 @@ private:
   double s_;
 
   // by default clamps within 0 and 1.
-  double _Clamp(const double & t_in, double lo = 0.0, double hi = 1.0);
+  double Clamp(const double & t_in, double lo = 0.0, double hi = 1.0);
 };
 
 class HermiteCurveVec {
@@ -171,15 +176,15 @@ private:
   void PrintQuat(const Eigen::Quaterniond & quat);
 };
 
-class HermiteQuaternionCurve2 {
+class NormalizedHermiteQuaternionCurve {
 public:
-  HermiteQuaternionCurve2();
-  HermiteQuaternionCurve2(
+  NormalizedHermiteQuaternionCurve();
+  NormalizedHermiteQuaternionCurve(
     const Eigen::Quaterniond & quat_start,
     const Eigen::Vector3d & angular_velocity_start,
     const Eigen::Quaterniond & quat_end,
     const Eigen::Vector3d & angular_velocity_end);
-  ~HermiteQuaternionCurve2();
+  ~NormalizedHermiteQuaternionCurve();
 
   void Initialize(
     const Eigen::Quaterniond & quat_start,
@@ -270,29 +275,23 @@ public:
     const Eigen::Vector3d & init, const Eigen::Vector3d & end,
     const double time_start, const double time_end);
 
-  void GetPos(const double time, double & pos);
-  void GetVel(const double time, double & vel);
-  void GetAcc(const double time, double & acc);
+  void GetPos(const double time, double & pos) const;
+  void GetVel(const double time, double & vel) const;
+  void GetAcc(const double time, double & acc) const;
 
   // Destructor
   ~MinJerkCurve();
 
 private:
-  Eigen::MatrixXd C_mat;     // Matrix of Coefficients
-  Eigen::VectorXd
-    a_coeffs;   // mininum jerk coeffs. a = [a0, a1, a2, a3, a4, a5, a6];
-  Eigen::VectorXd bound_cond; // boundary conditions x_b = [ x(to), xdot(to),
-                              // xddot(to), x(tf), xdot(tf), xddot(tf)]
+  double b_[6]{};     // tau-domain polynomial coefficients (tau ∈ [0,1])
+  double inv_T_{1.0}; // 1 / (tf - to); 0 if degenerate interval
 
-  Eigen::Vector3d init_cond; // initial pos, vel, acceleration
-  Eigen::Vector3d end_cond;  // final pos, vel, acceleration
-  double to;                 // Starting time
-  double tf;                 // Ending time
+  Eigen::Vector3d init_cond{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d end_cond{Eigen::Vector3d::Zero()};
+  double to{0.0};
+  double tf{1.0};
 
   void Initialization();
-
-  // Compute the coefficients
-  void compute_coeffs();
 };
 
 class MinJerkCurveVec {
@@ -315,9 +314,9 @@ public:
     const Eigen::VectorXd & end_vel,
     const Eigen::VectorXd & end_acc, const double duration);
 
-  Eigen::VectorXd Evaluate(const double t_in);
-  Eigen::VectorXd EvaluateFirstDerivative(const double t_in);
-  Eigen::VectorXd EvaluateSecondDerivative(const double t_in);
+  const Eigen::VectorXd& Evaluate(const double t_in);
+  const Eigen::VectorXd& EvaluateFirstDerivative(const double t_in);
+  const Eigen::VectorXd& EvaluateSecondDerivative(const double t_in);
 
 private:
   double Ts_;
@@ -331,7 +330,9 @@ private:
   Eigen::VectorXd a2_;
 
   std::vector<MinJerkCurve> curves_;
-  Eigen::VectorXd output_;
+  Eigen::VectorXd pos_out_;  // pre-allocated output buffers — one per derivative
+  Eigen::VectorXd vel_out_;
+  Eigen::VectorXd acc_out_;
 };
 
 /*************************************************************************
@@ -389,3 +390,5 @@ y_t CubicBezierSecondDerivative(y_t y0, y_t yf, x_t x)
   x_t bezier = x_t(6) - x_t(12) * x;
   return bezier * yDiff;
 }
+
+} // namespace util

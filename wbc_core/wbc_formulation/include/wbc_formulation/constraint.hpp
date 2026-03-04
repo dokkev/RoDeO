@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_formulation/include/wbc_formulation/constraint.hpp
+ * @brief Doxygen documentation for constraint module.
+ */
 #pragma once
 
 #include <Eigen/Dense>
@@ -24,10 +28,10 @@ public:
   int Dim() const { return dim_; }
   int TargetLinkIdx() const { return target_link_idx_; }
 
-  Eigen::MatrixXd Jacobian() const { return jacobian_; }
-  Eigen::VectorXd JacobianDotQdot() const { return jacobian_dot_q_dot_; }
-  Eigen::MatrixXd ConstraintMatrix() const { return constraint_matrix_; }
-  Eigen::VectorXd ConstraintVector() const { return constraint_vector_; }
+  const Eigen::MatrixXd& Jacobian() const { return jacobian_; }
+  const Eigen::VectorXd& JacobianDotQdot() const { return jacobian_dot_q_dot_; }
+  const Eigen::MatrixXd& ConstraintMatrix() const { return constraint_matrix_; }
+  const Eigen::VectorXd& ConstraintVector() const { return constraint_vector_; }
 
 protected:
   PinocchioRobotSystem* robot_;

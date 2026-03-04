@@ -1,0 +1,68 @@
+<mujoco model="optimo">
+  <compiler angle="radian" meshdir="../meshes/"/>
+
+  <asset>
+    <mesh name="col0" content_type="model/stl" file="col0.stl"/>
+    <mesh name="col1" content_type="model/stl" file="col1.stl"/>
+    <mesh name="col2" content_type="model/stl" file="col2.stl"/>
+    <mesh name="col3" content_type="model/stl" file="col3.stl"/>
+    <mesh name="col4" content_type="model/stl" file="col4.stl"/>
+    <mesh name="col5" content_type="model/stl" file="col5.stl"/>
+    <mesh name="col6" content_type="model/stl" file="col6.stl"/>
+    <mesh name="col7" content_type="model/stl" file="col7.stl"/>
+  </asset>
+
+  <worldbody>
+    <geom size="0.25 0.25 0.5" pos="0 0 -0.5" type="box" rgba="1 1 1 1"/>
+    <geom pos="0 0 0.27" quat="1 0 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col0"/>
+    <body name="link1" pos="0 0 0.27">
+      <inertial pos="0 -0.01635 0.01549" quat="0.733993 0.672808 0.0651674 -0.0658565" mass="4.14" diaginertia="0.0100027 0.00995582 0.00747546"/>
+      <joint name="joint1" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="0.2"/>
+      <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col1"/>
+      <body name="link2" quat="0.707107 0.707107 0 0">
+        <inertial pos="0 -0.05063 0.05677" quat="0.697505 0.116135 -0.116135 0.697505" mass="1.72" diaginertia="0.0063654 0.005694 0.0019516"/>
+        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="1.0472 3.83972" damping="0.5" frictionloss="0.2"/>
+        <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col2"/>
+        <body name="link3" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+          <inertial pos="-3.9e-05 0.098 0" quat="0.50494 0.474771 -0.494533 0.524466" mass="4.13" diaginertia="0.0130882 0.0129889 0.00254595"/>
+          <joint name="joint3" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="0.2"/>
+          <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col3"/>
+          <body name="link4" quat="0.707107 -0.707107 0 0">
+            <inertial pos="-1e-05 0.048852 0.0688" quat="0.501659 0.493047 -0.505423 0.499791" mass="1.09" diaginertia="0.0338771 0.0336796 0.00108207"/>
+            <joint name="joint4" pos="0 0 0" axis="0 0 1" range="-2.53073 2.53073" damping="0.5" frictionloss="0.2"/>
+            <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col4"/>
+            <body name="link5" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+              <inertial pos="0.001262 0.085 0.008" quat="0.984064 -0.177814 -8.09748e-06 0.000289155" mass="1.92" diaginertia="0.00093167 0.000813494 0.000721196"/>
+              <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-2.61799 2.61799" damping="0.5" frictionloss="0.2"/>
+              <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col5"/>
+              <body name="link6" quat="0.707107 -0.707107 0 0">
+                <inertial pos="0 -7e-05 0.010855" quat="0.984064 -0.177814 -8.09748e-06 0.000289155" mass="1.04" diaginertia="0.00093167 0.000813494 0.000721196"/>
+                <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="0.2"/>
+                <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col6"/>
+                <body name="link7" quat="0.707107 0.707107 0 0">
+                  <inertial pos="0 0 0.1" quat="0.999477 0.00657917 -0.0101967 0.0299688" mass="0.88" diaginertia="0.0055453 0.00477683 0.00172087"/>
+                  <joint name="joint7" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="0.2"/>
+                  <geom type="mesh" rgba="1 1 1 1" mesh="col7"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <keyframe>
+    <key name="spawn_home" qpos="0 3.3 0 -2.35 0 -1.13 0"/>
+  </keyframe>
+
+  <actuator>
+    <motor name="joint1_motor" joint="joint1" gear="1" ctrllimited="true" ctrlrange="-95 95" forcelimited="true" forcerange="-95 95"/>
+    <motor name="joint2_motor" joint="joint2" gear="1" ctrllimited="true" ctrlrange="-95 95" forcelimited="true" forcerange="-95 95"/>
+    <motor name="joint3_motor" joint="joint3" gear="1" ctrllimited="true" ctrlrange="-40 40" forcelimited="true" forcerange="-40 40"/>
+    <motor name="joint4_motor" joint="joint4" gear="1" ctrllimited="true" ctrlrange="-40 40" forcelimited="true" forcerange="-40 40"/>
+    <motor name="joint5_motor" joint="joint5" gear="1" ctrllimited="true" ctrlrange="-15 15" forcelimited="true" forcerange="-15 15"/>
+    <motor name="joint6_motor" joint="joint6" gear="1" ctrllimited="true" ctrlrange="-15 15" forcelimited="true" forcerange="-15 15"/>
+    <motor name="joint7_motor" joint="joint7" gear="1" ctrllimited="true" ctrlrange="-15 15" forcelimited="true" forcerange="-15 15"/>
+  </actuator>
+</mujoco>

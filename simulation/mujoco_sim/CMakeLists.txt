@@ -7,8 +7,13 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY launch mjcf
-  DESTINATION share/${PROJECT_NAME}
-)
+foreach(_asset_dir IN ITEMS launch mjcf)
+  if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_asset_dir}")
+    install(
+      DIRECTORY ${_asset_dir}
+      DESTINATION share/${PROJECT_NAME}
+    )
+  endif()
+endforeach()
 
 ament_package()

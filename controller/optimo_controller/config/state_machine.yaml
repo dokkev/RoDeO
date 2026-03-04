@@ -1,0 +1,43 @@
+# =============================================================
+# Optimo State Machine
+# =============================================================
+# the flow of State Machine is
+# initialize -> First Visit ->
+
+
+state_machine:
+  - id: 0
+    name: "initialize"
+    params:
+      duration: 1.0     # duration determines time to finish the trajectory from the initial position to the desired position
+      wait_time: 0.0
+      stay_here: false
+    task_hierarchy:
+      - name: "jpos_task"
+
+  - id: 1
+    name: "joint_teleop"
+    params:
+      stay_here: true
+      joint_vel_limit: [0.5, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3]  # (Optional) per-joint velocity limits [rad/s]. These are not applied to the QP as hard constraints, but can be used by the teleop interface to scale the joystick input for each joint.
+                                                            # These values are not computed in QP rather 
+    task_hierarchy:
+      - name: "jpos_task"
+
+  - id: 2
+    name: "ee_teleop"
+    params:
+      stay_here: true
+      linear_vel_max: 0.1   # translational speed limit [m/s]
+      angular_vel_max: 0.5  # rotational rate limit [rad/s]
+      manipulability:
+        step_size: 0.5          # [rad/s] avoidance velocity magnitude
+        sigma_threshold: 0.05   # σ_min below this activates avoidance
+        gradient_interval: 10   # recompute gradient every N ticks
+    task_hierarchy:
+      - name: "ee_pos_task"
+        priority: 0
+      - name: "ee_ori_task"
+        priority: 1
+      - name: "jpos_task"
+        priority: 2

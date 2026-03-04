@@ -1,7 +1,14 @@
+/**
+ * @file wbc_core/wbc_util/include/wbc_util/clock.hpp
+ * @brief Doxygen documentation for clock module.
+ */
 #pragma once
 
 #include <chrono>
 
+/**
+ * @brief Lightweight wall-clock timer utility (milliseconds).
+ */
 class Clock {
 public:
   Clock() {}

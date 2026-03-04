@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_robot_system/include/wbc_robot_system/interface/robot_system.hpp
+ * @brief Doxygen documentation for robot_system module.
+ */
 #pragma once
 
 #include <Eigen/Dense>
@@ -18,6 +22,10 @@ namespace wbc {
  */
 class RobotSystem {
 public:
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   explicit RobotSystem(bool fixed_base, bool print_info = false)
       : fixed_base_(fixed_base),
         print_info_(print_info),
@@ -43,6 +51,9 @@ public:
     centroidal_momentum_matrix_.resize(6, 0);
     centroidal_momentum_.setZero();
   }
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
   virtual ~RobotSystem() = default;
 
@@ -56,6 +67,7 @@ public:
   int GetNumActuated() const { return num_actuated_; }
   double GetTotalMass() const { return total_mass_; }
   bool IsFixedBase() const { return fixed_base_; }
+  bool ShouldPrintInfo() const { return print_info_; }
 
   const Eigen::MatrixXd& GetJointPositionLimits() const {
     return joint_position_limits_;
@@ -162,18 +174,23 @@ public:
   // ========================================================================
   // Legacy RPC API compatibility
   // ========================================================================
+  [[deprecated("Use GetQIndex().")]]
   int GetQIdx(const std::string& joint_name) { return GetQIndex(joint_name); }
+  [[deprecated("Use GetQdotIndex().")]]
   int GetQdotIdx(const std::string& joint_name) {
     return GetQdotIndex(joint_name);
   }
+  [[deprecated("Use GetActuatedIndex().")]]
   int GetJointIdx(const std::string& joint_name) {
     return GetActuatedIndex(joint_name);
   }
 
+  [[deprecated("Use VectorToJointMap().")]]
   std::map<std::string, double>
   EigenVectorToMap(const Eigen::VectorXd& joint_cmd) {
     return VectorToJointMap(joint_cmd);
   }
+  [[deprecated("Use JointMapToVector().")]]
   Eigen::VectorXd MapToEigenVector(std::map<std::string, double> joint_map) {
     return JointMapToVector(joint_map);
   }
@@ -197,19 +214,25 @@ public:
                 update_centroid);
   }
 
+  [[deprecated("Use GetComPosition().")]]
   Eigen::Vector3d GetRobotComPos() { return GetComPosition(); }
+  [[deprecated("Use GetComVelocity().")]]
   Eigen::Vector3d GetRobotComLinVel() { return GetComVelocity(); }
 
+  [[deprecated("Use GetLinkTransform().")]]
   Eigen::Isometry3d GetLinkIso(const std::string& link_name) {
     return GetLinkTransform(link_name);
   }
+  [[deprecated("Use GetLinkVelocity().")]]
   Eigen::Matrix<double, 6, 1> GetLinkVel(const std::string& link_name) {
     return GetLinkVelocity(link_name);
   }
 
+  [[deprecated("Use GetComJacobian().")]]
   Eigen::Matrix<double, 3, Eigen::Dynamic> GetComLinJacobian() {
     return GetComJacobian();
   }
+  [[deprecated("Use GetComJacobianDot().")]]
   Eigen::Matrix<double, 3, Eigen::Dynamic> GetComLinJacobianDot() {
     return GetComJacobianDot();
   }
@@ -239,17 +262,29 @@ protected:
 
 public:
   // Legacy RPC public data compatibility.
+  [[deprecated("Use IsFixedBase().")]]
   bool& b_fixed_base_;
+  [[deprecated("Use ShouldPrintInfo().")]]
   bool& b_print_info_;
+  [[deprecated("Use GetNumFloatingDOF().")]]
   int& n_float_;
+  [[deprecated("Use GetNumQ().")]]
   int& n_q_;
+  [[deprecated("Use GetNumQdot().")]]
   int& n_qdot_;
+  [[deprecated("Use GetNumActuated().")]]
   int& n_a_;
+  [[deprecated("Use GetJointPositionLimits().")]]
   Eigen::MatrixXd& joint_pos_limits_;
+  [[deprecated("Use GetJointVelocityLimits().")]]
   Eigen::MatrixXd& joint_vel_limits_;
+  [[deprecated("Use GetJointTorqueLimits().")]]
   Eigen::MatrixXd& joint_trq_limits_;
+  [[deprecated("Use GetCentroidalInertia().")]]
   Eigen::Matrix<double, 6, 6>& Ig_;
+  [[deprecated("Use GetCentroidalMomentumMatrix().")]]
   Eigen::Matrix<double, 6, Eigen::Dynamic>& Ag_;
+  [[deprecated("Use GetCentroidalMomentum().")]]
   Eigen::Matrix<double, 6, 1>& Hg_;
   Eigen::VectorXd joint_positions_;
   Eigen::VectorXd joint_velocities_;

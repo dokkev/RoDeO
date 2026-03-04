@@ -1,15 +1,26 @@
+/**
+ * @file wbc_core/wbc_formulation/include/wbc_formulation/wbc_formulation.hpp
+ * @brief Doxygen documentation for wbc_formulation module.
+ */
 #pragma once
 
 #include <cstddef>
 #include <vector>
 
-#include "wbc_formulation/friction_cone.hpp" // Contact 제약
-#include "wbc_formulation/kinematic_constraint.hpp" // [추가] Joint Limits 등
+#include "wbc_formulation/contact.hpp"
+#include "wbc_formulation/kinematic_constraint.hpp" // joint limits and kinematic constraints
 #include "wbc_formulation/force_task.hpp"
 #include "wbc_formulation/interface/task.hpp"
 
 namespace wbc {
 
+/**
+ * @brief Runtime formulation bundle passed to WBC solvers each tick.
+ *
+ * @details
+ * Members are non-owning pointers. Ownership remains in task/constraint
+ * registries built by runtime config.
+ */
 struct WbcFormulation {
   using TaskList = std::vector<Task*>;
   using ContactConstraintList = std::vector<Contact*>;

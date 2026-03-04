@@ -20,6 +20,8 @@ def generate_launch_description():
     controller_file = PathJoinSubstitution(
         [FindPackageShare("optimo_bringup"), "config", "optimo_controller.yaml"]
     )
+    controller_manager_name = PathJoinSubstitution(["/", ns, "controller_manager"])
+    robot_description_topic = PathJoinSubstitution(["/", ns, "robot_description"])
 
     robot_description_content = Command(
         [
@@ -51,42 +53,47 @@ def generate_launch_description():
             robot_description_content, value_type=str
         )
     }
-    wbc_controller_package_root = {
-        "wbc_controller.package_root": PathJoinSubstitution(
-            [FindPackageShare("optimo_description"), ".."]
-        )
-    }
 
     control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
+        namespace=ns,
         output="screen",
         parameters=[
             robot_description,
             wbc_controller_robot_description,
-            wbc_controller_package_root,
             controller_file,
+        ],
+        remappings=[
+            ("~/robot_description", robot_description_topic),
+            ("/robot_description", robot_description_topic),
         ],
     )
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
+        namespace=ns,
         output="screen",
         parameters=[robot_description],
+        remappings=[
+            ("joint_states", "joint_state_broadcaster/joint_states"),
+        ],
     )
 
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+        namespace=ns,
+        arguments=["joint_state_broadcaster", "--controller-manager", controller_manager_name],
         output="screen",
     )
 
     wbc_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["wbc_controller", "--controller-manager", "/controller_manager"],
+        namespace=ns,
+        arguments=["wbc_controller", "--controller-manager", controller_manager_name],
         output="screen",
     )
 

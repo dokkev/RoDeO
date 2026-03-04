@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_formulation/src/constraint.cpp
+ * @brief Doxygen documentation for constraint module.
+ */
 #include "wbc_formulation/constraint.hpp"
 
 #include "wbc_robot_system/pinocchio_robot_system.hpp"

@@ -13,11 +13,13 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>eigen3_cmake_module</depend>
   <depend>Eigen3</depend>
+  <depend>rclcpp</depend>
   <depend>yaml-cpp</depend>
   <depend>wbc_formulation</depend>
   <depend>wbc_fsm</depend>
   <depend>wbc_robot_system</depend>
   <depend>wbc_solver</depend>
+  <depend>wbc_trajectory</depend>
   <depend>wbc_util</depend>
   <test_depend>ament_cmake_gtest</test_depend>
 

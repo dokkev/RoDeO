@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_trajectory/src/interpolation.cpp
+ * @brief Doxygen documentation for interpolation module.
+ */
 #include "wbc_trajectory/interpolation.hpp"
 
 #include <fstream>
@@ -120,8 +124,6 @@ void SinusoidTrajectory(
     }
   }
 }
-} // namespace util
-
 // Constructor
 HermiteCurve::HermiteCurve()
 {
@@ -154,7 +156,7 @@ HermiteCurve::~HermiteCurve() {}
 // (s^3 - s^2)*v2 where 0 <= s <= 1.
 double HermiteCurve::Evaluate(const double & t_in)
 {
-  s_ = this->_Clamp(t_in / t_dur);
+  s_ = this->Clamp(t_in / t_dur);
   return p1 * (2 * std::pow(s_, 3) - 3 * std::pow(s_, 2) + 1) +
          p2 * (-2 * std::pow(s_, 3) + 3 * std::pow(s_, 2)) +
          v1 * t_dur * (std::pow(s_, 3) - 2 * std::pow(s_, 2) + s_) +
@@ -163,7 +165,7 @@ double HermiteCurve::Evaluate(const double & t_in)
 
 double HermiteCurve::EvaluateFirstDerivative(const double & t_in)
 {
-  s_ = this->_Clamp(t_in / t_dur);
+  s_ = this->Clamp(t_in / t_dur);
   return (p1 * (6 * std::pow(s_, 2) - 6 * s_) +
          p2 * (-6 * std::pow(s_, 2) + 6 * s_) +
          v1 * t_dur * (3 * std::pow(s_, 2) - 4 * s_ + 1) +
@@ -173,13 +175,13 @@ double HermiteCurve::EvaluateFirstDerivative(const double & t_in)
 
 double HermiteCurve::EvaluateSecondDerivative(const double & t_in)
 {
-  s_ = this->_Clamp(t_in / t_dur);
+  s_ = this->Clamp(t_in / t_dur);
   return (p1 * (12 * s_ - 6) + p2 * (-12 * s_ + 6) + v1 * t_dur * (6 * s_ - 4) +
          v2 * t_dur * (6 * s_ - 2)) /
          t_dur / t_dur;
 }
 
-double HermiteCurve::_Clamp(const double & s_in, double lo, double hi)
+double HermiteCurve::Clamp(const double & s_in, double lo, double hi)
 {
   if (s_in < lo) {
     return lo;
@@ -340,11 +342,11 @@ void HermiteQuaternionCurve::PrintQuat(const Eigen::Quaterniond & quat)
 }
 
 //****************************************************************************
-// HerminteQuaternionCurve2
+// NormalizedHermiteQuaternionCurve
 //****************************************************************************
-HermiteQuaternionCurve2::HermiteQuaternionCurve2() {}
+NormalizedHermiteQuaternionCurve::NormalizedHermiteQuaternionCurve() {}
 
-HermiteQuaternionCurve2::HermiteQuaternionCurve2(
+NormalizedHermiteQuaternionCurve::NormalizedHermiteQuaternionCurve(
   const Eigen::Quaterniond & quat_start,
   const Eigen::Vector3d & angular_velocity_start,
   const Eigen::Quaterniond & quat_end,
@@ -354,7 +356,7 @@ HermiteQuaternionCurve2::HermiteQuaternionCurve2(
              angular_velocity_end);
 }
 
-void HermiteQuaternionCurve2::Initialize(
+void NormalizedHermiteQuaternionCurve::Initialize(
   const Eigen::Quaterniond & quat_start,
   const Eigen::Vector3d & angular_velocity_start,
   const Eigen::Quaterniond & quat_end,
@@ -370,7 +372,7 @@ void HermiteQuaternionCurve2::Initialize(
   Initialize_data_structures();
 }
 
-void HermiteQuaternionCurve2::SetDesired(
+void NormalizedHermiteQuaternionCurve::SetDesired(
   const Eigen::Quaterniond & quat_end,
   const Eigen::Vector3d & angular_velocity_end)
 {
@@ -378,7 +380,7 @@ void HermiteQuaternionCurve2::SetDesired(
   omega_b = angular_velocity_end;
 }
 
-void HermiteQuaternionCurve2::SetInitial(
+void NormalizedHermiteQuaternionCurve::SetInitial(
   const Eigen::Quaterniond & quat_start,
   const Eigen::Vector3d & angular_velocity_start)
 {
@@ -389,9 +391,9 @@ void HermiteQuaternionCurve2::SetInitial(
   Initialize_data_structures();
 }
 
-HermiteQuaternionCurve2::~HermiteQuaternionCurve2() {}
+NormalizedHermiteQuaternionCurve::~NormalizedHermiteQuaternionCurve() {}
 
-void HermiteQuaternionCurve2::Initialize_data_structures()
+void NormalizedHermiteQuaternionCurve::Initialize_data_structures()
 {
   q0 = qa;
 
@@ -431,7 +433,7 @@ void HermiteQuaternionCurve2::Initialize_data_structures()
   omega_3 = omega_3aa.axis() * omega_3aa.angle();
 }
 
-void HermiteQuaternionCurve2::ComputeBasis(const double & s_in)
+void NormalizedHermiteQuaternionCurve::ComputeBasis(const double & s_in)
 {
   s_ = this->Clamp(s_in);
   b1 = 1 - std::pow((1 - s_), 3);
@@ -447,7 +449,7 @@ void HermiteQuaternionCurve2::ComputeBasis(const double & s_in)
   bddot3 = 6 * s_;
 }
 
-Eigen::Quaterniond HermiteQuaternionCurve2::GetOrientation(const double & s_in)
+Eigen::Quaterniond NormalizedHermiteQuaternionCurve::GetOrientation(const double & s_in)
 {
   s_ = this->Clamp(s_in);
   ComputeBasis(s_);
@@ -462,7 +464,7 @@ Eigen::Quaterniond HermiteQuaternionCurve2::GetOrientation(const double & s_in)
 }
 
 Eigen::Vector3d
-HermiteQuaternionCurve2::GetAngularVelocity(const double & s_in)
+NormalizedHermiteQuaternionCurve::GetAngularVelocity(const double & s_in)
 {
   s_ = this->Clamp(s_in);
   ComputeBasis(s_);
@@ -473,7 +475,7 @@ HermiteQuaternionCurve2::GetAngularVelocity(const double & s_in)
 
 // For world frame
 Eigen::Vector3d
-HermiteQuaternionCurve2::GetAngularAcceleration(const double & s_in)
+NormalizedHermiteQuaternionCurve::GetAngularAcceleration(const double & s_in)
 {
   s_ = this->Clamp(s_in);
   ComputeBasis(s_);
@@ -482,7 +484,7 @@ HermiteQuaternionCurve2::GetAngularAcceleration(const double & s_in)
   return ang_acc_out;
 }
 
-double HermiteQuaternionCurve2::Clamp(
+double NormalizedHermiteQuaternionCurve::Clamp(
   const double & s_in, double lo,
   double hi)
 {
@@ -511,13 +513,10 @@ MinJerkCurve::~MinJerkCurve() {}
 
 void MinJerkCurve::Initialization()
 {
-  // Initialize to the corrrect sizes
-  C_mat = Eigen::MatrixXd::Zero(6, 6);
-  a_coeffs = Eigen::VectorXd::Zero(6);
-  bound_cond = Eigen::VectorXd::Zero(6);
-
-  init_cond = Eigen::VectorXd::Zero(3);
-  end_cond = Eigen::VectorXd::Zero(3);
+  for (int i = 0; i < 6; ++i) b_[i] = 0.0;
+  inv_T_ = 1.0;
+  init_cond.setZero();
+  end_cond.setZero();
   to = 0.0;
   tf = 1.0;
 }
@@ -527,91 +526,54 @@ void MinJerkCurve::SetParams(
   const Eigen::Vector3d & end,
   const double time_start, const double time_end)
 {
-  // Set the Parameters
   init_cond = init;
-  end_cond = end;
-  bound_cond.head(3) = init_cond;
-  bound_cond.tail(3) = end_cond;
+  end_cond  = end;
   to = time_start;
   tf = time_end;
 
-  // Construct C matrix
-  C_mat(0, 0) = 1.0;
-  C_mat(0, 1) = to;
-  C_mat(0, 2) = std::pow(to, 2);
-  C_mat(0, 3) = std::pow(to, 3);
-  C_mat(0, 4) = std::pow(to, 4);
-  C_mat(0, 5) = std::pow(to, 5);
-  C_mat(1, 1) = 1.0;
-  C_mat(1, 2) = 2.0 * to;
-  C_mat(1, 3) = 3.0 * std::pow(to, 2);
-  C_mat(1, 4) = 4.0 * std::pow(to, 3);
-  C_mat(1, 5) = 5.0 * std::pow(to, 4);
-  C_mat(2, 2) = 2.0;
-  C_mat(2, 3) = 6.0 * to;
-  C_mat(2, 4) = 12.0 * std::pow(to, 2);
-  C_mat(2, 5) = 20.0 * std::pow(to, 3);
-  C_mat(3, 0) = 1.0;
-  C_mat(3, 1) = tf;
-  C_mat(3, 2) = std::pow(tf, 2);
-  C_mat(3, 3) = std::pow(tf, 3);
-  C_mat(3, 4) = std::pow(tf, 4);
-  C_mat(3, 5) = std::pow(tf, 5);
-  C_mat(4, 1) = 1.0;
-  C_mat(4, 2) = 2.0 * tf;
-  C_mat(4, 3) = 3.0 * std::pow(tf, 2);
-  C_mat(4, 4) = 4.0 * std::pow(tf, 3);
-  C_mat(4, 5) = 5.0 * std::pow(tf, 4);
-  C_mat(5, 2) = 2.0;
-  C_mat(5, 3) = 6.0 * tf;
-  C_mat(5, 4) = 12.0 * std::pow(tf, 2);
-  C_mat(5, 5) = 20.0 * std::pow(tf, 3);
+  const double T  = tf - to;
+  inv_T_ = (T > 1e-9) ? 1.0 / T : 0.0;
+  const double T2 = T * T;
 
-  // Solve for the coefficients
-  a_coeffs = C_mat.colPivHouseholderQr().solve(bound_cond);
+  // Tau-domain coefficients: p(tau) = b0 + b1*tau + ... + b5*tau^5
+  // where tau = (t - to) / T and dp/dt = dp/dtau * inv_T_
+  b_[0] = init_cond[0];
+  b_[1] = init_cond[1] * T;
+  b_[2] = init_cond[2] * T2 * 0.5;
+
+  // Remainders to satisfy end boundary conditions at tau = 1
+  const double D0 = end_cond[0] - b_[0] - b_[1] - b_[2];
+  const double D1 = end_cond[1] * T  - b_[1] - 2.0 * b_[2];
+  const double D2 = end_cond[2] * T2 - 2.0 * b_[2];
+
+  // Closed-form inverse of [[1,1,1],[3,4,5],[6,12,20]] (det = 2):
+  b_[3] =  10.0 * D0 - 4.0 * D1 + 0.5 * D2;
+  b_[4] = -15.0 * D0 + 7.0 * D1 -       D2;
+  b_[5] =   6.0 * D0 - 3.0 * D1 + 0.5 * D2;
 }
 
-void MinJerkCurve::GetPos(const double time, double & pos)
+void MinJerkCurve::GetPos(const double time, double & pos) const
 {
-  double t;
-  if (time <= to) {
-    t = to;
-  } else if (time >= tf) {
-    t = tf;
-  } else {
-    t = time;
-  }
-  pos = a_coeffs[0] + a_coeffs[1] * t + a_coeffs[2] * std::pow(t, 2) +
-    a_coeffs[3] * std::pow(t, 3) + a_coeffs[4] * std::pow(t, 4) +
-    a_coeffs[5] * std::pow(t, 5);
+  const double tau = std::min(std::max((time - to) * inv_T_, 0.0), 1.0);
+  pos = b_[0] + tau * (b_[1] + tau * (b_[2] + tau * (b_[3] + tau * (b_[4] + tau * b_[5]))));
 }
-void MinJerkCurve::GetVel(const double time, double & vel)
+void MinJerkCurve::GetVel(const double time, double & vel) const
 {
-  double t;
-  if (time <= to) {
-    t = to;
-  } else if (time >= tf) {
-    t = tf;
-  } else {
-    t = time;
-  }
-  vel = a_coeffs[1] + 2.0 * a_coeffs[2] * t +
-    3.0 * a_coeffs[3] * std::pow(t, 2) +
-    4.0 * a_coeffs[4] * std::pow(t, 3) + 5.0 * a_coeffs[5] * std::pow(t, 4);
+  if (time >= tf) { vel = end_cond[1];  return; }
+  if (time <= to) { vel = init_cond[1]; return; }
+  const double tau = (time - to) * inv_T_;
+  // p'(tau) via Horner; multiply by inv_T_ to convert dtau/dt → dt/dt
+  vel = (b_[1] + tau * (2.0 * b_[2] + tau * (3.0 * b_[3] +
+         tau * (4.0 * b_[4] + tau * 5.0 * b_[5])))) * inv_T_;
 }
-void MinJerkCurve::GetAcc(const double time, double & acc)
+void MinJerkCurve::GetAcc(const double time, double & acc) const
 {
-  double t;
-  if (time <= to) {
-    t = to;
-  } else if (time >= tf) {
-    t = tf;
-  } else {
-    t = time;
-  }
-  acc = 2.0 * a_coeffs[2] + 6.0 * a_coeffs[3] * t +
-    12.0 * a_coeffs[4] * std::pow(t, 2) +
-    20.0 * a_coeffs[5] * std::pow(t, 3);
+  if (time >= tf) { acc = end_cond[2];  return; }
+  if (time <= to) { acc = init_cond[2]; return; }
+  const double tau = (time - to) * inv_T_;
+  // p''(tau) via Horner; multiply by inv_T_^2
+  acc = (2.0 * b_[2] + tau * (6.0 * b_[3] +
+         tau * (12.0 * b_[4] + tau * 20.0 * b_[5]))) * inv_T_ * inv_T_;
 }
 
 MinJerkCurveVec::MinJerkCurveVec() {}
@@ -633,7 +595,9 @@ MinJerkCurveVec::MinJerkCurveVec(
                                    Eigen::Vector3d(p2_[i], v2_[i], a2_[i]), 0.0,
                                    Ts_));
   }
-  output_ = Eigen::VectorXd::Zero(start_pos.size());
+  pos_out_.setZero(start_pos.size());
+  vel_out_.setZero(start_pos.size());
+  acc_out_.setZero(start_pos.size());
 }
 
 // Destructor
@@ -657,41 +621,39 @@ void MinJerkCurveVec::Initialize(
   a2_ = end_acc;
 
   const int n = start_pos.size();
-  curves_.resize(n);
+  if (static_cast<int>(curves_.size()) != n) curves_.resize(n);
   for (int i = 0; i < n; i++) {
     curves_[i].SetParams(Eigen::Vector3d(p1_[i], v1_[i], a1_[i]),
                          Eigen::Vector3d(p2_[i], v2_[i], a2_[i]), 0.0, Ts_);
   }
-  output_ = Eigen::VectorXd::Zero(n);
+  pos_out_.setZero(n);
+  vel_out_.setZero(n);
+  acc_out_.setZero(n);
 }
 
-// Evaluation functions
-Eigen::VectorXd MinJerkCurveVec::Evaluate(const double t_in)
+// Evaluation functions — return const& to pre-allocated buffers; no heap alloc.
+const Eigen::VectorXd& MinJerkCurveVec::Evaluate(const double t_in)
 {
-  double val;
-  for (int i = 0; i < p1_.size(); i++) {
-    curves_[i].GetPos(t_in, val);
-    output_[i] = val;
+  for (int i = 0; i < static_cast<int>(curves_.size()); i++) {
+    curves_[i].GetPos(t_in, pos_out_[i]);
   }
-  return output_;
+  return pos_out_;
 }
 
-Eigen::VectorXd MinJerkCurveVec::EvaluateFirstDerivative(const double t_in)
+const Eigen::VectorXd& MinJerkCurveVec::EvaluateFirstDerivative(const double t_in)
 {
-  double val;
-  for (int i = 0; i < v1_.size(); i++) {
-    curves_[i].GetVel(t_in, val);
-    output_[i] = val;
+  for (int i = 0; i < static_cast<int>(curves_.size()); i++) {
+    curves_[i].GetVel(t_in, vel_out_[i]);
   }
-  return output_;
+  return vel_out_;
 }
 
-Eigen::VectorXd MinJerkCurveVec::EvaluateSecondDerivative(const double t_in)
+const Eigen::VectorXd& MinJerkCurveVec::EvaluateSecondDerivative(const double t_in)
 {
-  double val;
-  for (int i = 0; i < a1_.size(); i++) {
-    curves_[i].GetAcc(t_in, val);
-    output_[i] = val;
+  for (int i = 0; i < static_cast<int>(curves_.size()); i++) {
+    curves_[i].GetAcc(t_in, acc_out_[i]);
   }
-  return output_;
+  return acc_out_;
 }
+
+} // namespace util

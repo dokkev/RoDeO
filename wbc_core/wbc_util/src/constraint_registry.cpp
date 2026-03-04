@@ -1,7 +1,11 @@
+/**
+ * @file wbc_core/wbc_util/src/constraint_registry.cpp
+ * @brief Doxygen documentation for constraint_registry module.
+ */
 #include "wbc_util/constraint_registry.hpp"
 
 #include "wbc_formulation/constraint.hpp"
-#include "wbc_formulation/friction_cone.hpp"
+#include "wbc_formulation/contact.hpp"
 
 namespace wbc {
 

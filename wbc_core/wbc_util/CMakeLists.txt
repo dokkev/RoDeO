@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -19,6 +20,8 @@ add_library(${PROJECT_NAME} SHARED
   src/io_util.cpp
   src/constraint_registry.cpp
   src/task_registry.cpp
+  src/ros_path_utils.cpp
+  src/yaml_parser.cpp
 )
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -30,6 +33,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
+  ament_index_cpp
   wbc_formulation
 )
 
@@ -58,6 +62,7 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
+  ament_index_cpp
   eigen3_cmake_module
   Eigen3
   yaml-cpp

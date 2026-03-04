@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_robot_system/include/wbc_robot_system/pinocchio_robot_system.hpp
+ * @brief Doxygen documentation for pinocchio_robot_system module.
+ */
 #pragma once
 
 #include "wbc_robot_system/interface/robot_system.hpp"
@@ -81,6 +85,10 @@ public:
   Eigen::VectorXd GetQ() const override;
   /** @brief Get full generalized velocity vector. */
   Eigen::VectorXd GetQdot() const override;
+  /** @brief Get full generalized position vector by const reference. */
+  const Eigen::VectorXd& GetQRef() const { return q_; }
+  /** @brief Get full generalized velocity vector by const reference. */
+  const Eigen::VectorXd& GetQdotRef() const { return qdot_; }
   /** @brief Get mass matrix M(q). */
   Eigen::MatrixXd GetMassMatrix() override;
   /** @brief Get cached mass matrix by const reference. */
@@ -155,10 +163,10 @@ public:
   int GetQIdx(int joint_idx) const;
   /** @brief Get qdot index from legacy joint index convention. */
   int GetQdotIdx(int joint_idx) const;
-  /** @brief Get actuated joint positions. */
-  Eigen::VectorXd GetJointPos() const;
-  /** @brief Get actuated joint velocities. */
-  Eigen::VectorXd GetJointVel() const;
+  /** @brief Get actuated joint positions (view into internal q_; zero-copy). */
+  Eigen::Ref<const Eigen::VectorXd> GetJointPos() const;
+  /** @brief Get actuated joint velocities (view into internal qdot_; zero-copy). */
+  Eigen::Ref<const Eigen::VectorXd> GetJointVel() const;
 
   /** @brief Get frame index by link name. */
   int GetFrameIndex(const std::string& link_name) const;
@@ -174,32 +182,39 @@ public:
   Eigen::Matrix<double, 6, Eigen::Dynamic> GetLinkJacobian(int link_idx);
   /** @brief Get LOCAL_WORLD_ALIGNED Jdot*qdot by frame index. */
   Eigen::Matrix<double, 6, 1> GetLinkJacobianDotQdot(int link_idx);
+  /**
+   * @brief Fill a pre-allocated 6xN matrix with the LOCAL_WORLD_ALIGNED Jacobian.
+   * @param out Must be sized 6 x NumQdot(). Avoids heap allocation vs GetLinkJacobian().
+   */
+  void FillLinkJacobian(int link_idx, Eigen::MatrixXd& out);
+
+  /**
+   * @brief Fill a pre-allocated 6xN matrix with the LOCAL (body-frame) Jacobian.
+   * @param out Must be sized 6 x NumQdot(). Avoids heap allocation vs GetLinkLocalJacobian().
+   */
+  void FillLinkBodyJacobian(int link_idx, Eigen::MatrixXd& out);
+
   /** @brief Get LOCAL spatial velocity by frame index. */
-  Eigen::Matrix<double, 6, 1> GetLinkBodySpatialVel(int link_idx) const;
+  Eigen::Matrix<double, 6, 1> GetLinkLocalSpatialVelocity(int link_idx) const;
+  /** @brief Get LOCAL spatial velocity by frame name. */
+  Eigen::Matrix<double, 6, 1> GetLinkLocalSpatialVelocity(
+      const std::string& link_name) const {
+    return GetLinkLocalSpatialVelocity(GetFrameIndex(link_name));
+  }
   /** @brief Get LOCAL Jacobian by frame index. */
-  Eigen::Matrix<double, 6, Eigen::Dynamic> GetLinkBodyJacobian(int link_idx);
+  Eigen::Matrix<double, 6, Eigen::Dynamic> GetLinkLocalJacobian(int link_idx);
+  /** @brief Get LOCAL Jacobian by frame name. */
+  Eigen::Matrix<double, 6, Eigen::Dynamic> GetLinkLocalJacobian(
+      const std::string& link_name) {
+    return GetLinkLocalJacobian(GetFrameIndex(link_name));
+  }
   /** @brief Get LOCAL Jdot*qdot by frame index. */
-  Eigen::Matrix<double, 6, 1> GetLinkBodyJacobianDotQdot(int link_idx);
-
-  /** @brief Get robot COM position in world frame. */
-  Eigen::Vector3d GetRobotComPos();
-  /** @brief Get robot COM linear velocity in world frame. */
-  Eigen::Vector3d GetRobotComLinVel();
-  /** @brief Get COM linear Jacobian. */
-  Eigen::Matrix<double, 3, Eigen::Dynamic> GetComLinJacobian();
-  /** @brief Get COM linear Jdot*qdot. */
-  Eigen::Matrix<double, 3, 1> GetComLinJacobianDotQdot();
-
-  /** @brief Get base orientation rotation matrix. */
-  Eigen::Matrix3d GetBodyOriRot();
-  /** @brief Get base orientation yaw-pitch-roll (ZYX). */
-  Eigen::Vector3d GetBodyOriYPR();
-  /** @brief Get base COM position in world frame. */
-  Eigen::Vector3d GetBodyPos();
-  /** @brief Get base COM linear velocity in world frame. */
-  Eigen::Vector3d GetBodyVel();
-  /** @brief Get world yaw-only rotation matrix from base orientation. */
-  Eigen::Matrix3d GetBodyYawRotationMatrix();
+  Eigen::Matrix<double, 6, 1> GetLinkLocalJacobianDotQdot(int link_idx);
+  /** @brief Get LOCAL Jdot*qdot by frame name. */
+  Eigen::Matrix<double, 6, 1> GetLinkLocalJacobianDotQdot(
+      const std::string& link_name) {
+    return GetLinkLocalJacobianDotQdot(GetFrameIndex(link_name));
+  }
 
   /** @brief Get transform from ref_frame to target_frame. */
   Eigen::Isometry3d GetTransform(const std::string& ref_frame,
@@ -226,20 +241,14 @@ public:
   /** @brief Get number of floating DOFs. */
   int NumFloatDof() const;
 
-  Eigen::Matrix<double, Eigen::Dynamic, 2> JointPosLimits() const {
-    return joint_pos_limits_;
-  }
-  Eigen::Matrix<double, Eigen::Dynamic, 2> JointVelLimits() const {
-    return joint_vel_limits_;
-  }
-  Eigen::Matrix<double, Eigen::Dynamic, 2> JointTrqLimits() const {
-    return joint_trq_limits_;
-  }
+  const Eigen::MatrixXd& JointPosLimits() const { return joint_pos_limits_; }
+  const Eigen::MatrixXd& JointVelLimits() const { return joint_vel_limits_; }
+  const Eigen::MatrixXd& JointTrqLimits() const { return joint_trq_limits_; }
 
-  std::unordered_map<std::string, int> GetJointNameAndIndexMap() const {
+  const std::unordered_map<std::string, int>& GetJointNameAndIndexMap() const {
     return joint_name_idx_map_;
   }
-  std::unordered_map<std::string, int> GetActuatorNameAndIndexMap() const {
+  const std::unordered_map<std::string, int>& GetActuatorNameAndIndexMap() const {
     return actuator_name_idx_map_;
   }
   Eigen::Vector3d GetBaseLocalComPos() override { return base_local_com_pos_; }
@@ -300,11 +309,6 @@ protected:
   void UpdateCentroidalQuantities() override;
 
 private:
-  void _Initialize() { Initialize(); }
-  void _InitializeRootFrame() { InitializeRootFrame(); }
-  void _UpdateCentroidalQuantities() { UpdateCentroidalQuantities(); }
-  void _PrintRobotInfo() const { PrintRobotInfo(); }
-
   void InitializeRootFrame();
   void PrintRobotInfo() const;
   static Eigen::Vector3d QuaternionToEulerZYX(const Eigen::Quaterniond& q);
@@ -354,12 +358,17 @@ private:
 
   bool acceleration_kinematics_valid_{false};
   bool mass_matrix_valid_{false};
+  bool mass_matrix_inverse_valid_{false};
   bool nonlinear_effects_valid_{false};
   bool gravity_valid_{false};
   bool coriolis_valid_{false};
   Eigen::VectorXd nonlinear_effects_cache_;
   Eigen::VectorXd gravity_cache_;
   Eigen::VectorXd coriolis_cache_;
+
+  // Scratch buffer for in-place Jacobian computation (6 x num_qdot_).
+  // Allocated once in Initialize() and reused in FillLink*Jacobian().
+  Eigen::MatrixXd link_jac_scratch_;
 };
 
 } // namespace wbc

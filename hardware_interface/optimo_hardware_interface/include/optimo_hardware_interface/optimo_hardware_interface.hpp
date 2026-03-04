@@ -1,3 +1,7 @@
+/**
+ * @file hardware_interface/optimo_hardware_interface/include/optimo_hardware_interface/optimo_hardware_interface.hpp
+ * @brief Doxygen documentation for optimo_hardware_interface module.
+ */
 #pragma once
 
 #include <vector>
@@ -7,6 +11,9 @@
 namespace optimo_hardware_interface
 {
 
+/**
+ * @brief Minimal ros2_control system interface for Optimo hardware/simulation.
+ */
 class OptimoHardwareInterface : public hardware_interface::SystemInterface
 {
 public:

@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_util/include/wbc_util/yaml_util.hpp
+ * @brief Doxygen documentation for yaml_util module.
+ */
 #pragma once
 
 #include <iostream>
@@ -9,6 +13,11 @@
 
 namespace wbc_util {
 
+/**
+ * @brief Read required scalar parameter from YAML node.
+ *
+ * @warning Exits process on missing key (legacy behavior).
+ */
 template <typename T>
 T ReadParameter(const YAML::Node& node, const std::string& name) {
   if (!node[name]) {
@@ -19,6 +28,9 @@ T ReadParameter(const YAML::Node& node, const std::string& name) {
   return node[name].as<T>();
 }
 
+/**
+ * @brief Read optional scalar parameter from YAML node.
+ */
 template <typename T>
 T ReadParameter(const YAML::Node& node, const std::string& name,
                 const T& default_value) {
@@ -28,6 +40,11 @@ T ReadParameter(const YAML::Node& node, const std::string& name,
   return node[name].as<T>();
 }
 
+/**
+ * @brief Read required vector parameter as Eigen vector.
+ *
+ * @warning Exits process on missing key (legacy behavior).
+ */
 inline Eigen::VectorXd ReadVector(const YAML::Node& node,
                                   const std::string& name) {
   if (!node[name]) {
@@ -40,6 +57,9 @@ inline Eigen::VectorXd ReadVector(const YAML::Node& node,
   return Eigen::Map<Eigen::VectorXd>(vec_std.data(), vec_std.size());
 }
 
+/**
+ * @brief Read optional vector parameter as Eigen vector.
+ */
 inline Eigen::VectorXd ReadVector(const YAML::Node& node,
                                   const std::string& name,
                                   const Eigen::VectorXd& default_val) {

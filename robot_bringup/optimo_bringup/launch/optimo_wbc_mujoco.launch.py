@@ -1,5 +1,3 @@
-import os
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
@@ -27,6 +25,8 @@ def generate_launch_description():
     rviz_config = PathJoinSubstitution(
         [FindPackageShare("optimo_description"), "rviz", "optimo.rviz"]
     )
+    controller_manager_name = PathJoinSubstitution(["/", ns, "controller_manager"])
+    robot_description_topic = PathJoinSubstitution(["/", ns, "robot_description"])
 
     robot_description_content = Command(
         [
@@ -38,7 +38,7 @@ def generate_launch_description():
             " ",
             "use_mock_hardware:=false",
             " ",
-            "use_mukoco_sim:=true",
+            "use_mujoco_sim:=true",
             " ",
             "headless:=",
             headless,
@@ -64,36 +64,42 @@ def generate_launch_description():
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
+        namespace=ns,
         output="both",
         parameters=[robot_description, {"use_sim_time": True}],
+        remappings=[
+            ("joint_states", "joint_state_broadcaster/joint_states"),
+        ],
     )
 
     control_node = Node(
         package="mujoco_ros2_control",
         executable="ros2_control_node",
+        namespace=ns,
         output="both",
         parameters=[
             {"use_sim_time": True},
             controller_file,
         ],
-        remappings=(
-            [("~/robot_description", "/robot_description")]
-            if os.environ.get("ROS_DISTRO") == "humble"
-            else []
-        ),
+        remappings=[
+            ("~/robot_description", robot_description_topic),
+            ("/robot_description", robot_description_topic),
+        ],
     )
 
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+        namespace=ns,
+        arguments=["joint_state_broadcaster", "--controller-manager", controller_manager_name],
         output="both",
     )
 
     wbc_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["wbc_controller", "--controller-manager", "/controller_manager"],
+        namespace=ns,
+        arguments=["wbc_controller", "--controller-manager", controller_manager_name],
         output="both",
     )
 
@@ -124,7 +130,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "mujoco_model",
                 default_value=PathJoinSubstitution(
-                    [FindPackageShare("mujoco_sim"), "mjcf", "scene.xml"]
+                    [FindPackageShare("optimo_description"), "mjcf", "optimo.xml"]
                 ),
             ),
             robot_state_publisher,

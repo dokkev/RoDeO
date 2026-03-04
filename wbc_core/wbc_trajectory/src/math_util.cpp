@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_trajectory/src/math_util.cpp
+ * @brief Doxygen documentation for math_util module.
+ */
 #include "wbc_trajectory/math_util.hpp"
 
 #include <cassert>
@@ -167,75 +171,35 @@ Eigen::Quaterniond EulerZYXtoQuat(const Eigen::Vector3d & rpy)
   return EulerZYXtoQuat(rpy(0), rpy(1), rpy(2));
 }
 
+// Shared implementation: extracts roll, pitch, yaw from a quaternion.
+// Formula from https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+static void QuatToRollPitchYaw(const Eigen::Quaterniond& q,
+                               double& roll, double& pitch, double& yaw) {
+  const double sinr_cosp = 2 * (q.w() * q.x() + q.y() * q.z());
+  const double cosr_cosp = 1 - 2 * (q.x() * q.x() + q.y() * q.y());
+  roll = std::atan2(sinr_cosp, cosr_cosp);
+
+  const double sinp = 2 * (q.w() * q.y() - q.z() * q.x());
+  pitch = (std::abs(sinp) >= 1) ? std::copysign(M_PI / 2, sinp) : std::asin(sinp);
+
+  const double siny_cosp = 2 * (q.w() * q.z() + q.x() * q.y());
+  const double cosy_cosp = 1 - 2 * (q.y() * q.y() + q.z() * q.z());
+  yaw = std::atan2(siny_cosp, cosy_cosp);
+}
+
+/// Returns (yaw, pitch, roll) — intrinsic ZYX / extrinsic XYZ convention.
 Eigen::Vector3d QuatToEulerZYX(const Eigen::Quaterniond & quat_in)
 {
-  // to match equation from:
-  // https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
-
-  // roll (x-axis rotation)
-  double sinr_cosp =
-    2 * (quat_in.w() * quat_in.x() + quat_in.y() * quat_in.z());
-  double cosr_cosp =
-    1 - 2 * (quat_in.x() * quat_in.x() + quat_in.y() * quat_in.y());
-  double roll = std::atan2(sinr_cosp, cosr_cosp);
-
-  // pitch (y-axis rotation)
-  double sinp = 2 * (quat_in.w() * quat_in.y() - quat_in.z() * quat_in.x());
-  double pitch;
-  if (std::abs(sinp) >= 1) {
-    pitch = std::copysign(M_PI / 2, sinp); // use 90 degrees if out of range
-  } else {
-    pitch = std::asin(sinp);
-  }
-
-  // yaw rotation (z-axis rotation)
-  double siny_cosp =
-    2 * (quat_in.w() * quat_in.z() + quat_in.x() * quat_in.y());
-  double cosy_cosp =
-    1 - 2 * (quat_in.y() * quat_in.y() + quat_in.z() * quat_in.z());
-  double yaw = std::atan2(siny_cosp, cosy_cosp);
-
-  // The following is the Eigen library method. But it flips for a negative
-  // yaw..
-  // Eigen::Matrix3d mat = quat_in.toRotationMatrix();
-  // return mat.eulerAngles(2,1,0);
-
+  double roll, pitch, yaw;
+  QuatToRollPitchYaw(quat_in, roll, pitch, yaw);
   return Eigen::Vector3d(yaw, pitch, roll);
 }
 
+/// Returns (roll, pitch, yaw) — intrinsic XYZ / extrinsic ZYX convention.
 Eigen::Vector3d QuatToEulerXYZ(const Eigen::Quaterniond & quat_in)
 {
-  // to match equation from:
-  // https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
-
-  // roll (x-axis rotation)
-  double sinr_cosp =
-    2 * (quat_in.w() * quat_in.x() + quat_in.y() * quat_in.z());
-  double cosr_cosp =
-    1 - 2 * (quat_in.x() * quat_in.x() + quat_in.y() * quat_in.y());
-  double roll = std::atan2(sinr_cosp, cosr_cosp);
-
-  // pitch (y-axis rotation)
-  double sinp = 2 * (quat_in.w() * quat_in.y() - quat_in.z() * quat_in.x());
-  double pitch;
-  if (std::abs(sinp) >= 1) {
-    pitch = std::copysign(M_PI / 2, sinp); // use 90 degrees if out of range
-  } else {
-    pitch = std::asin(sinp);
-  }
-
-  // yaw rotation (z-axis rotation)
-  double siny_cosp =
-    2 * (quat_in.w() * quat_in.z() + quat_in.x() * quat_in.y());
-  double cosy_cosp =
-    1 - 2 * (quat_in.y() * quat_in.y() + quat_in.z() * quat_in.z());
-  double yaw = std::atan2(siny_cosp, cosy_cosp);
-
-  // The following is the Eigen library method. But it flips for a negative
-  // yaw..
-  // Eigen::Matrix3d mat = quat_in.toRotationMatrix();
-  // return mat.eulerAngles(2,1,0);
-
+  double roll, pitch, yaw;
+  QuatToRollPitchYaw(quat_in, roll, pitch, yaw);
   return Eigen::Vector3d(roll, pitch, yaw);
 }
 // ZYX extrinsic rotation rates to world angular velocity
@@ -293,7 +257,7 @@ Eigen::Matrix3d CoordinateRotation(
   double s = std::sin(theta);
   double c = std::cos(theta);
 
-  Eigen::Matrix3d R;
+  Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
   if (axis == CoordinateAxis::X) {
     R << 1, 0, 0, 0, c, -s, 0, s, c;
   } else if (axis == CoordinateAxis::Y) {
@@ -370,8 +334,6 @@ void AvoidQuatJump(
     act_ori.x() = -act_ori.x();
     act_ori.y() = -act_ori.y();
     act_ori.z() = -act_ori.z();
-  } else {
-    act_ori = act_ori;
   }
 }
 

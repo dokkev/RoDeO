@@ -1,8 +1,34 @@
+/**
+ * @file wbc_core/wbc_formulation/src/motion_task.cpp
+ * @brief Doxygen documentation for motion_task module.
+ */
 #include "wbc_formulation/motion_task.hpp"
 
 #include <stdexcept>
 
 namespace wbc {
+////////////////////////////////////////////////////////////////////////////////
+TaskConfig TaskConfig::Defaults(int dim) {
+  TaskConfig config;
+  config.kp = Eigen::VectorXd::Zero(dim);
+  config.kd = Eigen::VectorXd::Zero(dim);
+  config.ki = Eigen::VectorXd::Zero(dim);
+  config.weight = Eigen::VectorXd::Zero(dim);
+  config.kp_ik = Eigen::VectorXd::Zero(dim);
+  return config;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+TaskConfig TaskConfig::FromTask(const Task& task) {
+  TaskConfig config = TaskConfig::Defaults(task.Dim());
+  config.kp = task.Kp();
+  config.kd = task.Kd();
+  config.ki = task.Ki();
+  config.weight = task.Weight();
+  config.kp_ik = task.KpIK();
+  return config;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 Task::Task(PinocchioRobotSystem* robot, int dim)
     : robot_(robot),
@@ -69,32 +95,23 @@ JointTask::JointTask(PinocchioRobotSystem* robot)
 
 ////////////////////////////////////////////////////////////////////////////////
 void JointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
-  local_des_pos_ = des_pos_;
-  pos_ = robot_->GetJointPos();
-  local_pos_ = pos_;
+  pos_     = robot_->GetJointPos();
+  vel_     = robot_->GetJointVel();
   pos_err_ = des_pos_ - pos_;
-  local_pos_err_ = pos_err_;
-
-  local_des_vel_ = des_vel_;
-  vel_ = robot_->GetJointVel();
-  local_vel_ = vel_;
   vel_err_ = des_vel_ - vel_;
-  local_vel_err_ = vel_err_;
-
-  local_des_acc_ = des_acc_;
-  op_cmd_ = des_acc_ + kp_.cwiseProduct(pos_err_) + kd_.cwiseProduct(vel_err_);
+  SyncLocalToWorld();
+  op_cmd_  = des_acc_ + kp_.cwiseProduct(pos_err_) + kd_.cwiseProduct(vel_err_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void JointTask::UpdateJacobian() {
   jacobian_.setZero();
-  jacobian_.block(0, robot_->NumFloatDof(), dim_, robot_->NumActiveDof()) =
-      Eigen::MatrixXd::Identity(robot_->NumActiveDof(), robot_->NumActiveDof());
+  jacobian_.block(0, robot_->NumFloatDof(), dim_, robot_->NumActiveDof()).setIdentity();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void JointTask::UpdateJacobianDotQdot() {
-  jacobian_dot_q_dot_ = Eigen::VectorXd::Zero(dim_);
+  jacobian_dot_q_dot_.setZero();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -105,23 +122,16 @@ SelectedJointTask::SelectedJointTask(
 
 ////////////////////////////////////////////////////////////////////////////////
 void SelectedJointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
+  const Eigen::VectorXd& q    = robot_->GetQRef();
+  const Eigen::VectorXd& qdot = robot_->GetQdotRef();
   for (int i = 0; i < dim_; ++i) {
-    pos_[i] = robot_->GetQ()[robot_->GetQIdx(joint_idx_container_[i])];
+    pos_[i]     = q[robot_->GetQIdx(joint_idx_container_[i])];
+    vel_[i]     = qdot[robot_->GetQdotIdx(joint_idx_container_[i])];
     pos_err_[i] = des_pos_[i] - pos_[i];
-
-    vel_[i] = robot_->GetQdot()[robot_->GetQdotIdx(joint_idx_container_[i])];
     vel_err_[i] = des_vel_[i] - vel_[i];
-
-    op_cmd_[i] = des_acc_[i] + kp_[i] * pos_err_[i] + kd_[i] * vel_err_[i];
+    op_cmd_[i]  = des_acc_[i] + kp_[i] * pos_err_[i] + kd_[i] * vel_err_[i];
   }
-
-  local_des_pos_ = des_pos_;
-  local_des_vel_ = des_vel_;
-  local_des_acc_ = des_acc_;
-  local_pos_ = pos_;
-  local_vel_ = vel_;
-  local_pos_err_ = pos_err_;
-  local_vel_err_ = vel_err_;
+  SyncLocalToWorld();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -135,33 +145,56 @@ void SelectedJointTask::UpdateJacobian() {
 
 ////////////////////////////////////////////////////////////////////////////////
 void SelectedJointTask::UpdateJacobianDotQdot() {
-  jacobian_dot_q_dot_ = Eigen::VectorXd::Zero(dim_);
+  jacobian_dot_q_dot_.setZero();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 LinkPosTask::LinkPosTask(PinocchioRobotSystem* robot, int target_idx)
-    : Task(robot, 3), target_link_idx_(target_idx) {
+    : Task(robot, 3) {
   target_idx_ = target_idx;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkPosTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
   pos_ = robot_->GetLinkIsometry(target_idx_).translation();
-  pos_err_ = des_pos_ - pos_;
-
   vel_ = robot_->GetLinkSpatialVel(target_idx_).tail(dim_);
-  vel_err_ = des_vel_ - vel_;
 
-  local_des_pos_ = world_R_local.transpose() * des_pos_;
-  local_pos_ = world_R_local.transpose() * pos_;
-  local_pos_err_ = world_R_local.transpose() * pos_err_;
-  local_des_vel_ = world_R_local.transpose() * des_vel_;
-  local_vel_ = world_R_local.transpose() * vel_;
-  local_vel_err_ = world_R_local.transpose() * vel_err_;
-  local_des_acc_ = world_R_local.transpose() * des_acc_;
+  // Determine local-frame rotation R and position offset.
+  // With ref_frame: R = R_ref, des values are in reference frame.
+  // Without: R = world_R_local, des values are in world frame (legacy).
+  const bool has_ref = (ref_frame_idx_ >= 0);
+  Eigen::Matrix3d R;
+  Eigen::Vector3d pos_in_local;
 
-  op_cmd_ = des_acc_ + world_R_local * (kp_.cwiseProduct(local_pos_err_) +
-                                        kd_.cwiseProduct(local_vel_err_));
+  if (has_ref) {
+    const Eigen::Isometry3d& T_ref = robot_->GetLinkIsometry(ref_frame_idx_);
+    R = T_ref.linear();
+    pos_in_local = R.transpose() * (pos_ - T_ref.translation());
+  } else {
+    R = world_R_local;
+    pos_in_local = R.transpose() * pos_;
+  }
+
+  if (has_ref) {
+    local_des_pos_ = des_pos_;
+    local_des_vel_ = des_vel_;
+    local_des_acc_ = des_acc_;
+  } else {
+    local_des_pos_.noalias() = R.transpose() * des_pos_;
+    local_des_vel_.noalias() = R.transpose() * des_vel_;
+    local_des_acc_.noalias() = R.transpose() * des_acc_;
+  }
+
+  local_pos_ = pos_in_local;
+  local_vel_.noalias() = R.transpose() * vel_;
+  local_pos_err_ = local_des_pos_ - local_pos_;
+  local_vel_err_ = local_des_vel_ - local_vel_;
+
+  pos_err_.noalias() = R * local_pos_err_;
+  vel_err_.noalias() = R * local_vel_err_;
+
+  op_cmd_.noalias() = R * (local_des_acc_ + kp_.cwiseProduct(local_pos_err_) +
+                           kd_.cwiseProduct(local_vel_err_));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -177,7 +210,7 @@ void LinkPosTask::UpdateJacobianDotQdot() {
 
 ////////////////////////////////////////////////////////////////////////////////
 LinkOriTask::LinkOriTask(PinocchioRobotSystem* robot, int target_idx)
-    : Task(robot, 3), target_link_idx_(target_idx) {
+    : Task(robot, 3) {
   target_idx_ = target_idx;
   des_pos_.resize(4);
   des_pos_.setZero();
@@ -187,47 +220,71 @@ LinkOriTask::LinkOriTask(PinocchioRobotSystem* robot, int target_idx)
   local_des_pos_.setZero();
   local_pos_.resize(4);
   local_pos_.setZero();
-  des_quat_prev_.setIdentity();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void LinkOriTask::UpdateDesired(const Eigen::VectorXd& des_pos,
+                                const Eigen::VectorXd& des_vel,
+                                const Eigen::VectorXd& des_acc) {
+  if (des_pos.size() != 4) {
+    // Silently reject: throwing in the RT loop would crash the controller.
+    return;
+  }
+  Task::UpdateDesired(des_pos, des_vel, des_acc);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkOriTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
-  local_R_world_ = robot_->GetLinkIsometry(target_idx_).linear().transpose();
+  const Eigen::Matrix3d R_cur_world =
+      robot_->GetLinkIsometry(target_idx_).linear();
+  local_R_world_ = R_cur_world.transpose();
 
-  Eigen::Quaterniond des_quat(des_pos_[3], des_pos_[0], des_pos_[1], des_pos_[2]);
-  Eigen::Quaterniond local_des_quat(world_R_local.transpose() *
-                                    des_quat.toRotationMatrix());
-  local_des_pos_ << local_des_quat.normalized().coeffs();
+  const bool has_ref = (ref_frame_idx_ >= 0);
+  const Eigen::Matrix3d R =
+      has_ref ? robot_->GetLinkIsometry(ref_frame_idx_).linear()
+              : world_R_local;
 
-  Eigen::Quaterniond quat(robot_->GetLinkIsometry(target_idx_).linear());
-  if (des_quat.coeffs().dot(quat.coeffs()) < 0.0) {
-    quat.coeffs() *= -1.0;
+  // des_pos_ stores quaternion [x,y,z,w].
+  // With ref frame: quaternion is relative to reference frame.
+  // Without: quaternion is in world frame (legacy).
+  Eigen::Quaterniond des_quat(des_pos_[3], des_pos_[0], des_pos_[1],
+                              des_pos_[2]);
+  Eigen::Quaterniond des_quat_world =
+      has_ref ? Eigen::Quaterniond(R * des_quat.toRotationMatrix()) : des_quat;
+  Eigen::Quaterniond des_quat_local(R.transpose() *
+                                    des_quat_world.toRotationMatrix());
+  local_des_pos_ << des_quat_local.normalized().coeffs();
+
+  Eigen::Quaterniond cur_quat_world(R_cur_world);
+  if (des_quat_world.coeffs().dot(cur_quat_world.coeffs()) < 0.0) {
+    cur_quat_world.coeffs() *= -1.0;
   }
-  des_quat_prev_ = des_quat;
-  pos_ << quat.normalized().coeffs();
+  pos_ << cur_quat_world.normalized().coeffs();
 
-  Eigen::Quaterniond local_quat(world_R_local.transpose() * quat.toRotationMatrix());
-  local_pos_ << local_quat.normalized().coeffs();
+  Eigen::Quaterniond cur_quat_local(R.transpose() * R_cur_world);
+  local_pos_ << cur_quat_local.normalized().coeffs();
 
-  Eigen::Quaterniond quat_err = des_quat * quat.inverse();
+  // Orientation error (axis-angle) in world frame, then rotate to local.
+  Eigen::Quaterniond quat_err = des_quat_world * cur_quat_world.inverse();
   const Eigen::AngleAxisd quat_err_aa(quat_err);
-  Eigen::Vector3d so3 = quat_err_aa.axis();
-  so3 *= quat_err_aa.angle();
-  for (int i = 0; i < 3; ++i) {
-    pos_err_[i] = so3[i];
-  }
+  pos_err_ = quat_err_aa.axis() * quat_err_aa.angle();
+  local_pos_err_.noalias() = R.transpose() * pos_err_;
 
   vel_ = robot_->GetLinkSpatialVel(target_idx_).head(dim_);
-  vel_err_ = des_vel_ - vel_;
+  local_vel_.noalias() = R.transpose() * vel_;
 
-  local_pos_err_ = world_R_local.transpose() * pos_err_;
-  local_des_vel_ = world_R_local.transpose() * des_vel_;
-  local_vel_ = world_R_local.transpose() * vel_;
-  local_vel_err_ = world_R_local.transpose() * vel_err_;
-  local_des_acc_ = world_R_local.transpose() * des_acc_;
+  if (has_ref) {
+    local_des_vel_ = des_vel_;
+    local_des_acc_ = des_acc_;
+  } else {
+    local_des_vel_.noalias() = R.transpose() * des_vel_;
+    local_des_acc_.noalias() = R.transpose() * des_acc_;
+  }
+  local_vel_err_ = local_des_vel_ - local_vel_;
+  vel_err_.noalias() = R * local_vel_err_;
 
-  op_cmd_ = des_acc_ + world_R_local * (kp_.cwiseProduct(local_pos_err_) +
-                                        kd_.cwiseProduct(local_vel_err_));
+  op_cmd_.noalias() = R * (local_des_acc_ + kp_.cwiseProduct(local_pos_err_) +
+                           kd_.cwiseProduct(local_vel_err_));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -246,19 +303,19 @@ ComTask::ComTask(PinocchioRobotSystem* robot) : Task(robot, 3) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
-  const Eigen::Vector3d com_pos = robot_->GetRobotComPos();
-  const Eigen::Vector3d com_vel = robot_->GetRobotComLinVel();
+  const Eigen::Vector3d com_pos = robot_->GetComPosition();
+  const Eigen::Vector3d com_vel = robot_->GetComVelocity();
 
   local_des_pos_ = world_R_local.transpose() * des_pos_;
   local_des_vel_ = world_R_local.transpose() * des_vel_;
   local_des_acc_ = world_R_local.transpose() * des_acc_;
 
-  pos_ << com_pos[0], com_pos[1], com_pos[2];
+  pos_ = com_pos;
   pos_err_ = des_pos_ - pos_;
   local_pos_ = world_R_local.transpose() * pos_;
   local_pos_err_ = world_R_local.transpose() * pos_err_;
 
-  vel_ << com_vel[0], com_vel[1], com_vel[2];
+  vel_ = com_vel;
   vel_err_ = des_vel_ - vel_;
   local_vel_ = world_R_local.transpose() * vel_;
   local_vel_err_ = world_R_local.transpose() * vel_err_;
@@ -269,12 +326,12 @@ void ComTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateJacobian() {
-  jacobian_ = robot_->GetComLinJacobian();
+  jacobian_ = robot_->GetComJacobian();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateJacobianDotQdot() {
-  jacobian_dot_q_dot_ = robot_->GetComLinJacobianDotQdot();
+  jacobian_dot_q_dot_ = robot_->GetComJacobianDot();
 }
 
 } // namespace wbc

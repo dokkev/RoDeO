@@ -1,7 +1,0 @@
-solver_params:
-  w_qddot: 1.0e-6
-  w_rf: 1.0e-4
-  w_xc_ddot: 1.0e-3
-  w_force_rate_of_change: 1.0e-3
-  # Legacy fallback key. If explicit fields are omitted, w_tau is used.
-  w_tau: 1.0e-3

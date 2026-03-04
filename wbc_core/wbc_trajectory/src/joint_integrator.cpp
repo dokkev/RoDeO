@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_trajectory/src/joint_integrator.cpp
+ * @brief Doxygen documentation for joint_integrator module.
+ */
 #include "wbc_trajectory/joint_integrator.hpp"
 
 #include <iostream>
@@ -20,7 +24,7 @@ JointIntegrator::JointIntegrator(int num_joints, double dt,
       pos_max_error_vec_(Eigen::VectorXd::Zero(num_joints)),
       jpos_(Eigen::VectorXd::Zero(num_joints)),
       jvel_(Eigen::VectorXd::Zero(num_joints)),
-      b_initialized_(false) {}
+      is_initialized_(false) {}
 
 void JointIntegrator::SetCutoffFrequency(double pos_cutoff_freq,
                                          double vel_cutoff_freq) {
@@ -42,7 +46,7 @@ void JointIntegrator::Initialize(const Eigen::VectorXd& init_jpos,
                                  const Eigen::VectorXd& init_jvel) {
   jpos_ = init_jpos;
   jvel_ = init_jvel;
-  b_initialized_ = true;
+  is_initialized_ = true;
 }
 
 Eigen::VectorXd JointIntegrator::ClampVector(const Eigen::VectorXd& v,
@@ -56,7 +60,7 @@ void JointIntegrator::Integrate(const Eigen::VectorXd& cmd_jacc,
                                 const Eigen::VectorXd& /*curr_jvel*/,
                                 Eigen::VectorXd& cmd_jpos,
                                 Eigen::VectorXd& cmd_jvel) {
-  if (!b_initialized_) {
+  if (!is_initialized_) {
     std::cerr << "[util::JointIntegrator] Not initialized. Call Initialize() first."
               << std::endl;
     return;

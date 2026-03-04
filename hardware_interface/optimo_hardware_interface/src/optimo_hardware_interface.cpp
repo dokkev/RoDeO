@@ -1,3 +1,7 @@
+/**
+ * @file hardware_interface/optimo_hardware_interface/src/optimo_hardware_interface.cpp
+ * @brief Doxygen documentation for optimo_hardware_interface module.
+ */
 #include "optimo_hardware_interface/optimo_hardware_interface.hpp"
 
 #include <algorithm>

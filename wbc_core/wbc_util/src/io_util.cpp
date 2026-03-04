@@ -1,3 +1,7 @@
+/**
+ * @file wbc_core/wbc_util/src/io_util.cpp
+ * @brief Doxygen documentation for io_util module.
+ */
 #include "wbc_util/io_util.hpp"
 
 #include <algorithm>

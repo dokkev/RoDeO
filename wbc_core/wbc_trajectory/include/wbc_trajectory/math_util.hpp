@@ -1,6 +1,13 @@
+/**
+ * @file wbc_core/wbc_trajectory/include/wbc_trajectory/math_util.hpp
+ * @brief Doxygen documentation for math_util module.
+ */
 #pragma once
 
 #include <array>
+#include <optional>
+#include <stdexcept>
+#include <string>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -8,6 +15,9 @@
 
 namespace util {
 
+/**
+ * @brief Cartesian coordinate axis enum for rotation utility APIs.
+ */
 enum class CoordinateAxis { X, Y, Z };
 
 Eigen::Matrix3d SkewSymmetric(const Eigen::Vector3d& omg);
@@ -18,6 +28,37 @@ Eigen::Quaternion<double> ExpToQuat(const Eigen::Vector3d& exp);
 bool NormalizeQuaternionXYZW(std::array<double, 4>* quat_xyzw);
 Eigen::Quaterniond XYZWToQuaternion(const std::array<double, 4>& quat_xyzw);
 std::array<double, 4> QuaternionToXYZW(const Eigen::Quaterniond& quat);
+inline Eigen::Vector4d QuaternionToXyzw(const Eigen::Quaterniond& quat) {
+  const Eigen::Quaterniond normalized = quat.normalized();
+  return Eigen::Vector4d(normalized.x(), normalized.y(), normalized.z(),
+                         normalized.w());
+}
+inline std::string ResolveReferenceFrameName(
+    const std::optional<std::string>& reference_frame,
+    const std::string& default_frame,
+    const std::string& fallback = "world") {
+  if (reference_frame.has_value() && !reference_frame->empty()) {
+    return *reference_frame;
+  }
+  if (!default_frame.empty()) {
+    return default_frame;
+  }
+  return fallback;
+}
+template <typename FrameResolver>
+Eigen::Isometry3d ResolveWorldIsoReferenceFrame(
+    const std::string& frame_name, FrameResolver&& frame_resolver,
+    const std::string& error_prefix = "[MathUtil] Invalid reference_frame") {
+  if (frame_name.empty() || frame_name == "world") {
+    return Eigen::Isometry3d::Identity();
+  }
+  try {
+    return frame_resolver(frame_name);
+  } catch (const std::exception& e) {
+    throw std::runtime_error(error_prefix + " '" + frame_name +
+                             "': " + e.what());
+  }
+}
 
 Eigen::Quaterniond EulerZYXtoQuat(double roll, double pitch, double yaw);
 Eigen::Quaterniond EulerZYXtoQuat(const Eigen::Vector3d& rpy);

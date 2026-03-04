@@ -15,10 +15,9 @@ find_package(Eigen3 REQUIRED)
 find_package(wbc_formulation REQUIRED)
 find_package(wbc_robot_system REQUIRED)
 find_package(wbc_util REQUIRED)
+find_package(proxsuite REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
-  src/quadprog/Array.cc
-  src/quadprog/QuadProg++.cc
   src/wbic.cpp
 )
 
@@ -26,12 +25,10 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_include_directories(${PROJECT_NAME} PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/quadprog
-)
 
 target_link_libraries(${PROJECT_NAME}
   Eigen3::Eigen
+  proxsuite::proxsuite-vectorized
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -67,6 +64,7 @@ ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   eigen3_cmake_module
   Eigen3
+  proxsuite
   wbc_formulation
   wbc_robot_system
   wbc_util

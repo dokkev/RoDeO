@@ -1,6 +1,10 @@
+/**
+ * @file wbc_core/wbc_formulation/include/wbc_formulation/force_task.hpp
+ * @brief Doxygen documentation for force_task module.
+ */
 #pragma once
 
-#include "wbc_formulation/friction_cone.hpp"
+#include "wbc_formulation/contact.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 
 namespace wbc {

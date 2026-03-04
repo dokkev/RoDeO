@@ -1,84 +1,55 @@
+/**
+ * @file controller/optimo_controller/src/state_machines/initialize.cpp
+ * @brief Optimo initialization posture state.
+ */
 #include "optimo_controller/state_machines/initialize.hpp"
 
-#include <iostream>
-#include <vector>
+#include <cstdio>
 
 #include "wbc_fsm/state_factory.hpp"
-#include "wbc_robot_system/pinocchio_robot_system.hpp"
 
 namespace wbc {
 
 Initialize::Initialize(StateId state_id, const std::string& state_name,
-                       PinocchioRobotSystem* robot, TaskRegistry* task_reg,
-                       ConstraintRegistry* const_reg,
-                       StateProvider* state_provider)
-    : StateMachine(state_id, state_name, robot, task_reg, const_reg,
-                   state_provider),
-      target_jpos_(
-          Eigen::VectorXd::Zero(robot != nullptr ? robot->GetJointPos().size()
-                                                 : 0)) {}
+                       const StateMachineConfig& context)
+    : StateMachine(state_id, state_name, context) {}
+
+void Initialize::SetParameters(const YAML::Node& node) {
+  SetCommonParameters(node);
+  SetMotionTask("jpos_task", jpos_task_);
+  zeros_.setZero(jpos_task_->Dim());
+  q_des_ = ParseVectorParam(node, "target_jpos");
+}
 
 void Initialize::FirstVisit() {
-  std::cout << "[Initialize] Enter state '" << name() << "'." << std::endl;
+  q_curr_ = robot_->GetJointPos();
+  if (q_des_.size() != q_curr_.size()) q_des_ = q_curr_;
 
-  jpos_task_ = RequireTaskAs<JointTask>("jpos_task");
-
-  const Eigen::VectorXd q_init = robot_->GetJointPos();
-  if (target_jpos_.size() != q_init.size()) {
-    target_jpos_ = q_init;
-  }
-
-  if (!traj_handler_.SetTrajectory(q_init, target_jpos_, duration_)) {
-    throw std::runtime_error(
-        "[Initialize] Failed to configure joint initialization trajectory.");
+  if (!traj_.SetTrajectory(q_curr_, q_des_, duration_)) {
+    fprintf(stderr, "[Initialize] SetTrajectory failed (duration=%.3f); holding current pose.\n",
+            duration_);
   }
 }
 
 void Initialize::OneStep() {
-  if (jpos_task_ == nullptr) {
+  if (!traj_.IsFinished()) {
+    traj_.Update(current_time_, jpos_task_);
     return;
   }
-
-  traj_handler_.Update(current_time_, jpos_task_);
+  jpos_task_->UpdateDesired(q_des_, zeros_, zeros_);
 }
 
-void Initialize::LastVisit() {
-  std::cout << "[Initialize] Exit state '" << name() << "'." << std::endl;
-}
+void Initialize::LastVisit() {}
 
 bool Initialize::EndOfState() {
-  return traj_handler_.IsFinished() && StateMachine::EndOfState();
-}
-
-void Initialize::SetParameters(const YAML::Node& node) {
-  StateMachine::SetParameters(node);
-
-  const YAML::Node params = ResolveParamsNode(node);
-  if (!params) {
-    return;
-  }
-  if (params["target_jpos"]) {
-    const std::vector<double> vec = params["target_jpos"].as<std::vector<double>>();
-    if (target_jpos_.size() == 0 ||
-        static_cast<int>(vec.size()) == target_jpos_.size()) {
-      target_jpos_ =
-          Eigen::Map<const Eigen::VectorXd>(vec.data(), static_cast<int>(vec.size()));
-    } else {
-      std::cerr << "[Initialize] Ignore target_jpos due to dimension mismatch. "
-                << "expected=" << target_jpos_.size()
-                << ", got=" << vec.size() << std::endl;
-    }
-  }
+  return traj_.IsFinished() && StateMachine::EndOfState();
 }
 
 WBC_REGISTER_STATE(
     "initialize",
     [](StateId id, const std::string& state_name,
-       const StateBuildContext& context) -> std::unique_ptr<StateMachine> {
-      return std::make_unique<Initialize>(id, state_name, context.robot,
-                                          context.task_registry,
-                                          context.constraint_registry,
-                                          context.state_provider);
+       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
+      return std::make_unique<Initialize>(id, state_name, context);
     });
 
 } // namespace wbc

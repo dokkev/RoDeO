@@ -1,5 +1,10 @@
+/**
+ * @file wbc_core/wbc_solver/include/wbc_solver/ihwbc.hpp
+ * @brief Doxygen documentation for ihwbc module.
+ */
 #pragma once
 
+#include <stdexcept>
 #include <vector>
 
 #include "wbc_solver/interface/wbc.hpp"
@@ -16,7 +21,7 @@ public:
   bool MakeTorque(const WbcFormulation& /*formulation*/,
                   const Eigen::VectorXd& /*wbc_qddot_cmd*/,
                   Eigen::VectorXd& /*jtrq_cmd*/) override {
-    return false;
+    throw std::logic_error("[IHWBC] Not implemented.");
   }
 };
 

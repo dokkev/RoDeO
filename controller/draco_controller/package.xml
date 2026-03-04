@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>draco_controller</name>
+  <version>0.1.0</version>
+  <description>ROS 2 C++ package for Draco3 controller components (state machines and config).</description>
+  <maintainer email="dongho@utexas.edu">dk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>eigen3_cmake_module</depend>
+  <depend>Eigen3</depend>
+  <depend>wbc_formulation</depend>
+  <depend>wbc_fsm</depend>
+  <depend>wbc_robot_system</depend>
+  <depend>wbc_architecture</depend>
+  <depend>wbc_trajectory</depend>
+  <depend>wbc_util</depend>
+  <exec_depend>draco_description</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
