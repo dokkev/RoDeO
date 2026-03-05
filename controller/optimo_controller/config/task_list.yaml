@@ -12,14 +12,14 @@ task_pool:
     type: "LinkPosTask"
     target_frame: "end_effector"
     reference_frame: "base_link"
-    kp: [200.0, 200.0, 200.0]
-    kd: [28.0,  28.0,  28.0]
+    kp: [100.0, 100.0, 100.0]
+    kd: [20.0,  20.0,  20.0]
     kp_ik: [1.0, 1.0, 1.0]
 
   - name: "ee_ori_task"
     type: "LinkOriTask"
     target_frame: "end_effector"
     reference_frame: "base_link"
-    kp: [200.0, 200.0, 200.0]
-    kd: [28.0,  28.0,  28.0]
+    kp: [100.0, 100.0, 100.0]
+    kd: [20.0,  20.0,  20.0]
     kp_ik: [1.0, 1.0, 1.0]

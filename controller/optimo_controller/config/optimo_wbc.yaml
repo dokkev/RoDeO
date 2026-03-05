@@ -78,20 +78,20 @@ regularization:
 #   is_soft: true            → slack variable with quadratic penalty (controlled violation)
 #   soft_weight: 1.0e+5      → penalty weight when is_soft=true (higher = stricter)
   JointPosLimitConstraint:
-    enabled: false
-    scale: 1.0      # fraction of URDF position range
-    is_soft: true   # hard box constraint
+    enabled: true
+    scale: 0.9      # 90% of URDF position range (safety margin)
+    is_soft: true   # soft slack variable (controlled violation near limits)
     soft_weight: 1.0e+5
 
   JointVelLimitConstraint:
-    enabled: false
-    scale: 1.0      # fraction of URDF velocity limits
-    is_soft: true   # hard box constraint
+    enabled: true
+    scale: 0.8      # 80% of URDF velocity limits (conservative margin)
+    is_soft: true   # soft slack variable
     soft_weight: 1.0e+5
 
   JointTrqLimitConstraint:
-    enabled: false
-    scale: 1.0      # fraction of URDF torque limits
+    enabled: false   # enable if running torque-only control (no motor PD)
+    scale: 0.9      # fraction of URDF torque limits
     is_soft: true    # soft → full coupled dynamics (Sa*M) in C matrix
     soft_weight: 1.0e+5
 
