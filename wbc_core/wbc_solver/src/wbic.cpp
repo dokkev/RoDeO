@@ -24,6 +24,9 @@ namespace {
 // singularity, but prevents inverse blowup near singularities.
 constexpr double kDlsLambdaMax = 0.05;
 constexpr double kDlsLambdaSq = kDlsLambdaMax * kDlsLambdaMax;
+constexpr double kSvdNullThreshold = 1e-3;  // singular value threshold for null-space
+constexpr double kDlsMicroLambda = 1e-4;
+constexpr double kDlsMicroLambdaSq = kDlsMicroLambda * kDlsMicroLambda;
 } // namespace
 
 WBIC::WBIC(const std::vector<bool>& act_qdot_list, QPParams* qp_params)
@@ -108,8 +111,6 @@ bool WBIC::FindConfiguration(
 
     JtPre_.noalias() = Jt * N_pre_;
     PseudoInverse(JtPre_, JtPre_pinv_);
-    JtPre_dyn_.noalias() = Jt * N_pre_dyn_;
-    WeightedPseudoInverse(JtPre_dyn_, Minv_, JtPre_bar_);
 
     delta_q_cmd_ =
         prev_delta_q_cmd_ +
@@ -119,7 +120,7 @@ bool WBIC::FindConfiguration(
                 JtPre_pinv_ * (task->DesiredVel() - Jt * prev_qdot_cmd_);
     qddot_cmd_ =
         prev_qddot_cmd_ +
-        JtPre_bar_ * (task->OpCommand() - JtDotQdot - Jt * prev_qddot_cmd_);
+        JtPre_pinv_ * (task->OpCommand() - JtDotQdot - Jt * prev_qddot_cmd_);
 
     prev_delta_q_cmd_ = delta_q_cmd_;
     prev_qdot_cmd_ = qdot_cmd_;
@@ -128,8 +129,6 @@ bool WBIC::FindConfiguration(
     if (i + 1 < task_vector.size()) {
       BuildProjectionMatrix(JtPre_, N_nx_);
       N_pre_ *= N_nx_;
-      BuildProjectionMatrix(JtPre_dyn_, N_nx_dyn_, &Minv_);
-      N_pre_dyn_ *= N_nx_dyn_;
     }
   }
 
@@ -270,13 +269,49 @@ void WBIC::BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
     N.resize(0, 0);
     return;
   }
-  if (W == nullptr) {
-    PseudoInverse(jac, Jbar_scratch_);
-  } else {
-    WeightedPseudoInverse(jac, *W, Jbar_scratch_);
-  }
   N.setIdentity(jac.cols(), jac.cols());
-  N.noalias() -= Jbar_scratch_ * jac;
+  if (W != nullptr) {
+    // Weighted (dynamically-consistent) projection — always uses DLS.
+    WeightedPseudoInverse(jac, *W, Jbar_scratch_);
+    N.noalias() -= Jbar_scratch_ * jac;
+    return;
+  }
+  // Kinematic null-space projection — dispatch on method.
+  switch (null_space_method_) {
+    case NullSpaceMethod::SVD_EXACT: {
+      // N = I - V_r * V_r^T (exact, zero leakage)
+      Eigen::JacobiSVD<Eigen::MatrixXd> svd(jac, Eigen::ComputeThinV);
+      const auto& S = svd.singularValues();
+      int rank = 0;
+      for (int i = 0; i < S.size(); ++i) {
+        if (S(i) > kSvdNullThreshold) ++rank;
+      }
+      if (rank > 0) {
+        N.noalias() -= svd.matrixV().leftCols(rank)
+                      * svd.matrixV().leftCols(rank).transpose();
+      }
+      break;
+    }
+    case NullSpaceMethod::DLS: {
+      // N = I - J#_dls * J (λ=0.05, original DLS damping)
+      PseudoInverse(jac, Jbar_scratch_);
+      N.noalias() -= Jbar_scratch_ * jac;
+      break;
+    }
+    case NullSpaceMethod::DLS_MICRO: {
+      // N = I - J#_micro * J (λ=1e-4, negligible leakage away from singularity)
+      const int m = jac.rows();
+      JWJt_scratch_.resize(m, m);
+      JWJt_scratch_.noalias() = jac * jac.transpose();
+      JWJt_scratch_.diagonal().array() += kDlsMicroLambdaSq;
+      llt_scratch_.compute(JWJt_scratch_);
+      JWJt_pinv_scratch_.setIdentity(m, m);
+      llt_scratch_.solveInPlace(JWJt_pinv_scratch_);
+      Jbar_scratch_.noalias() = jac.transpose() * JWJt_pinv_scratch_;
+      N.noalias() -= Jbar_scratch_ * jac;
+      break;
+    }
+  }
 }
 
 void WBIC::InitContactProjection(const std::vector<Contact*>& contacts) {
@@ -766,8 +801,15 @@ void WBIC::GetSolution(const Eigen::VectorXd& /*wbc_qddot_cmd*/,
   wbic_data_->tau_prev_ = trq_;
 
   UNi_.noalias() = sa_ * Ni_dyn_;
-  WeightedPseudoInverse(UNi_, Minv_, UNi_bar_);
-  jtrq_cmd = UNi_bar_.transpose() * trq_;
+  if (UNi_.rows() == UNi_.cols()) {
+    // Fully actuated: exact inverse (no DLS damping distortion).
+    // For square invertible J with any weight W: J_bar = J^{-1}.
+    // Using lu().solve avoids DLS bias that corrupts gravity compensation.
+    jtrq_cmd = UNi_.transpose().lu().solve(trq_);
+  } else {
+    WeightedPseudoInverse(UNi_, Minv_, UNi_bar_);
+    jtrq_cmd = UNi_bar_.transpose() * trq_;
+  }
   jtrq_cmd = snf_ * sa_.transpose() * jtrq_cmd;
 }
 

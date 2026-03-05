@@ -28,7 +28,6 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
     const auto& m = params["manipulability"];
     if (m["step_size"])     manip_config_.step_size     = m["step_size"].as<double>();
     if (m["w_threshold"])   manip_config_.w_threshold   = m["w_threshold"].as<double>();
-    if (m["fd_epsilon"])    manip_config_.fd_epsilon    = m["fd_epsilon"].as<double>();
   }
 }
 

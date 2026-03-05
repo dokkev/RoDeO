@@ -2,6 +2,11 @@
   <compiler angle="radian" meshdir="../meshes/"/>
   <option gravity="0 0 -9.81" timestep="0.001" solver="Newton" tolerance="1e-12" impratio="60.0"/>
 
+  <!-- Disable self-collision for robot geoms (meshes overlap at home config). -->
+  <default>
+    <geom contype="0" conaffinity="0"/>
+  </default>
+
   <asset>
     <mesh name="col0" content_type="model/stl" file="col0.stl"/>
     <mesh name="col1" content_type="model/stl" file="col1.stl"/>

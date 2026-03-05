@@ -1,25 +1,21 @@
 /**
  * @file wbc_handlers/include/wbc_handlers/manipulability_handler.hpp
- * @brief Manipulability-gradient singularity avoidance for null-space posture.
+ * @brief SVD-based singularity avoidance for null-space posture.
  *
- * Monitors the Yoshikawa manipulability index w = sqrt(det(J*J^T)) of the
- * end-effector Jacobian. When w drops below a threshold, computes an
- * avoidance velocity in the direction of the manipulability gradient ∂w/∂q.
- * The caller is responsible for applying this velocity. The WBC
- * task-priority structure naturally projects it into the null space of
- * higher-priority end-effector tasks.
+ * Monitors the minimum singular value of the end-effector Jacobian. When it
+ * drops below a threshold, commands an avoidance velocity along the
+ * corresponding right singular vector (the joint-space direction that is
+ * "lost" at the singularity). The WBC task-priority structure naturally
+ * projects this into the null space of higher-priority EE tasks.
  *
- * The gradient is computed via forward finite difference using a separate
- * pinocchio::Data scratch object (pre-allocated in Init, no RT heap alloc).
- * Gradient computation is amortized: one DOF per tick (round-robin).
- *
- * References:
- *   - T. Yoshikawa, "Manipulability of Robotic Mechanisms,"
- *     Int. J. Robotics Research, vol. 4, no. 2, 1985.
+ * Unlike gradient-based approaches, the SVD method works correctly even at
+ * exact singularity (where the manipulability gradient is zero due to the
+ * cusp in √det(J·J^T)).
  */
 #pragma once
 
 #include <Eigen/Dense>
+#include <Eigen/SVD>
 
 namespace wbc {
 
@@ -29,8 +25,7 @@ class ManipulabilityHandler {
 public:
   struct Config {
     double step_size{0.5};         // [rad/s] max avoidance velocity magnitude
-    double w_threshold{0.01};      // w below this activates avoidance
-    double fd_epsilon{1e-4};       // finite difference step [rad]
+    double w_threshold{0.01};      // σ_min below this activates avoidance
   };
 
   ManipulabilityHandler() = default;
@@ -51,7 +46,8 @@ public:
   void Update(double dt);
 
   double manipulability() const { return w_; }
-  bool is_active() const { return w_ < config_.w_threshold; }
+  double sigma_min() const { return sigma_min_; }
+  bool is_active() const { return sigma_min_ < config_.w_threshold; }
   const Eigen::VectorXd& avoidance_velocity() const { return qdot_avoid_; }
 
 private:
@@ -62,10 +58,8 @@ private:
   Config config_;
 
   double w_{0.0};
-  int fd_current_dof_{0};  // round-robin index for amortized gradient
+  double sigma_min_{0.0};
 
-  Eigen::VectorXd q_scratch_;   // perturbed q (num_q)
-  Eigen::VectorXd gradient_;    // num_active_dof
   Eigen::VectorXd qdot_avoid_;  // num_active_dof
 };
 

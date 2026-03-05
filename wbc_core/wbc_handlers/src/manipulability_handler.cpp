@@ -1,6 +1,6 @@
 /**
  * @file wbc_handlers/src/manipulability_handler.cpp
- * @brief Manipulability-gradient singularity avoidance implementation.
+ * @brief SVD-based singularity avoidance implementation.
  */
 #include "wbc_handlers/manipulability_handler.hpp"
 
@@ -19,44 +19,42 @@ void ManipulabilityHandler::Init(PinocchioRobotSystem* robot,
   num_active_dof_ = robot_->NumActiveDof();
   num_float_dof_  = robot_->NumFloatDof();
 
-  // Pre-allocate scratch buffers (zero heap allocation in RT loop).
-  q_scratch_.setZero(robot_->GetQRef().size());
-  gradient_.setZero(num_active_dof_);
   qdot_avoid_.setZero(num_active_dof_);
 
   w_ = 0.0;
-  fd_current_dof_ = 0;
+  sigma_min_ = 0.0;
 }
 
 // --------------------------------------------------------------------------
 void ManipulabilityHandler::Update(double dt) {
   if (robot_ == nullptr || dt <= 0.0) return;
 
-  // 1. Amortized gradient computation: 1 DOF per tick (round-robin).
-  const int qi = num_float_dof_ + fd_current_dof_;
+  // 1. Get the EE Jacobian and compute SVD.
+  Eigen::MatrixXd jac = Eigen::MatrixXd::Zero(6, num_float_dof_ + num_active_dof_);
+  robot_->FillLinkJacobian(ee_frame_idx_, jac);
 
-  q_scratch_ = robot_->GetQRef();
-  const double w_center = robot_->ComputeManipulability(ee_frame_idx_, q_scratch_);
-  w_ = w_center;
+  // Extract active-joint columns only (skip floating base).
+  const Eigen::MatrixXd J_active = jac.rightCols(num_active_dof_);
 
-  // Forward finite difference for current DOF only.
-  q_scratch_[qi] += config_.fd_epsilon;
-  const double w_plus = robot_->ComputeManipulability(ee_frame_idx_, q_scratch_);
-  gradient_[fd_current_dof_] = (w_plus - w_center) / config_.fd_epsilon;
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_active, Eigen::ComputeThinV);
+  const auto& S = svd.singularValues();
+  sigma_min_ = S(S.size() - 1);
 
-  // Advance round-robin index.
-  fd_current_dof_ = (fd_current_dof_ + 1) % num_active_dof_;
+  // Yoshikawa manipulability = product of singular values.
+  w_ = 1.0;
+  for (int i = 0; i < S.size(); ++i) w_ *= S(i);
 
-  // 2. Avoidance velocity when w is below threshold.
+  // 2. Avoidance velocity when σ_min is below threshold.
   qdot_avoid_.setZero();
 
-  if (w_ < config_.w_threshold) {
-    const double gn = gradient_.norm();
-    if (gn > 1e-10) {
-      const double alpha =
-          config_.step_size * (1.0 - w_ / config_.w_threshold);
-      qdot_avoid_ = alpha * (gradient_ / gn);
-    }
+  if (sigma_min_ < config_.w_threshold) {
+    // Right singular vector for smallest σ — the joint-space direction
+    // that is "lost" at the singularity.
+    const Eigen::VectorXd v_min = svd.matrixV().col(S.size() - 1);
+
+    const double alpha =
+        config_.step_size * (1.0 - sigma_min_ / config_.w_threshold);
+    qdot_avoid_ = alpha * v_min;
   }
 }
 

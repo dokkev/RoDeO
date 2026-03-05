@@ -16,6 +16,19 @@
 #include "wbc_formulation/wbc_formulation.hpp"
 
 namespace wbc {
+
+/**
+ * @brief Null-space projection method for WBIC's hierarchical task projection.
+ *
+ * Controls how N = I - pinv(J) * J is computed in FindConfiguration.
+ * The choice affects both accuracy (null-space leakage) and performance.
+ */
+enum class NullSpaceMethod {
+  SVD_EXACT,       ///< SVD-based exact projection: N = I - V_r * V_r^T (zero leakage)
+  DLS,             ///< DLS pseudoinverse: N = I - J#_dls * J (λ=0.05, ~20% leakage)
+  DLS_MICRO,       ///< DLS with micro-lambda: N = I - J#_dls * J (λ=1e-4, ~0.01% leakage)
+};
+
 /**
  * @brief Runtime QP weight set for WBIC correction stage.
  */
@@ -92,6 +105,9 @@ public:
 
   void SetParameters() override {}
   WBICData* GetWbicData() { return wbic_data_.get(); }
+
+  void SetNullSpaceMethod(NullSpaceMethod m) { null_space_method_ = m; }
+  NullSpaceMethod GetNullSpaceMethod() const { return null_space_method_; }
 
   /**
    * @brief Pre-allocate solver buffers for the worst-case dimensions.
@@ -247,6 +263,8 @@ private:
 
   // ProxQP dense solver (lazy-initialized on first SolveQP call)
   std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_solver_;
+
+  NullSpaceMethod null_space_method_{NullSpaceMethod::DLS_MICRO};
 };
 
 } // namespace wbc

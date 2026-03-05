@@ -143,6 +143,7 @@ public:
   FSMHandler* GetFsmHandler() const { return fsm_handler_.get(); }
   PinocchioRobotSystem* GetRobot() const { return robot_.get(); }
   RuntimeConfig* GetConfig() const { return runtime_config_.get(); }
+  WBIC* GetSolver() const { return solver_.get(); }
 
   /**
    * @brief RT-safe read of the currently active state id (atomic load).
