@@ -17,23 +17,6 @@ task_pool:
     kp_ik: 1.0
     weight: 1.0
 
-  # Right-hand end-effector tasks (active only in hand_reaching state).
-  - name: "r_hand_pos_task"
-    type: "LinkPosTask"
-    target_frame: "r_hand_contact"
-    kp: [1000, 1000, 1000]
-    kd: [100, 100, 100]
-    kp_ik: [1.0, 1.0, 1.0]
-    weight: [0, 0, 0]   # enabled in hand_reaching state
-
-  - name: "r_hand_ori_task"
-    type: "LinkOriTask"
-    target_frame: "r_hand_contact"
-    kp: [500, 500, 500]
-    kd: [20, 20, 20]
-    kp_ik: [1.0, 1.0, 1.0]
-    weight: [0, 0, 0]   # enabled in hand_reaching state
-
   - name: "lfoot_force"
     type: "ForceTask"
     contact_name: "lfoot_contact"

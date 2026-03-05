@@ -19,6 +19,7 @@ find_package(wbc_fsm REQUIRED)
 find_package(wbc_robot_system REQUIRED)
 find_package(wbc_solver REQUIRED)
 find_package(wbc_trajectory REQUIRED)
+find_package(wbc_logger REQUIRED)
 find_package(wbc_util REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
@@ -41,6 +42,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   wbc_formulation
   wbc_fsm
+  wbc_logger
   wbc_robot_system
   wbc_solver
   wbc_trajectory
@@ -122,6 +124,7 @@ ament_export_dependencies(
   wbc_fsm
   wbc_robot_system
   wbc_solver
+  wbc_logger
   wbc_trajectory
   wbc_util
 )

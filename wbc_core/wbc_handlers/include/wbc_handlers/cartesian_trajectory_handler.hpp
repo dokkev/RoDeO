@@ -1,6 +1,6 @@
 /**
- * @file wbc_trajectory/include/wbc_trajectory/ee_trajectory_handler.hpp
- * @brief Time-parameterized orientation (end-effector) trajectory handler.
+ * @file wbc_handlers/include/wbc_handlers/cartesian_trajectory_handler.hpp
+ * @brief Time-parameterized orientation (Cartesian) trajectory handler.
  */
 #pragma once
 
@@ -14,11 +14,11 @@
 namespace wbc {
 
 /**
- * @brief Time-parameterized quaternion/orientation trajectory helper for end-effector tasks.
+ * @brief Time-parameterized quaternion/orientation trajectory helper for Cartesian tasks.
  */
-class EndEffectorTrajectoryHandler {
+class CartesianTrajectoryHandler {
 public:
-  EndEffectorTrajectoryHandler() = default;
+  CartesianTrajectoryHandler() = default;
 
   bool SetTrajectory(const Eigen::Quaterniond& start_quat,
                      const Eigen::Quaterniond& target_quat, double duration) {

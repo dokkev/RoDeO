@@ -20,7 +20,7 @@ robot_model:
 
 # 2. Feedforward Controller (WBC) Settings
 controller:
-  enable_gravity_compensation:  false   # WBIC already accounts for full rigid-body dynamics
+  enable_gravity_compensation:  true   # WBIC already accounts for full rigid-body dynamics
   enable_coriolis_compensation: false
   enable_inertia_compensation:  false
 
@@ -38,26 +38,26 @@ regularization:
   w_f_dot: 1.0e-3              # reaction force rate smoothing
 
 # 4. Global constraints
-# Each constraint can be toggled between hard (box constraint) and soft (slack variable + penalty).
+# Each constraint can be toggled between hard (boxq constraint) and soft (slack variable + penalty).
 #   is_soft: false (default) -> hard QP box constraint (strict enforcement)
 #   is_soft: true            -> slack variable with quadratic penalty (controlled violation)
 #   soft_weight: 1.0e+5      -> penalty weight when is_soft=true (higher = stricter)
   JointPosLimitConstraint:
     enabled: true
-    scale: 0.9        # fraction of URDF position range
+    scale: 1.0        # fraction of URDF position range
     is_soft: true
     soft_weight: 1.0e+5
 
   JointVelLimitConstraint:
     enabled: true
-    scale: 0.8        # fraction of URDF velocity limits
+    scale: 1.0        # fraction of URDF velocity limits
     is_soft: true
     soft_weight: 1.0e+5
 
   JointTrqLimitConstraint:
     enabled: true
-    scale: 0.9        # fraction of URDF torque limits
-    is_soft: true      # soft -> full coupled dynamics (Sa*M) in C matrix
+    scale: 1.0        # fraction of URDF torque limits
+    is_soft: false      # soft -> full coupled dynamics (Sa*M) in C matrix
     soft_weight: 1.0e+5
 
 # 5. Task pool

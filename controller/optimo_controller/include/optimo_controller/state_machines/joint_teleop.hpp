@@ -8,7 +8,7 @@
 
 #include "wbc_formulation/motion_task.hpp"
 #include "wbc_fsm/interface/state_machine.hpp"
-#include "wbc_trajectory/joint_teleop_handler.hpp"
+#include "wbc_handlers/joint_teleop_handler.hpp"
 #include "wbc_util/watchdog.hpp"
 
 namespace wbc {

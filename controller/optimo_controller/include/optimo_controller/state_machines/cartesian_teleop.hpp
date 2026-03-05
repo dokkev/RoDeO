@@ -1,5 +1,5 @@
 /**
- * @file controller/optimo_controller/include/optimo_controller/state_machines/ee_teleop.hpp
+ * @file controller/optimo_controller/include/optimo_controller/state_machines/cartesian_teleop.hpp
  * @brief Cartesian end-effector teleop state for Optimo.
  */
 #pragma once
@@ -8,11 +8,9 @@
 
 #include "wbc_formulation/motion_task.hpp"
 #include "wbc_fsm/interface/state_machine.hpp"
-#include "wbc_trajectory/ee_teleop_handler.hpp"
-#include "wbc_trajectory/joint_teleop_handler.hpp"
+#include "wbc_handlers/cartesian_teleop_handler.hpp"
 #include "wbc_util/watchdog.hpp"
-#include "optimo_controller/manipulability_handler.hpp"
-#include "optimo_controller/workspace_hull.hpp"
+#include "wbc_handlers/manipulability_handler.hpp"
 
 namespace wbc {
 
@@ -30,13 +28,13 @@ namespace wbc {
  *   - UpdateCommand(): batched update — EE velocity watchdog + optional pose target.
  *     Called once per control tick before ctrl_arch_->Update() invokes OneStep().
  *
- * Registration key: "ee_teleop"
+ * Registration key: "cartesian_teleop"
  */
-class EETeleop : public StateMachine {
+class CartesianTeleop : public StateMachine {
 public:
-  EETeleop(StateId state_id, const std::string& state_name,
+  CartesianTeleop(StateId state_id, const std::string& state_name,
            const StateMachineConfig& context);
-  ~EETeleop() override = default;
+  ~CartesianTeleop() override = default;
 
   void SetParameters(const YAML::Node& node) override;
   void FirstVisit() override;
@@ -64,18 +62,11 @@ public:
                      const Eigen::Quaterniond& w_des,
                      int64_t pose_ts_ns);
 
-  /**
-   * @brief Load workspace hull from a YAML file (configure phase, non-RT).
-   * @return true on success; false means workspace clamping is disabled.
-   */
-  bool LoadWorkspace(const std::string& yaml_path);
-
 private:
   LinkPosTask*       ee_pos_task_{nullptr};
   LinkOriTask*       ee_ori_task_{nullptr};
   JointTask*         jpos_task_{nullptr};
-  EETeleopHandler    ee_handler_;
-  JointTeleopHandler jpos_handler_;     // posture null-space
+  CartesianTeleopHandler    ee_handler_;
   ManipulabilityHandler manip_handler_; // singularity avoidance
   ManipulabilityHandler::Config manip_config_;
   double linear_vel_max_{0.1};
@@ -86,7 +77,6 @@ private:
   Watchdog           watchdog_{0.2};    // starts expired; Reset() on new message, Update() in OneStep()
   int64_t            prev_vel_ts_ns_{0};
   int64_t            prev_pose_ts_ns_{0};
-  optimo_controller::WorkspaceHull workspace_;
 };
 
 }  // namespace wbc

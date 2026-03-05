@@ -3,7 +3,7 @@ project(optimo_description)
 
 find_package(ament_cmake REQUIRED)
 
-foreach(_asset_dir IN ITEMS launch meshes mjcf rviz urdf)
+foreach(_asset_dir IN ITEMS config launch meshes mjcf rviz urdf)
   if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_asset_dir}")
     install(
       DIRECTORY ${_asset_dir}

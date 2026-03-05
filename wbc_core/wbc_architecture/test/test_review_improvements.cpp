@@ -309,5 +309,226 @@ state_machine:
   }
 }
 
+// ---------------------------------------------------------------------------
+// Torque determinism: same input → bit-exact same output across two runs.
+// Catches any uninitialized memory, floating-point non-determinism, or
+// state leaking between ticks in pre-allocated buffers.
+// ---------------------------------------------------------------------------
+TEST_F(ReviewImprovementsTest, TorqueDeterminism) {
+  const std::string yaml_content = R"(
+robot_model:
+  urdf_path: ")" + (temp_dir_ / "test_robot.urdf").string() + R"("
+  is_floating_base: false
+
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+    kp: 100.0
+    kd: 10.0
+    kp_ik: 1.0
+    weight: 1.0
+
+state_machine:
+  - id: 0
+    name: "review_stay_state"
+    task_hierarchy:
+      - name: "jpos_task"
+        priority: 0
+)";
+
+  auto run_n_ticks = [&](int n) -> std::vector<Eigen::VectorXd> {
+    const std::filesystem::path yaml_path = temp_dir_ / "determinism.yaml";
+    { std::ofstream ofs(yaml_path); ofs << yaml_content; }
+    auto cfg = ControlArchitectureConfig::FromYaml(yaml_path.string(), 0.001);
+    auto arch = std::make_unique<ControlArchitecture>(std::move(cfg));
+    arch->Initialize();
+    const int n_dof = arch->GetRobot()->NumActiveDof();
+    RobotJointState state;
+    state.q    = Eigen::VectorXd::Constant(n_dof, 0.1);
+    state.qdot = Eigen::VectorXd::Constant(n_dof, -0.05);
+    state.tau  = Eigen::VectorXd::Zero(n_dof);
+    std::vector<Eigen::VectorXd> torques;
+    torques.reserve(n);
+    for (int i = 0; i < n; ++i) {
+      arch->Update(state, i * 0.001, 0.001);
+      torques.push_back(arch->GetCommand().tau);
+    }
+    return torques;
+  };
+
+  constexpr int kTicks = 20;
+  const auto run1 = run_n_ticks(kTicks);
+  const auto run2 = run_n_ticks(kTicks);
+
+  ASSERT_EQ(run1.size(), run2.size());
+  for (int i = 0; i < kTicks; ++i) {
+    ASSERT_EQ(run1[i].size(), run2[i].size()) << "tick " << i;
+    EXPECT_TRUE(run1[i] == run2[i])
+        << "Torque non-determinism at tick " << i << ":\n"
+        << "  run1: " << run1[i].transpose() << "\n"
+        << "  run2: " << run2[i].transpose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Constraint clamping with cached pointers: verify position and torque
+// limits are enforced correctly in the ClampCommandLimits code path
+// that now uses cached_pos_limit_ / cached_trq_limit_ instead of
+// dynamic_cast every tick.
+// ---------------------------------------------------------------------------
+TEST_F(ReviewImprovementsTest, CachedConstraintClampingCorrect) {
+  const std::string yaml_content = R"(
+robot_model:
+  urdf_path: ")" + (temp_dir_ / "test_robot.urdf").string() + R"("
+  is_floating_base: false
+
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+    kp: 100000.0
+    kd: 1000.0
+    kp_ik: 1.0
+    weight: 1.0
+
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.1
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.5
+
+state_machine:
+  - id: 0
+    name: "review_stay_state"
+    task_hierarchy:
+      - name: "jpos_task"
+        priority: 0
+)";
+
+  const std::filesystem::path yaml_path = temp_dir_ / "clamp_test.yaml";
+  { std::ofstream ofs(yaml_path); ofs << yaml_content; }
+  auto cfg = ControlArchitectureConfig::FromYaml(yaml_path.string(), 0.001);
+  auto arch = std::make_unique<ControlArchitecture>(std::move(cfg));
+  arch->Initialize();
+  PinocchioRobotSystem* robot = arch->GetRobot();
+  const int n_dof = robot->NumActiveDof();
+
+  // Use very high gains to push torque above limits — clamping must enforce.
+  RobotJointState state;
+  state.q    = Eigen::VectorXd::Constant(n_dof, 2.0);  // Far from desired (0)
+  state.qdot = Eigen::VectorXd::Zero(n_dof);
+  state.tau  = Eigen::VectorXd::Zero(n_dof);
+
+  for (int i = 0; i < 10; ++i) {
+    arch->Update(state, i * 0.001, 0.001);
+    const RobotCommand& cmd = arch->GetCommand();
+
+    ASSERT_TRUE(cmd.tau.allFinite()) << "tick " << i;
+    ASSERT_TRUE(cmd.q.allFinite()) << "tick " << i;
+
+    // Position must be clamped within scaled URDF limits.
+    // URDF: [-3.14, 3.14], scale=0.1 → [-0.314, 0.314]
+    const double pos_limit = 3.14 * 0.1;
+    for (int j = 0; j < n_dof; ++j) {
+      EXPECT_GE(cmd.q[j], -pos_limit - 1e-6)
+          << "q[" << j << "]=" << cmd.q[j] << " below pos limit at tick " << i;
+      EXPECT_LE(cmd.q[j], pos_limit + 1e-6)
+          << "q[" << j << "]=" << cmd.q[j] << " above pos limit at tick " << i;
+    }
+
+    // Torque must be clamped within scaled URDF limits.
+    // URDF effort=100, scale=0.5 → [-50, 50]
+    const double trq_limit = 100.0 * 0.5;
+    for (int j = 0; j < n_dof; ++j) {
+      EXPECT_GE(cmd.tau[j], -trq_limit - 1e-6)
+          << "tau[" << j << "]=" << cmd.tau[j] << " below trq limit at tick " << i;
+      EXPECT_LE(cmd.tau[j], trq_limit + 1e-6)
+          << "tau[" << j << "]=" << cmd.tau[j] << " above trq limit at tick " << i;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ComTask FillComJacobian: verify the fill-style method produces the
+// same Jacobian as the old copy-return style.
+// ---------------------------------------------------------------------------
+TEST_F(ReviewImprovementsTest, ComTaskJacobianMatchesFillMethod) {
+  robot_->UpdateRobotModel(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
+                           Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                           Eigen::VectorXd::Zero(2), Eigen::VectorXd::Zero(2));
+
+  // GetComJacobian() returns the copy; FillComJacobian writes in-place.
+  const Eigen::Matrix3Xd jac_copy = robot_->GetComJacobian();
+  Eigen::MatrixXd jac_fill = Eigen::MatrixXd::Zero(3, robot_->NumQdot());
+  robot_->FillComJacobian(jac_fill);
+
+  ASSERT_EQ(jac_fill.rows(), 3);
+  ASSERT_EQ(jac_fill.cols(), robot_->NumQdot());
+  EXPECT_TRUE(jac_fill.isApprox(jac_copy, 1e-12))
+      << "FillComJacobian differs from GetComJacobian.\n"
+      << "fill:\n" << jac_fill << "\ncopy:\n" << jac_copy;
+}
+
+// ---------------------------------------------------------------------------
+// Gravity compensation: at zero state with identity desired, tau_ff should
+// approximate the actuated gravity vector. This is the most basic correctness
+// check for the full WBIC pipeline.
+// ---------------------------------------------------------------------------
+TEST_F(ReviewImprovementsTest, GravityCompensationBaseline) {
+  const std::string yaml_content = R"(
+robot_model:
+  urdf_path: ")" + (temp_dir_ / "test_robot.urdf").string() + R"("
+  is_floating_base: false
+
+task_pool:
+  - name: "jpos_task"
+    type: "JointTask"
+    kp: 0.0
+    kd: 0.0
+    kp_ik: 1.0
+    weight: 1.0
+
+state_machine:
+  - id: 0
+    name: "review_stay_state"
+    task_hierarchy:
+      - name: "jpos_task"
+        priority: 0
+)";
+
+  const std::filesystem::path yaml_path = temp_dir_ / "grav_comp.yaml";
+  { std::ofstream ofs(yaml_path); ofs << yaml_content; }
+  auto cfg = ControlArchitectureConfig::FromYaml(yaml_path.string(), 0.001);
+  auto arch = std::make_unique<ControlArchitecture>(std::move(cfg));
+  arch->Initialize();
+  PinocchioRobotSystem* robot = arch->GetRobot();
+  const int n_dof = robot->NumActiveDof();
+
+  RobotJointState state;
+  state.q    = Eigen::VectorXd::Zero(n_dof);
+  state.qdot = Eigen::VectorXd::Zero(n_dof);
+  state.tau  = Eigen::VectorXd::Zero(n_dof);
+
+  // Let the pipeline settle for a few ticks.
+  for (int i = 0; i < 5; ++i) {
+    arch->Update(state, i * 0.001, 0.001);
+  }
+
+  const RobotCommand& cmd = arch->GetCommand();
+  const Eigen::VectorXd& grav = robot->GetGravityRef();
+  // For fixed-base, gravity vector is num_qdot = num_actuated sized.
+  const Eigen::VectorXd grav_actuated = grav.tail(n_dof);
+
+  ASSERT_TRUE(cmd.tau_ff.allFinite());
+  // With kp=0, kd=0, des=current, the WBIC feedforward should be pure
+  // gravity compensation. Allow generous tolerance due to QP regularization.
+  for (int j = 0; j < n_dof; ++j) {
+    EXPECT_NEAR(cmd.tau_ff[j], grav_actuated[j], 1.0)
+        << "joint " << j << " tau_ff=" << cmd.tau_ff[j]
+        << " grav=" << grav_actuated[j];
+  }
+}
+
 } // namespace
 } // namespace wbc

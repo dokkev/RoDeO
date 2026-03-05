@@ -5,7 +5,7 @@
 # State transitions:
 #   0: draco_initialize -> 1: draco_balance (auto after 1.5s)
 #   1: draco_balance    -> stay (or trigger state 2 externally)
-#   2: hand_reaching    -> stay (triggered via RequestState)
+#   2: com_swing        -> stay (triggered via RequestState)
 
 state_machine:
   - id: 0
@@ -44,24 +44,20 @@ state_machine:
       - name: "lfoot_force"
       - name: "rfoot_force"
 
-  # State 2: right-hand reaching while maintaining balance.
+  # State 2: lateral CoM swing while maintaining balance.
+  # Shifts the CoM target left/right for weight transfer (walking prep).
   # Triggered externally via RequestState(2) after balance is established.
   - id: 2
-    name: "hand_reaching"
+    name: "com_swing"
     type: "draco_balance"
     params:
       b_stay_here: true
     task_hierarchy:
       - name: "com_task"
         priority: 0
-      - name: "r_hand_pos_task"
-        priority: 1
-        weight: [50, 50, 50]
-      - name: "r_hand_ori_task"
-        priority: 2
-        weight: [10, 10, 10]
+        weight: [100, 100, 100]
       - name: "jpos_task"
-        priority: 3
+        priority: 1
     contact_constraints:
       - name: "lfoot_contact"
       - name: "rfoot_contact"

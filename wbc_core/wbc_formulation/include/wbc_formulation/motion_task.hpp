@@ -56,6 +56,9 @@ public:
       const Eigen::Matrix3d& world_R_local = Eigen::Matrix3d::Identity()) override;
   void UpdateJacobian() override;
   void UpdateJacobianDotQdot() override;
+
+private:
+  Eigen::MatrixXd full_jac_scratch_;  ///< Pre-allocated 6 x num_qdot buffer
 };
 
 /**
@@ -77,6 +80,9 @@ public:
       const Eigen::Matrix3d& world_R_local = Eigen::Matrix3d::Identity()) override;
   void UpdateJacobian() override;
   void UpdateJacobianDotQdot() override;
+
+private:
+  Eigen::MatrixXd full_jac_scratch_;  ///< Pre-allocated 6 x num_qdot buffer
 };
 
 /**

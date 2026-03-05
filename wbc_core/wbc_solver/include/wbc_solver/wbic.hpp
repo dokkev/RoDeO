@@ -4,7 +4,9 @@
  */
 #pragma once
 
+#include <Eigen/Cholesky>
 #include <Eigen/Dense>
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -91,6 +93,24 @@ public:
   void SetParameters() override {}
   WBICData* GetWbicData() { return wbic_data_.get(); }
 
+  /**
+   * @brief Pre-allocate solver buffers for the worst-case dimensions.
+   *
+   * Call once after construction (before the first MakeTorque) to avoid
+   * first-tick heap allocations in the RT loop.
+   */
+  void ReserveCapacity(int max_contact_dim, int max_uf_rows);
+
+  /// Per-phase timing stats (populated only when enable_timing_ is true).
+  struct WbicTimingStats {
+    double find_config_us{0};
+    double qp_setup_us{0};
+    double qp_solve_us{0};
+    double torque_recovery_us{0};
+  };
+  bool enable_timing_{false};
+  WbicTimingStats timing_stats_;
+
   /// Per-constraint soft/hard toggle and penalty weights.
   /// When soft, the constraint becomes a slack variable with quadratic penalty
   /// in the QP cost, allowing controlled violation. When hard, it becomes a
@@ -110,18 +130,37 @@ private:
                              Eigen::MatrixXd& jac_bar);
   void BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
                              const Eigen::MatrixXd* W = nullptr);
+  void InitContactProjection(const std::vector<Contact*>& contacts);
   void BuildContactMtxVect(const std::vector<Contact*>& contacts);
   void GetDesiredReactionForce(const std::vector<ForceTask*>& force_task_vector);
+  // QP cost assembly
   void SetQPCost(const Eigen::VectorXd& wbc_qddot_cmd);
+  void AddQddotTrackingCost();
+  void AddTorqueMinimizationCost(const Eigen::VectorXd& wbc_qddot_cmd);
+  void AddContactAccelerationCost(const Eigen::VectorXd& wbc_qddot_cmd);
+  void AddReactionForceCost();
+  void AddSlackVariablePenalties();
+
+  // QP equality/inequality assembly
   void SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd);
   void SetQPInEqualityConstraint(const WbcFormulation& formulation,
                                  const Eigen::VectorXd& wbc_qddot_cmd);
   void ExtractBoxBounds(const Constraint* c, const Eigen::VectorXd& wbc_qddot_cmd);
+  int BuildFrictionConeConstraint(int row);
+  int BuildKinematicLimitConstraint(const Constraint* c, bool is_soft,
+                                    bool use_box_solver,
+                                    const Eigen::VectorXd& wbc_qddot_cmd,
+                                    int row, int& slack_col);
+  int BuildTorqueLimitConstraint(const JointTrqLimitConstraint* c, bool is_soft,
+                                  bool use_box_solver,
+                                  int row, int& slack_col);
+  void EnforceBoxFeasibilityGuard(int qp_dim);
+
   bool SolveQP(const Eigen::VectorXd& wbc_qddot_cmd);
   void GetSolution(const Eigen::VectorXd& wbc_qddot_cmd,
                    Eigen::VectorXd& jtrq_cmd);
 
-  double threshold_;
+
   Eigen::MatrixXd Ni_dyn_;
   Eigen::MatrixXd N_pre_;
   Eigen::MatrixXd N_pre_dyn_;
@@ -180,6 +219,31 @@ private:
   Eigen::MatrixXd JtPre_pinv_; // pseudo-inverse of JtPre_
   Eigen::MatrixXd JtPre_dyn_;  // dynamically-weighted projected jacobian
   Eigen::MatrixXd JtPre_bar_;  // weighted pseudo-inverse of JtPre_dyn_
+
+  // Scratch buffers for LLT-based damped pseudo-inverse.
+  // MaxRows/MaxCols = 36 ensures inline storage (no heap alloc) for all
+  // practical pseudo-inverse calls: tasks (≤6), contacts (≤24), UNi (≤num_active).
+  static constexpr int kMaxPInvDim = 36;
+  using PInvSquare = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                                   Eigen::ColMajor, kMaxPInvDim, kMaxPInvDim>;
+  Eigen::LLT<PInvSquare> llt_scratch_;
+  PInvSquare JWJt_scratch_;
+  PInvSquare JWJt_pinv_scratch_;
+  Eigen::MatrixXd Jbar_scratch_;
+
+  // Cached kinematic constraint pointers (set once per MakeTorque call,
+  // avoids repeated dynamic_cast in SetQPInEqualityConstraint).
+  const JointPosLimitConstraint* cached_pos_c_{nullptr};
+  const JointVelLimitConstraint* cached_vel_c_{nullptr};
+  const JointTrqLimitConstraint* cached_trq_c_{nullptr};
+
+  // Scratch buffer for Sa * tau_0 (avoids per-tick heap allocation in torque limits).
+  Eigen::VectorXd sa_tau0_scratch_;
+
+  // Scratch buffers for SetQPCost (avoid per-tick heap allocation from DiagOrIdentity).
+  Eigen::MatrixXd wM_scratch_;       // num_qdot × num_qdot: diag(w) * M
+  Eigen::MatrixXd wJc_scratch_;      // dim_contact × num_qdot: diag(w_xc) * Jc
+  Eigen::VectorXd xc_res_scratch_;   // dim_contact: Jc * qddot + JcDotQdot
 
   // ProxQP dense solver (lazy-initialized on first SolveQP call)
   std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_solver_;

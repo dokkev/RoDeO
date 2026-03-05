@@ -9,13 +9,26 @@ state_machine:
   - id: 0
     name: "initialize"
     params:
-      duration: 1.0     # duration determines time to finish the trajectory from the initial position to the desired position
-      wait_time: 0.0
-      stay_here: false
+      duration: 0.5     # duration determines time to finish the trajectory from the initial position to the desired position
+      wait_time: 0.5
+      stay_here: true
+      # target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
+      # next_state_id: 1  # auto-transition to joint_teleop after init completes
     task_hierarchy:
       - name: "jpos_task"
 
   - id: 1
+    name: "home"
+    type: "initialize"
+    params:
+      duration: 2.0
+      wait_time: 0.0
+      stay_here: true
+      target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
+    task_hierarchy:
+      - name: "jpos_task"
+
+  - id: 2
     name: "joint_teleop"
     params:
       stay_here: true
@@ -24,16 +37,15 @@ state_machine:
     task_hierarchy:
       - name: "jpos_task"
 
-  - id: 2
-    name: "ee_teleop"
+  - id: 3
+    name: "cartesian_teleop"
     params:
       stay_here: true
       linear_vel_max: 0.1   # translational speed limit [m/s]
       angular_vel_max: 0.5  # rotational rate limit [rad/s]
       manipulability:
         step_size: 0.5          # [rad/s] avoidance velocity magnitude
-        sigma_threshold: 0.05   # σ_min below this activates avoidance
-        gradient_interval: 10   # recompute gradient every N ticks
+        w_threshold: 0.01       # w below this activates avoidance
     task_hierarchy:
       - name: "ee_pos_task"
         priority: 0

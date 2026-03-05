@@ -40,6 +40,7 @@ robot_model:
 
 # 2. Feedforward Controller (WBC) Settings
 controller:
+  # TODO: add boolean flags to toggle each compensation term on/off, 
   enable_gravity_compensation:  true    # most robot controllers come with built-in gravity compensation, so this is often set to false to avoid double compensation
                                         # If you are using a torque-controlled custom robot, you will most likely want this enabled.
   
@@ -57,16 +58,16 @@ controller:
   # if your motor controller accepts desired position and velocity along with torque (a.k.a impedance control)
   # I recommend leaving this disabled and directly passing the q_cmd and qdot_cmd from the WBIC to your motor controller, which will handle the internal control loop inside the motor controller firmware.
   joint_pid:
-    enabled: true
+    enabled: false
     gains_yaml: "joint_pid_gains.yaml"
 
 # 3. QP Regularization weights
 # Regularization terms are used to penalize undesirable solutions and improve numerical stability. 
 regularization:
   w_qddot: 1.0e-6              # delta_qddot tracking (IK solution 보존)
-  w_rf: 1.0e-4                 # delta_rf tracking (contact only)
-  w_tau: 1.0e-3                # torque minimization
+  w_tau: 0.0                # torque minimization
   w_tau_dot: 0.0               # torque rate of change smoothing
+  w_rf: 1.0e-4                 # delta_rf tracking (contact only)
   w_xc_ddot: 1.0e-3            # contact acceleration minimization (contact only)
   w_f_dot: 1.0e-3              # reaction force rate smoothing (contact only)
 
@@ -77,20 +78,20 @@ regularization:
 #   is_soft: true            → slack variable with quadratic penalty (controlled violation)
 #   soft_weight: 1.0e+5      → penalty weight when is_soft=true (higher = stricter)
   JointPosLimitConstraint:
-    enabled: true
-    scale: 0.9      # fraction of URDF position range
+    enabled: false
+    scale: 1.0      # fraction of URDF position range
     is_soft: true   # hard box constraint
     soft_weight: 1.0e+5
 
   JointVelLimitConstraint:
-    enabled: true
-    scale: 0.8      # fraction of URDF velocity limits
+    enabled: false
+    scale: 1.0      # fraction of URDF velocity limits
     is_soft: true   # hard box constraint
     soft_weight: 1.0e+5
 
   JointTrqLimitConstraint:
     enabled: false
-    scale: 0.8      # fraction of URDF torque limits
+    scale: 1.0      # fraction of URDF torque limits
     is_soft: true    # soft → full coupled dynamics (Sa*M) in C matrix
     soft_weight: 1.0e+5
 

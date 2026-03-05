@@ -326,6 +326,7 @@ void ConfigCompiler::ParseGlobalConstraints(const YAML::Node& node,
             limits(i, 1) = mid + half * scale;
           }
           pos_c->SetCustomLimits(limits);
+          robot->SetSoftPositionLimits(limits);
         } else if (auto* vel_c = dynamic_cast<JointVelLimitConstraint*>(constraint.get())) {
           Eigen::MatrixXd limits(n, 2);
           for (int i = 0; i < n; ++i) {
@@ -333,6 +334,7 @@ void ConfigCompiler::ParseGlobalConstraints(const YAML::Node& node,
             limits(i, 1) = urdf_vel(i, 1) * scale;
           }
           vel_c->SetCustomLimits(limits);
+          robot->SetSoftVelocityLimits(limits);
         } else if (auto* trq_c = dynamic_cast<JointTrqLimitConstraint*>(constraint.get())) {
           Eigen::MatrixXd limits(n, 2);
           for (int i = 0; i < n; ++i) {
@@ -340,6 +342,7 @@ void ConfigCompiler::ParseGlobalConstraints(const YAML::Node& node,
             limits(i, 1) = urdf_trq(i, 1) * scale;
           }
           trq_c->SetCustomLimits(limits);
+          robot->SetSoftTorqueLimits(limits);
         }
         RCLCPP_INFO(logger, "[ConfigCompiler] %s scale=%.2f", type.c_str(), scale);
       }

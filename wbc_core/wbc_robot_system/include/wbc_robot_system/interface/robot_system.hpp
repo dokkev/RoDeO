@@ -22,10 +22,6 @@ namespace wbc {
  */
 class RobotSystem {
 public:
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
   explicit RobotSystem(bool fixed_base, bool print_info = false)
       : fixed_base_(fixed_base),
         print_info_(print_info),
@@ -33,27 +29,11 @@ public:
         num_q_(0),
         num_qdot_(0),
         num_actuated_(0),
-        total_mass_(0.0),
-        b_fixed_base_(fixed_base_),
-        b_print_info_(print_info_),
-        n_float_(num_floating_dof_),
-        n_q_(num_q_),
-        n_qdot_(num_qdot_),
-        n_a_(num_actuated_),
-        joint_pos_limits_(joint_position_limits_),
-        joint_vel_limits_(joint_velocity_limits_),
-        joint_trq_limits_(joint_torque_limits_),
-        Ig_(centroidal_inertia_),
-        Ag_(centroidal_momentum_matrix_),
-        Hg_(centroidal_momentum_) {
-    // Initialize centroidal quantities to zero
+        total_mass_(0.0) {
     centroidal_inertia_.setZero();
     centroidal_momentum_matrix_.resize(6, 0);
     centroidal_momentum_.setZero();
   }
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
   virtual ~RobotSystem() = default;
 
@@ -78,6 +58,14 @@ public:
   const Eigen::MatrixXd& GetJointTorqueLimits() const {
     return joint_torque_limits_;
   }
+
+  // Soft limits (YAML-scaled operational limits; default = hard URDF limits).
+  const Eigen::MatrixXd& SoftPositionLimits() const { return soft_position_limits_; }
+  const Eigen::MatrixXd& SoftVelocityLimits() const { return soft_velocity_limits_; }
+  const Eigen::MatrixXd& SoftTorqueLimits() const { return soft_torque_limits_; }
+  void SetSoftPositionLimits(const Eigen::MatrixXd& limits) { soft_position_limits_ = limits; }
+  void SetSoftVelocityLimits(const Eigen::MatrixXd& limits) { soft_velocity_limits_ = limits; }
+  void SetSoftTorqueLimits(const Eigen::MatrixXd& limits) { soft_torque_limits_ = limits; }
 
   // ========================================================================
   // Index Queries (pure virtual - must be implemented)
@@ -251,9 +239,12 @@ protected:
   double total_mass_;
 
   // Joint limits (num_actuated x 2: [min, max])
-  Eigen::MatrixXd joint_position_limits_;
-  Eigen::MatrixXd joint_velocity_limits_;
-  Eigen::MatrixXd joint_torque_limits_;
+  Eigen::MatrixXd joint_position_limits_;   // hard (URDF)
+  Eigen::MatrixXd joint_velocity_limits_;   // hard (URDF)
+  Eigen::MatrixXd joint_torque_limits_;     // hard (URDF)
+  Eigen::MatrixXd soft_position_limits_;    // operational (YAML-scaled; defaults to hard)
+  Eigen::MatrixXd soft_velocity_limits_;
+  Eigen::MatrixXd soft_torque_limits_;
 
   // Centroidal quantities
   Eigen::Matrix<double, 6, 6> centroidal_inertia_;
@@ -261,31 +252,6 @@ protected:
   Eigen::Matrix<double, 6, 1> centroidal_momentum_;
 
 public:
-  // Legacy RPC public data compatibility.
-  [[deprecated("Use IsFixedBase().")]]
-  bool& b_fixed_base_;
-  [[deprecated("Use ShouldPrintInfo().")]]
-  bool& b_print_info_;
-  [[deprecated("Use GetNumFloatingDOF().")]]
-  int& n_float_;
-  [[deprecated("Use GetNumQ().")]]
-  int& n_q_;
-  [[deprecated("Use GetNumQdot().")]]
-  int& n_qdot_;
-  [[deprecated("Use GetNumActuated().")]]
-  int& n_a_;
-  [[deprecated("Use GetJointPositionLimits().")]]
-  Eigen::MatrixXd& joint_pos_limits_;
-  [[deprecated("Use GetJointVelocityLimits().")]]
-  Eigen::MatrixXd& joint_vel_limits_;
-  [[deprecated("Use GetJointTorqueLimits().")]]
-  Eigen::MatrixXd& joint_trq_limits_;
-  [[deprecated("Use GetCentroidalInertia().")]]
-  Eigen::Matrix<double, 6, 6>& Ig_;
-  [[deprecated("Use GetCentroidalMomentumMatrix().")]]
-  Eigen::Matrix<double, 6, Eigen::Dynamic>& Ag_;
-  [[deprecated("Use GetCentroidalMomentum().")]]
-  Eigen::Matrix<double, 6, 1>& Hg_;
   Eigen::VectorXd joint_positions_;
   Eigen::VectorXd joint_velocities_;
 

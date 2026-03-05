@@ -27,7 +27,6 @@ PointContact::PointContact(PinocchioRobotSystem* robot, int target_link_idx,
       full_jac_scratch_(Eigen::MatrixXd::Zero(6, robot->NumQdot())) {
   constraint_matrix_ = Eigen::MatrixXd::Zero(6, dim_);
   constraint_vector_ = Eigen::VectorXd::Zero(6);
-  rot_w_l_ = Eigen::MatrixXd::Zero(dim_, dim_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -102,7 +101,6 @@ SurfaceContact::SurfaceContact(PinocchioRobotSystem* robot, int target_link_idx,
       foot_half_width_(foot_half_width) {
   constraint_matrix_ = Eigen::MatrixXd::Zero(18, dim_);
   constraint_vector_ = Eigen::VectorXd::Zero(18);
-  rot_w_l_ = Eigen::MatrixXd::Zero(dim_, dim_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

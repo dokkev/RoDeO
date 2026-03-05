@@ -135,6 +135,11 @@ void PinocchioRobotSystem::Initialize() {
         model_.effortLimit.segment(num_floating_dof_, num_actuated_);
   }
 
+  // Soft limits default to hard (URDF) limits until overridden by YAML scale.
+  soft_position_limits_ = joint_position_limits_;
+  soft_velocity_limits_ = joint_velocity_limits_;
+  soft_torque_limits_   = joint_torque_limits_;
+
   q_ = Eigen::VectorXd::Zero(num_q_);
   qdot_ = Eigen::VectorXd::Zero(num_qdot_);
   joint_positions_ = Eigen::VectorXd::Zero(num_actuated_);
@@ -146,6 +151,8 @@ void PinocchioRobotSystem::Initialize() {
   gravity_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   coriolis_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   link_jac_scratch_ = Eigen::MatrixXd::Zero(6, num_qdot_);
+  manip_data_ = pinocchio::Data(model_);
+  manip_jac_ = Eigen::MatrixXd::Zero(6, num_qdot_);
   InvalidateDynamicsCache();
 }
 
@@ -534,6 +541,25 @@ void PinocchioRobotSystem::FillLinkBodyJacobian(int link_idx, Eigen::MatrixXd& o
                               link_jac_scratch_);
   out.topRows<3>()    = link_jac_scratch_.bottomRows<3>();
   out.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void PinocchioRobotSystem::FillComJacobian(Eigen::MatrixXd& out) {
+  pinocchio::jacobianCenterOfMass(model_, data_, q_);
+  out = data_.Jcom;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+double PinocchioRobotSystem::ComputeManipulability(
+    int frame_idx, const Eigen::VectorXd& q) {
+  manip_jac_.setZero();
+  pinocchio::computeFrameJacobian(
+      model_, manip_data_, q,
+      static_cast<pinocchio::FrameIndex>(frame_idx),
+      pinocchio::LOCAL_WORLD_ALIGNED,
+      manip_jac_);
+  const Eigen::Matrix<double, 6, 6> JJt = manip_jac_ * manip_jac_.transpose();
+  return std::sqrt(std::max(0.0, JJt.determinant()));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

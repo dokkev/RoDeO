@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -740,8 +741,6 @@ TEST_F(ControlArchitectureBehaviorTest, SafetyClampingEnforcesTorqueLimits) {
       "safety_trq_clamp.yaml",
       WithRobotModel(R"(
 start_state_id: 1
-controller:
-  enable_gravity_compensation: true
 task_pool:
   - name: jpos_task
     type: JointTask
@@ -910,10 +909,7 @@ TEST_F(ControlArchitectureBehaviorTest, Benchmark_Optimo7DOF) {
        << "  urdf_path: \"" << optimo_urdf << "\"\n"
        << R"(  is_floating_base: false
   base_frame: base_link
-controller:
-  enable_gravity_compensation: true
-  enable_coriolis_compensation: false
-  enable_inertia_compensation: false
+controller: {}
 regularization:
   w_tau: 1.0e-3
 start_state_id: 1
@@ -1148,6 +1144,905 @@ state_machine:
   EXPECT_TRUE(cmd.tau.allFinite()) << "Torque must be finite with soft pos constraint";
 }
 
+// ===========================================================================
+// Behavioral tests: tracking, smoothness, constraint satisfaction, transitions
+// ===========================================================================
+
+// --- Helper: build Draco3 YAML config for behavioral tests ---
+std::string Draco3BehaviorYaml(
+    const std::string& draco_urdf, int start_state_id = 1,
+    const std::string& extra_states = "") {
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << draco_urdf << "\"\n"
+       << R"(  is_floating_base: true
+  base_frame: torso_link
+regularization:
+  w_qddot: 1.0e-6
+  w_rf: 1.0e-4
+  w_tau: 1.0e-3
+  w_xc_ddot: 1.0e-3
+  w_f_dot: 1.0e-3
+start_state_id: )" << start_state_id << R"(
+task_pool:
+  - name: com_task
+    type: ComTask
+    kp: [40, 40, 40]
+    kd: [8, 8, 8]
+    kp_ik: [1.0, 1.0, 1.0]
+    weight: [50, 50, 50]
+  - name: jpos_task
+    type: JointTask
+    kp: 30.0
+    kd: 3.0
+    kp_ik: 1.0
+    weight: 1.0
+  - name: lfoot_force
+    type: ForceTask
+    contact_name: lfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+  - name: rfoot_force
+    type: ForceTask
+    contact_name: rfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+contact_pool:
+  - name: lfoot_contact
+    type: SurfaceContact
+    target_frame: l_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+  - name: rfoot_contact
+    type: SurfaceContact
+    target_frame: r_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+    is_soft: true
+    soft_weight: 1.0e+5
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+    is_soft: true
+    soft_weight: 1.0e+5
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.9
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: com_task, priority: 0}
+      - {name: jpos_task, priority: 1}
+    contact_constraints:
+      - {name: lfoot_contact}
+      - {name: rfoot_contact}
+    force_tasks:
+      - {name: lfoot_force}
+      - {name: rfoot_force}
+)" + extra_states;
+  return yaml.str();
+}
+
+// Draco3 standing joint configuration (single-knee model).
+Eigen::VectorXd Draco3StandingConfig() {
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(25);
+  q(2)  = -0.565;  q(3)  =  0.565;  q(4)  = -0.565;
+  q(7)  =  0.523;  q(9)  = -1.57;
+  q(15) = -0.565;  q(16) =  0.565;  q(17) = -0.565;
+  q(20) = -0.523;  q(22) = -1.57;
+  return q;
+}
+
+RobotBaseState Draco3StandingBaseState() {
+  RobotBaseState bs;
+  bs.pos = Eigen::Vector3d(0.0, 0.0, 0.841);
+  bs.quat = Eigen::Quaterniond::Identity();
+  bs.lin_vel = Eigen::Vector3d::Zero();
+  bs.ang_vel = Eigen::Vector3d::Zero();
+  bs.rot_world_local = Eigen::Matrix3d::Identity();
+  return bs;
+}
+
+std::string Optimo7BehaviorYaml(const std::string& optimo_urdf,
+                                 int start_state_id = 1) {
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_qddot: 1.0e-6
+  w_tau: 1.0e-3
+start_state_id: )" << start_state_id << R"(
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10, 10, 10, 10, 10, 10, 10]
+    kd: [1, 1, 1, 1, 1, 1, 1]
+    kp_ik: [1, 1, 1, 1, 1, 1, 1]
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100, 100, 100]
+    kd: [10, 10, 10]
+    kp_ik: [1, 1, 1]
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [100, 100, 100]
+    kd: [10, 10, 10]
+    kp_ik: [1, 1, 1]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+    is_soft: true
+    soft_weight: 1.0e+5
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+    is_soft: true
+    soft_weight: 1.0e+5
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: ee_pos, priority: 0}
+      - {name: ee_ori, priority: 1}
+      - {name: jpos_task, priority: 2}
+)";
+  return yaml.str();
+}
+
+// --- Optimo: Joint tracking IK output direction ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Optimo_JointTrackingConvergence) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  // Use joint-only state (single task).
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_qddot: 1.0e-6
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10, 10, 10, 10, 10, 10, 10]
+    kd: [1, 1, 1, 1, 1, 1, 1]
+    kp_ik: [1, 1, 1, 1, 1, 1, 1]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+    is_soft: true
+    soft_weight: 1.0e+5
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: jpos_task}
+)";
+
+  const auto yaml_path = WriteYaml("behavior_optimo_jtrack.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  ASSERT_EQ(n_act, 7);
+
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  // Set desired = current first (warmup at rest).
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Apply a 0.1 rad step to joint 3.
+  Eigen::VectorXd q_des = q;
+  q_des(3) += 0.1;
+  state->joint->UpdateDesired(q_des, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  // Open-loop: verify IK output moves the TARGET joint toward the target.
+  // Without a dynamics simulator we cannot close the loop, but we can verify
+  // that the WBC's IK output (cmd.q) is in the correct direction.
+  const auto& cmd = arch->GetCommand();
+
+  // Run a few ticks (open-loop, same sensor state each tick).
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, (50 + i) * 0.001, 0.001);
+    ASSERT_TRUE(cmd.q.allFinite()) << "NaN q_cmd at tick " << i;
+    ASSERT_TRUE(cmd.tau.allFinite()) << "NaN torque at tick " << i;
+  }
+
+  // The correction on joint 3 should be in the positive direction.
+  const double delta_j3 = cmd.q(3) - q(3);
+  EXPECT_GT(delta_j3, 0.0)
+      << "Joint 3 correction is in wrong direction: delta=" << delta_j3;
+
+  // The correction should cover most of the 0.1 rad step.
+  EXPECT_GT(delta_j3, 0.05)
+      << "Joint 3 correction too small: " << delta_j3 << " rad (expected ~0.1)";
+
+  // cmd.q(3) should be close to q_des(3) — IK with kp_ik=1 should hit target.
+  EXPECT_NEAR(cmd.q(3), q_des(3), 0.01)
+      << "Joint 3 cmd.q not close to target: cmd=" << cmd.q(3)
+      << " des=" << q_des(3);
+
+  // Output should be consistent across ticks (deterministic).
+  const Eigen::VectorXd q_cmd_prev = cmd.q;
+  UpdateWithJointState(arch.get(), q, qdot, 60 * 0.001, 0.001);
+  const double consistency = (cmd.q - q_cmd_prev).norm();
+  EXPECT_LT(consistency, 1e-6)
+      << "IK output not consistent across ticks: " << consistency;
+
+  std::cout << "[Optimo JointTracking] Open-loop IK output check\n"
+            << "  Joint 3 delta: " << delta_j3 << " rad (target step: 0.1)\n"
+            << "  cmd.q(3): " << cmd.q(3) << " (target: " << q_des(3) << ")\n"
+            << "  Output consistency: " << consistency << "\n"
+            << "  cmd.q: " << cmd.q.transpose() << "\n";
+}
+
+// --- Optimo: Torque smoothness ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Optimo_TorqueSmoothness) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  const auto yaml_path =
+      WriteYaml("behavior_optimo_smooth.yaml", Optimo7BehaviorYaml(optimo_urdf));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  // Warmup.
+  for (int i = 0; i < 20; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Apply a small EE perturbation and measure torque rate.
+  // (EE pos task is active — any joint step propagates through hierarchy.)
+  const auto& cmd = arch->GetCommand();
+  Eigen::VectorXd tau_prev = cmd.tau;
+  double max_dtau = 0.0;
+
+  for (int i = 0; i < 200; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, (20 + i) * 0.001, 0.001);
+    ASSERT_TRUE(cmd.tau.allFinite()) << "NaN torque at tick " << i;
+    const double dtau = (cmd.tau - tau_prev).cwiseAbs().maxCoeff();
+    max_dtau = std::max(max_dtau, dtau);
+    tau_prev = cmd.tau;
+  }
+
+  // In steady state, torque rate should be very small (< 1 Nm/tick at 1kHz).
+  EXPECT_LT(max_dtau, 1.0)
+      << "Torque rate exceeded 1 Nm/tick: " << max_dtau;
+  std::cout << "[Optimo Smoothness] Max |dτ/dt|: " << max_dtau << " Nm/tick\n";
+}
+
+// --- Optimo: All-constraint determinism + torque limit satisfaction ---
+// Exercises cached constraint pointers (pos/vel/trq), sa_tau0_scratch_,
+// and PInvSquare LLT path across 3-dim (ee_pos), 3-dim (ee_ori), and
+// 7-dim (joint) tasks in the nullspace hierarchy.
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Optimo_AllConstraintDeterminism) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  // YAML with all 3 constraint types (pos, vel, trq) enabled.
+  std::ostringstream yaml_ss;
+  yaml_ss << "robot_model:\n"
+          << "  urdf_path: \"" << optimo_urdf << "\"\n"
+          << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_qddot: 1.0e-6
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [100, 100, 100, 100, 100, 100, 100]
+    kd: [10, 10, 10, 10, 10, 10, 10]
+    kp_ik: [1, 1, 1, 1, 1, 1, 1]
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [200, 200, 200]
+    kd: [20, 20, 20]
+    kp_ik: [1, 1, 1]
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: [200, 200, 200]
+    kd: [20, 20, 20]
+    kp_ik: [1, 1, 1]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+    is_soft: true
+    soft_weight: 1.0e+5
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+    is_soft: true
+    soft_weight: 1.0e+5
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.8
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: ee_pos, priority: 0}
+      - {name: ee_ori, priority: 1}
+      - {name: jpos_task, priority: 2}
+)";
+
+  constexpr int kTicks = 100;
+  const double trq_limit_scale = 0.8;
+
+  // Return type: torque history + URDF limits (captured before arch is destroyed).
+  struct PipelineResult {
+    std::vector<Eigen::VectorXd> torques;
+    Eigen::MatrixXd trq_limits;
+  };
+
+  // Lambda to run the full pipeline and collect torque history.
+  auto run_pipeline = [&]() -> PipelineResult {
+    const auto yaml_path =
+        WriteYaml("optimo_allconst.yaml", yaml_ss.str());
+    auto arch = MakeArchitecture(yaml_path);
+    EXPECT_NE(arch, nullptr);
+    if (!arch) return {};
+
+    const int n_act = robot_->NumActiveDof();
+    Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+    q << 0.0, -0.8, 0.0, 1.5, 0.0, -0.3, 0.0;
+    const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+    // Set desired to a different pose to create non-trivial torques.
+    const StateConfig* state = arch->GetConfig()->FindState(1);
+    if (state && state->joint) {
+      Eigen::VectorXd q_des = Eigen::VectorXd::Zero(n_act);
+      q_des << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+      state->joint->UpdateDesired(
+          q_des, Eigen::VectorXd::Zero(n_act), Eigen::VectorXd::Zero(n_act));
+    }
+
+    PipelineResult result;
+    result.trq_limits = robot_->JointTrqLimits();
+    result.torques.reserve(kTicks);
+    for (int i = 0; i < kTicks; ++i) {
+      UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+      const RobotCommand& cmd = arch->GetCommand();
+      EXPECT_TRUE(cmd.tau.allFinite()) << "NaN at tick " << i;
+      EXPECT_TRUE(cmd.q.allFinite()) << "NaN q at tick " << i;
+      result.torques.push_back(cmd.tau);
+    }
+    return result;
+  };
+
+  const auto res1 = run_pipeline();
+  const auto res2 = run_pipeline();
+  const auto& run1 = res1.torques;
+  const auto& run2 = res2.torques;
+
+  // (1) Determinism: bit-exact match.
+  ASSERT_EQ(run1.size(), run2.size());
+  for (int i = 0; i < kTicks; ++i) {
+    EXPECT_TRUE(run1[i] == run2[i])
+        << "Non-determinism at tick " << i << ":\n"
+        << "  run1: " << run1[i].transpose() << "\n"
+        << "  run2: " << run2[i].transpose();
+  }
+
+  // (2) Torque limits: URDF efforts are [87, 87, 87, 87, 12, 12, 12] for Optimo.
+  // With scale=0.8, effective limits are 80% of those.
+  // The post-clamp in ControlArchitecture must enforce these.
+  const Eigen::MatrixXd& trq_limits = res1.trq_limits;
+  for (int i = 0; i < kTicks; ++i) {
+    for (int j = 0; j < run1[i].size(); ++j) {
+      const double lo = trq_limits(j, 0) * trq_limit_scale;
+      const double hi = trq_limits(j, 1) * trq_limit_scale;
+      EXPECT_GE(run1[i][j], lo - 1e-3)
+          << "tick " << i << " joint " << j << " below trq limit";
+      EXPECT_LE(run1[i][j], hi + 1e-3)
+          << "tick " << i << " joint " << j << " above trq limit";
+    }
+  }
+
+  std::cout << "[Optimo AllConstraint] " << kTicks
+            << " ticks deterministic, torque limits satisfied\n";
+}
+
+// --- Optimo: Closed-loop RBD simulation via Pinocchio ABA ---
+// The gold standard for pre-hardware validation: run the full
+// WBC → torque → forward dynamics → state update loop and verify
+// that the controller converges, stays stable, and respects limits.
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Optimo_ClosedLoopRBD) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  // Optimo URDF limits:
+  //   J1:[-2.09,2.09] J2:[1.05,3.84] J3:[-2.09,2.09] J4:[-2.53,2.53]
+  //   J5:[-2.62,2.62] J6:[-2.09,2.09] J7:[-2.09,2.09]
+  //   Effort: [95, 95, 40, 40, 15, 15, 15] Nm
+  //
+  // Conservative gains for closed-loop stability with ABA forward dynamics.
+  // Closed-loop RBD test: WBIC inverse dynamics + kp/kd feedback vs ABA physics.
+  // No constraints — validates that WBIC output drives the robot to q_des.
+  std::ostringstream yaml_ss;
+  yaml_ss << "robot_model:\n"
+          << "  urdf_path: \"" << optimo_urdf << "\"\n"
+          << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_qddot: 1.0e-6
+  w_tau: 0.0
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [100, 100, 100, 100, 50, 50, 50]
+    kd: [20, 20, 20, 20, 14, 14, 14]
+    kp_ik: [1, 1, 1, 1, 1, 1, 1]
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+
+  const auto yaml_path =
+      WriteYaml("optimo_closedloop.yaml", yaml_ss.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  ASSERT_EQ(n_act, 7);
+
+  const pinocchio::Model& model = robot_->GetModel();
+  pinocchio::Data sim_data(model);  // separate data for simulation
+
+  // Optimo home pose (from controller config).
+  Eigen::VectorXd q_des = Eigen::VectorXd::Zero(n_act);
+  q_des << 0.0, 3.3, 0.0, -2.35, 0.0, -1.13, 0.0;
+
+  // Start with 0.1 rad perturbation from home.
+  Eigen::VectorXd q_sim = q_des;
+  q_sim.array() += 0.1;
+  Eigen::VectorXd qdot_sim = Eigen::VectorXd::Zero(n_act);
+
+  // Set desired pose.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(
+      q_des, Eigen::VectorXd::Zero(n_act), Eigen::VectorXd::Zero(n_act));
+
+  constexpr double dt = 0.001;
+  constexpr int kTotalTicks = 3000;   // 3 seconds
+  constexpr int kSettleTicks = 2000;  // check convergence after 2s
+
+  const Eigen::MatrixXd& pos_limits = robot_->JointPosLimits();
+  const Eigen::MatrixXd& trq_limits = robot_->JointTrqLimits();
+
+  double max_pos_err = 0.0;
+  double max_trq = 0.0;
+  int nan_count = 0;
+
+  for (int i = 0; i < kTotalTicks; ++i) {
+    // (1) Feed current state to WBC.
+    RobotJointState js;
+    js.q    = q_sim;
+    js.qdot = qdot_sim;
+    js.tau  = Eigen::VectorXd::Zero(n_act);
+    arch->Update(js, i * dt, dt);
+
+    const RobotCommand& cmd = arch->GetCommand();
+    if (!cmd.tau.allFinite()) {
+      nan_count++;
+      break;
+    }
+
+    // (2) Forward dynamics: qddot = M^{-1}(tau - h) via Pinocchio ABA.
+    pinocchio::aba(model, sim_data, q_sim, qdot_sim, cmd.tau);
+    const Eigen::VectorXd& qddot = sim_data.ddq;
+
+    // (3) Semi-implicit Euler integration.
+    qdot_sim += qddot * dt;
+    q_sim += qdot_sim * dt;
+
+    // (4) Clamp to URDF joint limits (hard stops) + zero velocity at limit.
+    for (int j = 0; j < n_act; ++j) {
+      if (q_sim[j] < pos_limits(j, 0)) {
+        q_sim[j] = pos_limits(j, 0);
+        qdot_sim[j] = std::max(qdot_sim[j], 0.0);
+      } else if (q_sim[j] > pos_limits(j, 1)) {
+        q_sim[j] = pos_limits(j, 1);
+        qdot_sim[j] = std::min(qdot_sim[j], 0.0);
+      }
+    }
+
+    // Track stats.
+    max_trq = std::max(max_trq, cmd.tau.cwiseAbs().maxCoeff());
+    if (i >= kSettleTicks) {
+      const double pos_err = (q_sim - q_des).cwiseAbs().maxCoeff();
+      max_pos_err = std::max(max_pos_err, pos_err);
+    }
+  }
+
+  EXPECT_EQ(nan_count, 0) << "NaN torque detected during simulation";
+
+  // After settling, position error should be small (< 5 degrees ≈ 0.087 rad).
+  EXPECT_LT(max_pos_err, 0.087)
+      << "Joint tracking did not converge after "
+      << kSettleTicks * dt << "s: max error = "
+      << max_pos_err << " rad (" << max_pos_err * 180.0 / M_PI << " deg)";
+
+  // Velocity should have settled near zero.
+  const double final_qdot_norm = qdot_sim.norm();
+  EXPECT_LT(final_qdot_norm, 0.5)
+      << "Velocity not settled: ||qdot|| = " << final_qdot_norm;
+
+  std::cout << "[Optimo ClosedLoop RBD] " << kTotalTicks * dt << "s simulation\n"
+            << "  Converged pos error: " << max_pos_err * 1000.0 << " mrad\n"
+            << "  Peak torque: " << max_trq << " Nm\n"
+            << "  Final ||qdot||: " << final_qdot_norm << " rad/s\n"
+            << "  Final q:    " << q_sim.transpose() << "\n"
+            << "  Desired q:  " << q_des.transpose() << "\n";
+}
+
+// --- Draco3: CoM IK output direction after step command ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Draco3_ComTrackingStep) {
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found";
+  }
+
+  const auto yaml_path =
+      WriteYaml("behavior_draco3_com.yaml", Draco3BehaviorYaml(draco_urdf));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+  ASSERT_EQ(robot_->NumActiveDof(), 25);
+
+  Eigen::VectorXd q = Draco3StandingConfig();
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(25);
+  RobotBaseState bs = Draco3StandingBaseState();
+
+  // Set desired = current for warmup.
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(25),
+                              Eigen::VectorXd::Zero(25));
+
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, i * 0.001, 0.001);
+  }
+
+  // Read initial CoM position from robot model.
+  const Eigen::Vector3d com_init = robot_->GetComPosition();
+
+  // Apply a 2cm lateral CoM shift (along y-axis).
+  ComTask* com_task = dynamic_cast<ComTask*>(state->com);
+  ASSERT_NE(com_task, nullptr) << "ComTask not found in state 1";
+
+  Eigen::Vector3d com_target = com_init;
+  com_target.y() += 0.02;  // 2cm lateral shift
+  com_task->UpdateDesired(com_target, Eigen::Vector3d::Zero(),
+                          Eigen::Vector3d::Zero());
+
+  // Open-loop: verify IK output produces a joint correction that would
+  // shift the CoM. Without dynamics simulation, we check that:
+  // 1) cmd.q differs from initial q (non-zero correction)
+  // 2) The correction is consistent across ticks (deterministic)
+  // 3) The output is finite and reasonable
+  const auto& cmd = arch->GetCommand();
+
+  // Run a few ticks with the same sensor state.
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, (50 + i) * 0.001, 0.001);
+    ASSERT_TRUE(cmd.q.allFinite()) << "NaN q_cmd at tick " << i;
+    ASSERT_TRUE(cmd.tau.allFinite()) << "NaN torque at tick " << i;
+  }
+
+  // The IK should produce a non-trivial joint correction.
+  const double q_delta_norm = (cmd.q - q).norm();
+  EXPECT_GT(q_delta_norm, 1e-4)
+      << "WBC produced no meaningful joint correction for CoM shift";
+
+  // Verify consistency: run another tick, correction should be similar.
+  const Eigen::VectorXd q_cmd_prev = cmd.q;
+  UpdateWithFloatingBase(arch.get(), q, qdot, bs, 60 * 0.001, 0.001);
+  const double consistency = (cmd.q - q_cmd_prev).norm();
+  EXPECT_LT(consistency, 1e-6)
+      << "IK output not consistent across ticks with same input: "
+      << consistency;
+
+  // Verify the CoM task error is non-zero (task is active).
+  const double com_task_error = com_task->LocalPosError().norm();
+  EXPECT_GT(com_task_error, 0.01)
+      << "CoM task error suspiciously small in open-loop";
+
+  std::cout << "[Draco3 CoM Step] Open-loop IK output check\n"
+            << "  Target shift: 2cm lateral\n"
+            << "  Joint correction norm: " << q_delta_norm << " rad\n"
+            << "  Output consistency: " << consistency << "\n"
+            << "  CoM task error: " << com_task_error * 1000.0 << " mm\n";
+}
+
+// --- Draco3: CoM lateral swing torque smoothness ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Draco3_ComSwing) {
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found";
+  }
+
+  const auto yaml_path =
+      WriteYaml("behavior_draco3_swing.yaml", Draco3BehaviorYaml(draco_urdf));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  Eigen::VectorXd q = Draco3StandingConfig();
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(25);
+  RobotBaseState bs = Draco3StandingBaseState();
+
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(25),
+                              Eigen::VectorXd::Zero(25));
+
+  // Warmup at rest.
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, i * 0.001, 0.001);
+  }
+
+  const Eigen::Vector3d com_init = robot_->GetComPosition();
+
+  ComTask* com_task = dynamic_cast<ComTask*>(state->com);
+  ASSERT_NE(com_task, nullptr);
+
+  // Oscillate CoM target laterally: ±3cm at 1Hz over 2 seconds.
+  // Open-loop: sensor state stays constant (no dynamics simulator).
+  // We verify that the torque output is smooth as the reference changes.
+  constexpr double kAmplitude = 0.03;  // 3cm
+  constexpr double kFreqHz = 1.0;
+  constexpr int kTicks = 2000;  // 2 seconds at 1kHz
+  const auto& cmd = arch->GetCommand();
+
+  double max_tau_rate = 0.0;
+  Eigen::VectorXd tau_prev = cmd.tau;
+  int finite_count = 0;
+
+  for (int i = 0; i < kTicks; ++i) {
+    const double t = (50 + i) * 0.001;
+    // Sinusoidal CoM target along y-axis.
+    Eigen::Vector3d com_des = com_init;
+    com_des.y() += kAmplitude * std::sin(2.0 * M_PI * kFreqHz * t);
+    com_task->UpdateDesired(com_des, Eigen::Vector3d::Zero(),
+                            Eigen::Vector3d::Zero());
+
+    // Open-loop: always use same sensor state.
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, t, 0.001);
+
+    if (cmd.tau.allFinite()) {
+      ++finite_count;
+      if (i > 0) {  // skip first tick (warmup → swing transition)
+        const double dtau = (cmd.tau - tau_prev).cwiseAbs().maxCoeff();
+        max_tau_rate = std::max(max_tau_rate, dtau);
+      }
+      tau_prev = cmd.tau;
+    }
+  }
+
+  const double success_rate = static_cast<double>(finite_count) / kTicks * 100.0;
+
+  std::cout << "[Draco3 CoM Swing] 2s lateral oscillation ±3cm at 1Hz (open-loop)\n"
+            << "  Solve success: " << success_rate << "%\n"
+            << "  Max torque rate: " << max_tau_rate << " Nm/tick\n";
+
+  // Should solve successfully >95% of the time.
+  EXPECT_GT(success_rate, 95.0) << "Too many solve failures during swing";
+  // In open-loop, torque changes come only from reference changes (smooth sine).
+  // The rate should be well-bounded.
+  EXPECT_LT(max_tau_rate, 50.0)
+      << "Torque discontinuity during CoM swing: " << max_tau_rate;
+}
+
+// --- Draco3: Constraint satisfaction under load ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Draco3_ConstraintSatisfaction) {
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found";
+  }
+
+  const auto yaml_path = WriteYaml("behavior_draco3_constraint.yaml",
+                                    Draco3BehaviorYaml(draco_urdf));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  Eigen::VectorXd q = Draco3StandingConfig();
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(25);
+  RobotBaseState bs = Draco3StandingBaseState();
+
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(25),
+                              Eigen::VectorXd::Zero(25));
+
+  // Warmup.
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, i * 0.001, 0.001);
+  }
+
+  // Get joint limits from robot model (Nx2 matrices: [min, max]).
+  const Eigen::MatrixXd& pos_limits = robot_->JointPosLimits();
+  const Eigen::MatrixXd& trq_limits = robot_->JointTrqLimits();
+
+  const auto& cmd = arch->GetCommand();
+  int pos_violations = 0;
+  int trq_violations = 0;
+
+  // Run 500 ticks of steady-state.
+  for (int i = 0; i < 500; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, (50 + i) * 0.001, 0.001);
+    if (!cmd.tau.allFinite()) continue;
+
+    // Check q_cmd within URDF limits (with some tolerance).
+    for (int j = 0; j < cmd.q.size(); ++j) {
+      if (cmd.q(j) < pos_limits(j, 0) - 0.01 ||
+          cmd.q(j) > pos_limits(j, 1) + 0.01) {
+        ++pos_violations;
+      }
+    }
+
+    // Check torque within URDF limits (with 10% tolerance).
+    for (int j = 0; j < cmd.tau.size(); ++j) {
+      const double trq_max = std::max(std::abs(trq_limits(j, 0)),
+                                       std::abs(trq_limits(j, 1)));
+      if (std::abs(cmd.tau(j)) > trq_max * 1.1) {
+        ++trq_violations;
+      }
+    }
+  }
+
+  std::cout << "[Draco3 Constraints] 500-tick steady state\n"
+            << "  Position violations (>URDF+1cm): " << pos_violations << "\n"
+            << "  Torque violations (>110% URDF):  " << trq_violations << "\n";
+
+  EXPECT_EQ(pos_violations, 0)
+      << "Joint position commands exceeded URDF limits";
+  EXPECT_EQ(trq_violations, 0) << "Torque commands exceeded URDF limits";
+}
+
+// --- Draco3: State transition torque continuity ---
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Draco3_StateTransitionContinuity) {
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found";
+  }
+
+  // Two states with different task configurations.
+  const std::string extra_states = R"(  - id: 2
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: com_task, priority: 0, weight: [100, 100, 100]}
+      - {name: jpos_task, priority: 1}
+    contact_constraints:
+      - {name: lfoot_contact}
+      - {name: rfoot_contact}
+    force_tasks:
+      - {name: lfoot_force}
+      - {name: rfoot_force}
+)";
+
+  const auto yaml_path = WriteYaml(
+      "behavior_draco3_transition.yaml",
+      Draco3BehaviorYaml(draco_urdf, 1, extra_states));
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  Eigen::VectorXd q = Draco3StandingConfig();
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(25);
+  RobotBaseState bs = Draco3StandingBaseState();
+
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(25),
+                              Eigen::VectorXd::Zero(25));
+
+  // Also set desired for state 2.
+  const StateConfig* state2 = arch->GetConfig()->FindState(2);
+  ASSERT_NE(state2, nullptr);
+  state2->joint->UpdateDesired(q, Eigen::VectorXd::Zero(25),
+                               Eigen::VectorXd::Zero(25));
+
+  // Warmup in state 1.
+  for (int i = 0; i < 100; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, bs, i * 0.001, 0.001);
+  }
+
+  const auto& cmd = arch->GetCommand();
+  ASSERT_TRUE(cmd.tau.allFinite());
+  const Eigen::VectorXd tau_before = cmd.tau;
+
+  // Request state transition.
+  arch->RequestState(2);
+
+  // Run one tick after transition.
+  UpdateWithFloatingBase(arch.get(), q, qdot, bs, 100 * 0.001, 0.001);
+  ASSERT_TRUE(cmd.tau.allFinite());
+  const Eigen::VectorXd tau_after = cmd.tau;
+
+  const double transition_jump = (tau_after - tau_before).cwiseAbs().maxCoeff();
+  std::cout << "[Draco3 Transition] State 1 → State 2\n"
+            << "  Max torque jump: " << transition_jump << " Nm\n";
+
+  // Torque jump across state transition should be bounded.
+  // Both states have the same tasks (different weights), so jump should be small.
+  EXPECT_LT(transition_jump, 20.0)
+      << "Excessive torque discontinuity at state transition";
+}
+
+// ===========================================================================
+// Benchmark tests
+// ===========================================================================
+
 TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3) {
   // Draco3 single-knee: 25-DOF floating-base humanoid with CoM task,
   // surface contacts, force tasks, and all kinematic constraints.
@@ -1163,8 +2058,6 @@ TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3) {
        << "  urdf_path: \"" << draco_urdf << "\"\n"
        << R"(  is_floating_base: true
   base_frame: torso_link
-controller:
-  enable_gravity_compensation: false
 regularization:
   w_tau: 1.0e-3
 start_state_id: 1
@@ -1326,6 +2219,191 @@ void AppendConstraintYaml(std::ostringstream& yaml,
   }
 }
 
+TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3_Profiling) {
+  // Per-phase timing breakdown for Draco3 to identify optimization targets.
+  const std::string draco_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "draco_description/urdf/draco_modified_single_knee.urdf";
+  if (!std::filesystem::exists(draco_urdf)) {
+    GTEST_SKIP() << "Draco3 URDF not found — skipping profiling";
+  }
+
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << draco_urdf << "\"\n"
+       << R"(  is_floating_base: true
+  base_frame: torso_link
+regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: com_task
+    type: ComTask
+    kp: [40, 40, 40]
+    kd: [8, 8, 8]
+    kp_ik: [1.0, 1.0, 1.0]
+    weight: [50, 50, 50]
+  - name: jpos_task
+    type: JointTask
+    kp: 30.0
+    kd: 3.0
+    kp_ik: 1.0
+    weight: 1.0
+  - name: lfoot_force
+    type: ForceTask
+    contact_name: lfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+  - name: rfoot_force
+    type: ForceTask
+    contact_name: rfoot_contact
+    weight: [0, 0, 0, 0, 0, 0]
+contact_pool:
+  - name: lfoot_contact
+    type: SurfaceContact
+    target_frame: l_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+  - name: rfoot_contact
+    type: SurfaceContact
+    target_frame: r_foot_contact
+    mu: 0.5
+    foot_half_length: 0.10
+    foot_half_width: 0.05
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.9
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    task_hierarchy:
+      - {name: com_task, priority: 0}
+      - {name: jpos_task, priority: 1}
+    contact_constraints:
+      - {name: lfoot_contact}
+      - {name: rfoot_contact}
+    force_tasks:
+      - {name: lfoot_force}
+      - {name: rfoot_force}
+)";
+
+  const auto yaml_path = WriteYaml("profiling_draco3.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  ASSERT_EQ(n_act, 25);
+
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q(2)  = -0.565;  q(3)  =  0.565;  q(4)  = -0.565;
+  q(7)  =  0.523;  q(9)  = -1.57;
+  q(15) = -0.565;  q(16) =  0.565;  q(17) = -0.565;
+  q(20) = -0.523;  q(22) = -1.57;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  RobotBaseState base_state;
+  base_state.pos = Eigen::Vector3d(0.0, 0.0, 0.841);
+  base_state.quat = Eigen::Quaterniond::Identity();
+  base_state.lin_vel = Eigen::Vector3d::Zero();
+  base_state.ang_vel = Eigen::Vector3d::Zero();
+  base_state.rot_world_local = Eigen::Matrix3d::Identity();
+
+  const StateConfig* state = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state, nullptr);
+  ASSERT_NE(state->joint, nullptr);
+  state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                              Eigen::VectorXd::Zero(n_act));
+
+  // Warm-up.
+  for (int i = 0; i < 20; ++i) {
+    UpdateWithFloatingBase(arch.get(), q, qdot, base_state, i * 0.001, 0.001);
+  }
+
+  // Enable per-phase timing on ControlArchitecture.
+  // WBIC internal breakdown (qp_setup/qp_solve/torque_recovery) is captured
+  // inside the arch-level find_config_us and make_torque_us phases.
+  arch->enable_timing_ = true;
+
+  constexpr int kIterations = 500;
+
+  // Accumulators for averaging.
+  double sum_robot_model = 0, sum_kinematics = 0, sum_dynamics = 0;
+  double sum_find_config = 0, sum_make_torque = 0, sum_feedback = 0;
+  double sum_total = 0;
+
+  for (int i = 0; i < kIterations; ++i) {
+    const double t = (20 + i) * 0.001;
+    const auto tick_start = std::chrono::high_resolution_clock::now();
+    UpdateWithFloatingBase(arch.get(), q, qdot, base_state, t, 0.001);
+    const auto tick_end = std::chrono::high_resolution_clock::now();
+
+    const auto& s = arch->timing_stats_;
+    sum_robot_model += s.robot_model_us;
+    sum_kinematics  += s.kinematics_us;
+    sum_dynamics    += s.dynamics_us;
+    sum_find_config += s.find_config_us;
+    sum_make_torque += s.make_torque_us;
+    sum_feedback    += s.feedback_us;
+    sum_total += std::chrono::duration<double, std::micro>(tick_end - tick_start).count();
+  }
+
+  const double N = static_cast<double>(kIterations);
+  const double avg_total       = sum_total / N;
+  const double avg_robot_model = sum_robot_model / N;
+  const double avg_kinematics  = sum_kinematics / N;
+  const double avg_dynamics    = sum_dynamics / N;
+  const double avg_find_config = sum_find_config / N;
+  const double avg_make_torque = sum_make_torque / N;
+  const double avg_feedback    = sum_feedback / N;
+  const double avg_other       = avg_total - avg_robot_model - avg_kinematics
+                                 - avg_dynamics - avg_find_config
+                                 - avg_make_torque - avg_feedback;
+
+  auto pct = [&](double phase) { return (phase / avg_total) * 100.0; };
+
+  char buf[512];
+  std::cout
+      << "\n===== Draco3 Per-Phase Profiling (" << kIterations << " ticks) =====\n"
+      << "  Phase              |   Avg (us)  |    %\n"
+      << " --------------------+-------------+--------\n";
+  std::snprintf(buf, sizeof(buf), "  Robot Model (FK)   | %11.1f | %5.1f%%\n",
+                avg_robot_model, pct(avg_robot_model));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  Kinematics (J,Jd)  | %11.1f | %5.1f%%\n",
+                avg_kinematics, pct(avg_kinematics));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  Dynamics (M,h,g)   | %11.1f | %5.1f%%\n",
+                avg_dynamics, pct(avg_dynamics));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  FindConfig (LLT)   | %11.1f | %5.1f%%\n",
+                avg_find_config, pct(avg_find_config));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  MakeTorque (QP)    | %11.1f | %5.1f%%\n",
+                avg_make_torque, pct(avg_make_torque));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  Feedback (PID+comp)| %11.1f | %5.1f%%\n",
+                avg_feedback, pct(avg_feedback));
+  std::cout << buf;
+  std::snprintf(buf, sizeof(buf), "  Other (FSM+SP)     | %11.1f | %5.1f%%\n",
+                avg_other, pct(avg_other));
+  std::cout << buf;
+  std::cout << " --------------------+-------------+--------\n";
+  std::snprintf(buf, sizeof(buf), "  TOTAL              | %11.1f | 100.0%%\n",
+                avg_total);
+  std::cout << buf;
+  std::cout << "  Max freq           : " << (1.0e6 / avg_total) << " Hz\n"
+            << "========================================================\n";
+
+  EXPECT_TRUE(true);  // Profiling test — always passes.
+}
+
 TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3_ConstraintCombinations) {
   const std::string draco_urdf =
       "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
@@ -1387,8 +2465,6 @@ TEST_F(ControlArchitectureBehaviorTest, Benchmark_Draco3_ConstraintCombinations)
          << "  urdf_path: \"" << draco_urdf << "\"\n"
          << R"(  is_floating_base: true
   base_frame: torso_link
-controller:
-  enable_gravity_compensation: false
 regularization:
   w_tau: 1.0e-3
 start_state_id: 1
@@ -1551,10 +2627,7 @@ TEST_F(ControlArchitectureBehaviorTest, Benchmark_Optimo7DOF_ConstraintCombinati
          << "  urdf_path: \"" << optimo_urdf << "\"\n"
          << R"(  is_floating_base: false
   base_frame: base_link
-controller:
-  enable_gravity_compensation: true
-  enable_coriolis_compensation: false
-  enable_inertia_compensation: false
+controller: {}
 regularization:
   w_tau: 1.0e-3
 start_state_id: 1

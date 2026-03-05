@@ -391,21 +391,26 @@ state_machine:
 
   // pos_scale=0.5 on [-3.14, 3.14]: mid=0, half=3.14
   //   → new limits = [-1.57, 1.57]
-  // At q=0, qdot=0: qddot_min = (2/dt²)(pos_min - 0 - 0) = 2000 * (-1.57)
-  //                  qddot_max = (2/dt²)(pos_max - 0 - 0) = 2000 * (1.57)
+  // Look-ahead damper (kTauPos=0.05, kTauVel=0.02):
+  //   At q=0, qdot=0: qdot_safe = pos_lim / kTauPos
+  //                    qddot     = qdot_safe / kTauVel = pos_lim / (kTauPos * kTauVel)
   // Constraint vector: [-qddot_min, qddot_max] for each joint
   const Eigen::VectorXd& pos_vec = pos_c->ConstraintVector();
   ASSERT_EQ(pos_vec.size(), 4);  // 2 joints * 2 bounds
+  constexpr double kTauPos = 0.05;
+  constexpr double kTauVel_pos = 0.02;
   const double expected_pos_limit = 3.14 * 0.5;
-  const double expected_qddot = 2.0 / (0.001 * 0.001) * expected_pos_limit;
+  const double expected_qddot = expected_pos_limit / (kTauPos * kTauVel_pos);
   EXPECT_NEAR(pos_vec(0), expected_qddot, 1.0);   // -qddot_min = -(-val) = val
   EXPECT_NEAR(pos_vec(2), expected_qddot, 1.0);   // qddot_max
 
   // vel_scale=0.6 on [-10, 10] → [-6, 6]
-  // At qdot=0: qddot_min = (-6 - 0)/dt = -6000, qddot_max = 6000
+  // Look-ahead damper (kTauVel=0.02):
+  //   At qdot=0: qddot = vel_lim / kTauVel
+  constexpr double kTauVel_vel = 0.02;
   const Eigen::VectorXd& vel_vec = vel_c->ConstraintVector();
   ASSERT_EQ(vel_vec.size(), 4);
-  const double expected_vel = 10.0 * 0.6 / 0.001;
+  const double expected_vel = 10.0 * 0.6 / kTauVel_vel;
   EXPECT_NEAR(vel_vec(0), expected_vel, 1.0);   // -qddot_min
   EXPECT_NEAR(vel_vec(2), expected_vel, 1.0);   // qddot_max
 
@@ -471,8 +476,9 @@ state_machine:
   pos_c->UpdateConstraint();
 
   // Without scaling section, should use full URDF range [-3.14, 3.14]
+  // Look-ahead damper: qddot_max = pos_lim / (kTauPos * kTauVel) = 3.14 / 0.001
   const Eigen::VectorXd& pos_vec = pos_c->ConstraintVector();
-  const double expected = 2.0 / (0.001 * 0.001) * 3.14;
+  const double expected = 3.14 / (0.05 * 0.02);  // kTauPos=0.05, kTauVel=0.02
   EXPECT_NEAR(pos_vec(0), expected, 1.0);
   EXPECT_NEAR(pos_vec(2), expected, 1.0);
 }

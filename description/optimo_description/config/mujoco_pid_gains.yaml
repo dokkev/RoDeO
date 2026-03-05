@@ -1,0 +1,131 @@
+/**:
+  ros__parameters:
+    pid_gains:
+      position:
+        joint1:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 95.0
+          u_clamp_min: -95.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint2:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 95.0
+          u_clamp_min: -95.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint3:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 40.0
+          u_clamp_min: -40.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint4:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 40.0
+          u_clamp_min: -40.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint5:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint6:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint7:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+      velocity:
+        joint1:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 95.0
+          u_clamp_min: -95.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint2:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 95.0
+          u_clamp_min: -95.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint3:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 40.0
+          u_clamp_min: -40.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint4:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 40.0
+          u_clamp_min: -40.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint5:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint6:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"
+        joint7:
+          p: 0.0
+          i: 0.0
+          d: 0.0
+          u_clamp_max: 15.0
+          u_clamp_min: -15.0
+          i_clamp_max: 0.0
+          i_clamp_min: 0.0
+          antiwindup_strategy: "none"

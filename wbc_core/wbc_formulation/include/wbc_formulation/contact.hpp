@@ -62,7 +62,6 @@ public:
   void SetDesiredOri(const Eigen::Quaterniond& quat) { des_quat_ = quat; }
 
   double MaxFz() const { return rf_z_max_; }
-  const Eigen::MatrixXd& R() const { return rot_w_l_; }
   double Mu() const { return mu_; }
 
   const Eigen::MatrixXd& UfMatrix() const { return constraint_matrix_; }
@@ -73,7 +72,6 @@ protected:
   double mu_;
 
   double rf_z_max_;
-  Eigen::MatrixXd rot_w_l_;
 
   Eigen::Vector3d des_pos_;
   Eigen::Quaterniond des_quat_;

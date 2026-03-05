@@ -57,16 +57,9 @@ public:
     config.state_provider = std::make_unique<StateProvider>(control_dt);
     config.control_dt = control_dt;
 
-    // controller: optional feedforward terms added to cmd_.tau after WBC solve.
+    // controller: optional PID feedback on top of WBC inverse dynamics.
     const YAML::Node& ctrl = definition.root["controller"];
     if (ctrl) {
-      if (ctrl["enable_gravity_compensation"])
-        config.enable_gravity_comp = ctrl["enable_gravity_compensation"].as<bool>();
-      if (ctrl["enable_coriolis_compensation"])
-        config.enable_coriolis_comp = ctrl["enable_coriolis_compensation"].as<bool>();
-      if (ctrl["enable_inertia_compensation"])
-        config.enable_inertia_comp = ctrl["enable_inertia_compensation"].as<bool>();
-
       // joint_pid: optional joint-level feedback controller.
       const YAML::Node& pid_node = ctrl["joint_pid"];
       if (pid_node) {
@@ -148,9 +141,6 @@ public:
   std::unique_ptr<StateProvider>        state_provider;
   std::unique_ptr<FSMHandler>           fsm_handler;
   double control_dt{0.001};
-  bool enable_gravity_comp{false};
-  bool enable_coriolis_comp{false};
-  bool enable_inertia_comp{false};
   JointPIDConfig joint_pid;
 };
 

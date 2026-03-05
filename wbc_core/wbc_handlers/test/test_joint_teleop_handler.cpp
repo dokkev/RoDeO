@@ -1,5 +1,5 @@
 /**
- * @file wbc_trajectory/test/test_joint_teleop_handler.cpp
+ * @file wbc_handlers/test/test_joint_teleop_handler.cpp
  * @brief Unit tests for JointTeleopHandler.
  *
  * Covers:
@@ -10,7 +10,7 @@
  */
 #include <gtest/gtest.h>
 
-#include "wbc_trajectory/joint_teleop_handler.hpp"
+#include "wbc_handlers/joint_teleop_handler.hpp"
 
 namespace wbc {
 namespace {

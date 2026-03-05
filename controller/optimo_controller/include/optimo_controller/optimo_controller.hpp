@@ -12,11 +12,15 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <realtime_tools/realtime_buffer.h>
+#include <realtime_tools/realtime_publisher.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include "wbc_architecture/control_architecture.hpp"
+#include "wbc_logger/wbc_logger.hpp"
+#include "wbc_msgs/msg/wbc_state.hpp"
+#include "wbc_msgs/srv/transition_state.hpp"
 
 namespace wbc {
-class EETeleop;
+class CartesianTeleop;
 class JointTeleop;
 }  // namespace wbc
 
@@ -96,7 +100,6 @@ private:
   std::vector<std::string> joints_;
   std::size_t joint_count_{0};
   std::string wbc_yaml_path_;
-  std::string workspace_yaml_path_;   // path to optimo_workspace.yaml; empty = no clamping
   double control_frequency_hz_{1000.0};
   double control_dt_{0.001};
   std::unique_ptr<wbc::ControlArchitecture> ctrl_arch_;
@@ -104,25 +107,32 @@ private:
 
   // Per-topic RT buffers — pre-sized to joint_count_ in on_configure().
   // Timestamp is embedded in each struct so data and ts are always consistent.
-  realtime_tools::RealtimeBuffer<JointVelRef> joint_vel_buf_;
-  realtime_tools::RealtimeBuffer<JointPosRef> joint_pos_buf_;
-  realtime_tools::RealtimeBuffer<EEVelRef>    ee_vel_buf_;
-  realtime_tools::RealtimeBuffer<EEPoseRef>   ee_pose_buf_;
+  realtime_tools::RealtimeBuffer<JointVelRef> qdot_des_buf_;
+  realtime_tools::RealtimeBuffer<JointPosRef> q_des_buf_;
+  realtime_tools::RealtimeBuffer<EEVelRef>    xdot_des_buf_;
+  realtime_tools::RealtimeBuffer<EEPoseRef>   x_des_buf_;
 
   // ROS subscribers (non-RT)
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_vel_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr ee_vel_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_pos_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr  ee_pos_sub_;
+  rclcpp::Service<wbc_msgs::srv::TransitionState>::SharedPtr       set_state_srv_;
 
   // Typed state pointers — cached at configure time, valid for controller lifetime.
   // Allows RT-safe direct dispatch without dynamic_cast in the hot path.
-  wbc::JointTeleop* joint_teleop_{nullptr};
-  wbc::EETeleop*    ee_teleop_{nullptr};
+  wbc::JointTeleop* joint_teleop_state_{nullptr};
+  wbc::CartesianTeleop* cartesian_teleop_state_{nullptr};
 
   // Active state id — refreshed after each ctrl_arch_->Update() so the FSM's
   // latest state (including auto-transitions) is observed before the next tick's dispatch.
   wbc::StateId active_state_id_{-1};
+
+  // RT-safe WBC state publisher — non-blocking trylock in the hot path.
+  std::shared_ptr<realtime_tools::RealtimePublisher<wbc_msgs::msg::WbcState>> rt_wbc_pub_;
+
+  /// Copy WbcStateData → WbcState msg and try-publish (non-blocking).
+  void PublishWbcState(const rclcpp::Time& time);
 };
 
 }  // namespace optimo_controller

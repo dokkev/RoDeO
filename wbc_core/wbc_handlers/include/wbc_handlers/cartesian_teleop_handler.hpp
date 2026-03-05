@@ -1,6 +1,6 @@
 /**
- * @file wbc_trajectory/include/wbc_trajectory/ee_teleop_handler.hpp
- * @brief Velocity-command-based end-effector teleop with isotropic speed clamping.
+ * @file wbc_handlers/include/wbc_handlers/cartesian_teleop_handler.hpp
+ * @brief Velocity-command-based Cartesian teleop with isotropic speed clamping.
  */
 #pragma once
 
@@ -12,7 +12,7 @@
 namespace wbc {
 
 /**
- * @brief Integrates 6-DOF velocity commands for EE teleop with isotropic
+ * @brief Integrates 6-DOF velocity commands for Cartesian teleop with isotropic
  *        translational-speed and angular-rate clamping.
  *
  * Two internal buffer pairs:
@@ -33,9 +33,9 @@ namespace wbc {
  *   handler.UpdatePos(ee_pos_task_, dt_ctrl);
  *   handler.UpdateOri(ee_ori_task_, dt_ctrl);
  */
-class EETeleopHandler {
+class CartesianTeleopHandler {
 public:
-  EETeleopHandler() = default;
+  CartesianTeleopHandler() = default;
 
   /**
    * @brief Initialize from current EE transform and speed limits.
@@ -86,11 +86,14 @@ public:
     if (dt <= 0.0) return;
     const double rate = omega.norm();
     if (rate < kEps) return;
-    const double clamped_rate = (rate > angular_vel_max_) ? angular_vel_max_ : rate;
-    const double angle        = clamped_rate * dt;
-    quat_goal_ = (Eigen::Quaterniond(Eigen::AngleAxisd(angle, omega / rate)) *
-                  quat_goal_)
-                     .normalized();
+    const double scale = (rate > angular_vel_max_) ? (angular_vel_max_ / rate) : 1.0;
+    const Eigen::Vector3d rot_vec = omega * (scale * dt);
+    // Exponential map: rotation vector → quaternion (no axis normalization needed)
+    Eigen::Quaterniond delta_q;
+    delta_q.vec() = rot_vec * 0.5;
+    delta_q.w()   = 1.0;
+    delta_q.normalize();
+    quat_goal_ = (delta_q * quat_goal_).normalized();
   }
 
   /**
@@ -156,16 +159,18 @@ public:
   void UpdateOri(OriTaskLike* task, double dt) {
     if (task == nullptr || dt < kEps) return;
     const Eigen::Quaterniond old_quat = quat_des_smooth_;
-    const double angle = quat_des_smooth_.angularDistance(quat_goal_);
+    const double angle = old_quat.angularDistance(quat_goal_);
     if (angle < kEps) {
       quat_des_smooth_ = quat_goal_;
     } else {
       const double max_angle = angular_vel_max_ * dt;
       const double t = (max_angle >= angle) ? 1.0 : (max_angle / angle);
-      quat_des_smooth_ = quat_des_smooth_.slerp(t, quat_goal_).normalized();
+      quat_des_smooth_ = old_quat.slerp(t, quat_goal_).normalized();
     }
-    const Eigen::AngleAxisd delta_aa(quat_des_smooth_ * old_quat.inverse());
-    vel3_ = delta_aa.axis() * (delta_aa.angle() / dt);
+    // Quaternion differential: w = 2 * q_err.vec() / dt  (sign-safe, no axis flipping)
+    Eigen::Quaterniond q_err = quat_des_smooth_ * old_quat.inverse();
+    if (q_err.w() < 0.0) q_err.coeffs() *= -1.0;  // shortest-path
+    vel3_ = 2.0 * q_err.vec() / dt;
     const Eigen::Vector4d ori_des = quat_des_smooth_.coeffs();  // [x,y,z,w]
     task->UpdateDesired(ori_des, vel3_, zeros3_);
   }

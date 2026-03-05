@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,8 +21,20 @@
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_solver/wbic.hpp"
 #include "wbc_util/joint_pid.hpp"
+#include "wbc_logger/wbc_logger.hpp"
 
 namespace wbc {
+
+/// Per-phase timing stats for the full WBC pipeline.
+/// Populated only when `enable_timing_` is true on ControlArchitecture.
+struct ArchTimingStats {
+  double robot_model_us{0};   ///< UpdateRobotModel (Pinocchio FK/Jacobians)
+  double kinematics_us{0};    ///< UpdateKinematics (task/contact/constraint updates)
+  double dynamics_us{0};      ///< UpdateSetting (lazy M, Minv, g, h)
+  double find_config_us{0};   ///< WBIC::FindConfiguration (null-space hierarchy)
+  double make_torque_us{0};   ///< WBIC::MakeTorque (QP setup + solve + recovery)
+  double feedback_us{0};      ///< Physics compensations + PID + clamping
+};
 
 struct RobotCommand {
   Eigen::VectorXd tau;     ///< total torque = tau_ff + tau_fb
@@ -112,6 +125,14 @@ public:
   void Step();
   [[nodiscard]] const RobotCommand& GetCommand() const { return cmd_; }
 
+  /// Per-phase timing (populated when enable_timing_ is true).
+  bool enable_timing_{false};
+  ArchTimingStats timing_stats_;
+
+  /// WBC data logger for debugging (joint commands, task snapshots).
+  /// Set logger_.enabled = true before calling Update() to start logging.
+  WbcLogger logger_;
+
   void SetControlDt(double dt);
   double ControlDt() const { return nominal_dt_; }
   void SetHoldPreviousTorqueOnFailure(bool hold) {
@@ -191,9 +212,6 @@ private:
   double current_time_{0.0};
   double step_dt_{0.001};
   bool hold_prev_torque_on_fail_{true};
-  bool enable_gravity_comp_{false};
-  bool enable_coriolis_comp_{false};
-  bool enable_inertia_comp_{false};
   JointPIDConfig pid_config_;
   JointPID pid_;
   bool pid_enabled_{false};

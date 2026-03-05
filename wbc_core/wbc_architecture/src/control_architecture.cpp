@@ -15,6 +15,7 @@
 #include "wbc_formulation/kinematic_constraint.hpp"
 #include "wbc_trajectory/math_util.hpp"
 #include "wbc_util/step_count_guard.hpp"
+#include "wbc_util/task_registry.hpp"
 
 namespace wbc {
 
@@ -38,9 +39,6 @@ ControlArchitecture::ControlArchitecture(
     fsm_handler_ = std::make_unique<FSMHandler>();
   }
 
-  enable_gravity_comp_  = arch_config.enable_gravity_comp;
-  enable_coriolis_comp_ = arch_config.enable_coriolis_comp;
-  enable_inertia_comp_  = arch_config.enable_inertia_comp;
   pid_config_           = arch_config.joint_pid;
   SetControlDt(arch_config.control_dt);
 }
@@ -53,6 +51,18 @@ void ControlArchitecture::Initialize() {
   ReserveFormulationCapacity();
 
   EnsureCommandBuffers();
+
+  // Initialize logger with robot dimensions and task name mappings.
+  logger_.Initialize(robot_->NumActiveDof(), robot_->NumQdot());
+  if (const auto* reg = runtime_config_->taskRegistry()) {
+    for (const auto& [name, task_ptr] : reg->GetMotionTasks()) {
+      logger_.RegisterTaskName(task_ptr.get(), name);
+    }
+    for (const auto& [name, ft_ptr] : reg->GetForceTasks()) {
+      logger_.RegisterForceTaskName(ft_ptr.get(), name);
+    }
+  }
+
   initialized_.store(true, std::memory_order_release);
 }
 
@@ -65,9 +75,16 @@ void ControlArchitecture::Update(const RobotJointState& state, double t,
     SetSafeCommand();
     return;
   }
+  const auto t0 = enable_timing_ ? std::chrono::high_resolution_clock::now()
+                                  : std::chrono::high_resolution_clock::time_point{};
   robot_->UpdateRobotModel(fixed_base_zero_vec_, fixed_base_identity_quat_,
                            fixed_base_zero_vec_, fixed_base_zero_vec_, state.q,
                            state.qdot, false);
+  if (enable_timing_) {
+    const auto t1 = std::chrono::high_resolution_clock::now();
+    timing_stats_.robot_model_us =
+        std::chrono::duration<double, std::micro>(t1 - t0).count();
+  }
   Step();
 }
 
@@ -84,8 +101,15 @@ void ControlArchitecture::Update(const RobotJointState& state,
   sp_->base_state_.SetAndNormalize(base_state);
 
   const RobotBaseState& base = sp_->base_state_;
+  const auto t0 = enable_timing_ ? std::chrono::high_resolution_clock::now()
+                                  : std::chrono::high_resolution_clock::time_point{};
   robot_->UpdateRobotModel(base.pos, base.quat, base.lin_vel, base.ang_vel,
                            state.q, state.qdot, false);
+  if (enable_timing_) {
+    const auto t1 = std::chrono::high_resolution_clock::now();
+    timing_stats_.robot_model_us =
+        std::chrono::duration<double, std::micro>(t1 - t0).count();
+  }
   Step();
 }
 
@@ -111,7 +135,16 @@ void ControlArchitecture::Step() {
   }
 
   // 4. Update task/contact/constraint kinematics for this tick.
-  UpdateKinematics(formulation_);
+  {
+    const auto t0_kin = enable_timing_ ? std::chrono::high_resolution_clock::now()
+                                       : std::chrono::high_resolution_clock::time_point{};
+    UpdateKinematics(formulation_);
+    if (enable_timing_) {
+      const auto t1_kin = std::chrono::high_resolution_clock::now();
+      timing_stats_.kinematics_us =
+          std::chrono::duration<double, std::micro>(t1_kin - t0_kin).count();
+    }
+  }
 
   // 5. Run solver; produce command or safe fallback on failure.
   if (!SolverUpdate()) {
@@ -158,28 +191,36 @@ const StateConfig* ControlArchitecture::SyncActiveState() {
 }
 
 bool ControlArchitecture::SolverUpdate() {
+  using Clock = std::chrono::high_resolution_clock;
+  const bool timing = enable_timing_;
+
+  // --- Dynamics (lazy Pinocchio M, Minv, cori, grav) ---
+  const auto t0 = timing ? Clock::now() : Clock::time_point{};
   solver_->UpdateSetting(robot_->GetMassMatrixRef(), robot_->GetMassMatrixInverseRef(),
                          robot_->GetCoriolisRef(), robot_->GetGravityRef());
+  const auto t1 = timing ? Clock::now() : Clock::time_point{};
 
+  // --- FindConfiguration (null-space hierarchy + LLT) ---
   const bool found_cfg =
       solver_->FindConfiguration(formulation_, robot_->GetJointPos(), cmd_.q,
                                  cmd_.qdot, buffers_.wbc_qddot_cmd);
   if (!found_cfg) {
     return false;
   }
+  const auto t2 = timing ? Clock::now() : Clock::time_point{};
+
+  // --- MakeTorque (QP setup + ProxQP solve + torque recovery) ---
   if (!solver_->MakeTorque(formulation_, buffers_.wbc_qddot_cmd, cmd_.tau)) {
     return false;
   }
+  const auto t3 = timing ? Clock::now() : Clock::time_point{};
 
+  // --- Feedback: PID + clamping ---
+  // WBIC output already includes full inverse dynamics: M*qddot + Ni_dyn^T*(cori+grav).
   const int n_active = robot_->NumActiveDof();
-  if (enable_gravity_comp_)
-    cmd_.tau += robot_->GetGravityRef().tail(n_active);
-  if (enable_coriolis_comp_)
-    cmd_.tau += robot_->GetCoriolisRef().tail(n_active);
-  if (enable_inertia_comp_)
-    cmd_.tau += (robot_->GetMassMatrixRef() * buffers_.wbc_qddot_cmd).tail(n_active);
 
-  // Store feedforward (WBIC + physics) before adding feedback.
+  // Store feedforward (WBIC output) before adding feedback.
+  // Note: WBIC output already includes gravity: M*qddot + Ni_dyn^T*(cori+grav).
   cmd_.tau_ff = cmd_.tau;
 
   // Joint PID feedback on q_cmd / qdot_cmd tracking error.
@@ -195,6 +236,29 @@ bool ControlArchitecture::SolverUpdate() {
 
   // Enforce kinematic constraint limits on the final command.
   ClampCommandLimits();
+  const auto t4 = timing ? Clock::now() : Clock::time_point{};
+
+  if (timing) {
+    timing_stats_.dynamics_us =
+        std::chrono::duration<double, std::micro>(t1 - t0).count();
+    timing_stats_.find_config_us =
+        std::chrono::duration<double, std::micro>(t2 - t1).count();
+    timing_stats_.make_torque_us =
+        std::chrono::duration<double, std::micro>(t3 - t2).count();
+    timing_stats_.feedback_us =
+        std::chrono::duration<double, std::micro>(t4 - t3).count();
+  }
+
+  // Log tick data for offline analysis.
+  if (logger_.enabled) {
+    logger_.LogTick(current_time_, applied_state_id_,
+                    cmd_.q, cmd_.qdot, buffers_.wbc_qddot_cmd,
+                    cmd_.tau_ff, cmd_.tau_fb, cmd_.tau,
+                    robot_->GetQRef().tail(n_active),
+                    robot_->GetQdotRef().tail(n_active),
+                    robot_->GetGravityRef().tail(n_active),
+                    formulation_);
+  }
 
   return true;
 }
@@ -261,23 +325,13 @@ void ControlArchitecture::UpdateKinematics(
 }
 
 void ControlArchitecture::ClampCommandLimits() {
-  for (Constraint* c : formulation_.kinematic_constraints) {
-    if (auto* pos = dynamic_cast<JointPosLimitConstraint*>(c)) {
-      const auto& lim = pos->EffectiveLimits();
-      for (int i = 0; i < cmd_.q.size(); ++i) {
-        cmd_.q[i] = std::clamp(cmd_.q[i], lim(i, 0), lim(i, 1));
-      }
-    } else if (auto* vel = dynamic_cast<JointVelLimitConstraint*>(c)) {
-      const auto& lim = vel->EffectiveLimits();
-      for (int i = 0; i < cmd_.qdot.size(); ++i) {
-        cmd_.qdot[i] = std::clamp(cmd_.qdot[i], lim(i, 0), lim(i, 1));
-      }
-    } else if (auto* trq = dynamic_cast<JointTrqLimitConstraint*>(c)) {
-      const auto& lim = trq->EffectiveLimits();
-      for (int i = 0; i < cmd_.tau.size(); ++i) {
-        cmd_.tau[i] = std::clamp(cmd_.tau[i], lim(i, 0), lim(i, 1));
-      }
-    }
+  const auto& pos_lim = robot_->SoftPositionLimits();
+  const auto& vel_lim = robot_->SoftVelocityLimits();
+  const auto& trq_lim = robot_->SoftTorqueLimits();
+  for (int i = 0; i < cmd_.q.size(); ++i) {
+    cmd_.q[i]    = std::clamp(cmd_.q[i],    pos_lim(i, 0), pos_lim(i, 1));
+    cmd_.qdot[i] = std::clamp(cmd_.qdot[i], vel_lim(i, 0), vel_lim(i, 1));
+    cmd_.tau[i]  = std::clamp(cmd_.tau[i],  trq_lim(i, 0), trq_lim(i, 1));
   }
 }
 
@@ -344,6 +398,14 @@ void ControlArchitecture::InitializeSolver() {
   qp_params_->W_tau_.setConstant(reg.w_tau);
   qp_params_->W_tau_dot_.setConstant(reg.w_tau_dot);
   solver_ = std::make_unique<WBIC>(act_qdot_list, qp_params_.get());
+
+  // Pre-allocate solver buffers to avoid first-tick heap allocations.
+  {
+    const int max_cdim = runtime_config_->MaxContactDim();
+    // Upper bound: SurfaceContact has 18 Uf rows per 6 dim (3x), PointContact 6 per 3 (2x).
+    const int max_uf = 3 * max_cdim;
+    solver_->ReserveCapacity(max_cdim, max_uf);
+  }
 
   // Apply per-constraint soft/hard toggle from YAML config.
   const auto& pos_sc = runtime_config_->SoftConfig("JointPosLimitConstraint");

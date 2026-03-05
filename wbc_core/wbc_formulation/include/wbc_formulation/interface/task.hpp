@@ -116,7 +116,7 @@ protected:
 
   Eigen::VectorXd kp_;
   Eigen::VectorXd kd_;
-  Eigen::VectorXd ki_;
+  Eigen::VectorXd ki_;  // Parsed from YAML but unused in any UpdateOpCommand (reserved for future integral action).
   Eigen::VectorXd kp_ik_;
 
   // Note: des_pos_ / pos_ are sized dim_ for all tasks except LinkOriTask,

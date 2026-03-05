@@ -17,6 +17,7 @@
   <depend>yaml-cpp</depend>
   <depend>wbc_formulation</depend>
   <depend>wbc_fsm</depend>
+  <depend>wbc_logger</depend>
   <depend>wbc_robot_system</depend>
   <depend>wbc_solver</depend>
   <depend>wbc_trajectory</depend>

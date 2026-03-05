@@ -2,9 +2,15 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    Command,
+    FindExecutable,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -27,6 +33,9 @@ def generate_launch_description():
     )
     controller_manager_name = PathJoinSubstitution(["/", ns, "controller_manager"])
     robot_description_topic = PathJoinSubstitution(["/", ns, "robot_description"])
+    pal_stats_log_level = PythonExpression(
+        ["'", ns, ".controller_manager.pal_statistics:=fatal'"]
+    )
 
     robot_description_content = Command(
         [
@@ -77,9 +86,14 @@ def generate_launch_description():
         executable="ros2_control_node",
         namespace=ns,
         output="both",
+        arguments=[
+            "--ros-args",
+            "--log-level",
+            pal_stats_log_level,
+        ],
         parameters=[
             {"use_sim_time": True},
-            controller_file,
+            ParameterFile(controller_file),
         ],
         remappings=[
             ("~/robot_description", robot_description_topic),
@@ -91,7 +105,10 @@ def generate_launch_description():
         package="controller_manager",
         executable="spawner",
         namespace=ns,
-        arguments=["joint_state_broadcaster", "--controller-manager", controller_manager_name],
+        arguments=[
+            "joint_state_broadcaster",
+            "--controller-manager", controller_manager_name,
+        ],
         output="both",
     )
 
@@ -99,7 +116,10 @@ def generate_launch_description():
         package="controller_manager",
         executable="spawner",
         namespace=ns,
-        arguments=["wbc_controller", "--controller-manager", controller_manager_name],
+        arguments=[
+            "wbc_controller",
+            "--controller-manager", controller_manager_name,
+        ],
         output="both",
     )
 

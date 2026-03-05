@@ -194,6 +194,25 @@ public:
    */
   void FillLinkBodyJacobian(int link_idx, Eigen::MatrixXd& out);
 
+  /**
+   * @brief Yoshikawa manipulability index w = sqrt(det(J*J^T)) at an arbitrary q.
+   *
+   * Uses an internal scratch pinocchio::Data so the main model state is not
+   * corrupted. The Jacobian is LOCAL_WORLD_ALIGNED (6 x num_qdot). RT-safe
+   * after the first call (all buffers pre-allocated in Initialize()).
+   *
+   * @param frame_idx  Pinocchio frame index for the end-effector link.
+   * @param q          Full generalized position vector (num_q).
+   * @return w >= 0.
+   */
+  double ComputeManipulability(int frame_idx, const Eigen::VectorXd& q);
+
+  /**
+   * @brief Fill a pre-allocated 3xN matrix with the COM linear Jacobian.
+   * @param out Must be sized 3 x NumQdot(). Avoids heap allocation vs GetComJacobian().
+   */
+  void FillComJacobian(Eigen::MatrixXd& out);
+
   /** @brief Get LOCAL spatial velocity by frame index. */
   Eigen::Matrix<double, 6, 1> GetLinkLocalSpatialVelocity(int link_idx) const;
   /** @brief Get LOCAL spatial velocity by frame name. */
@@ -241,9 +260,9 @@ public:
   /** @brief Get number of floating DOFs. */
   int NumFloatDof() const;
 
-  const Eigen::MatrixXd& JointPosLimits() const { return joint_pos_limits_; }
-  const Eigen::MatrixXd& JointVelLimits() const { return joint_vel_limits_; }
-  const Eigen::MatrixXd& JointTrqLimits() const { return joint_trq_limits_; }
+  const Eigen::MatrixXd& JointPosLimits() const { return joint_position_limits_; }
+  const Eigen::MatrixXd& JointVelLimits() const { return joint_velocity_limits_; }
+  const Eigen::MatrixXd& JointTrqLimits() const { return joint_torque_limits_; }
 
   const std::unordered_map<std::string, int>& GetJointNameAndIndexMap() const {
     return joint_name_idx_map_;
@@ -369,6 +388,11 @@ private:
   // Scratch buffer for in-place Jacobian computation (6 x num_qdot_).
   // Allocated once in Initialize() and reused in FillLink*Jacobian().
   Eigen::MatrixXd link_jac_scratch_;
+
+  // Scratch buffers for ComputeManipulability (separate Data to avoid
+  // corrupting the main model state when evaluating at perturbed q).
+  pinocchio::Data manip_data_;
+  Eigen::MatrixXd manip_jac_;  // 6 x num_qdot
 };
 
 } // namespace wbc

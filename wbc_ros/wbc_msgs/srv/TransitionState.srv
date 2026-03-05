@@ -1,7 +1,8 @@
-# Activate/deactivate the controller's state profile (transition).
+# Request FSM state transition by name or id.
+# If state_name is non-empty it takes priority; otherwise state_id is used.
 
-string state_name              # Target state profile name
-bool active                    # true: activate state_name, false: deactivate
+string state_name              # Target state name (e.g. "cartesian_teleop")
+int32  state_id    -1          # Target state id; ignored when state_name is set
 ---
-bool success
+bool   success
 string message

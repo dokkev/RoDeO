@@ -99,7 +99,7 @@ void JointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
   vel_     = robot_->GetJointVel();
   pos_err_ = des_pos_ - pos_;
   vel_err_ = des_vel_ - vel_;
-  SyncLocalToWorld();
+  SyncLocalToWorld();  // Joint-space: no local frame, keep local_* accessors consistent.
   op_cmd_  = des_acc_ + kp_.cwiseProduct(pos_err_) + kd_.cwiseProduct(vel_err_);
 }
 
@@ -131,7 +131,7 @@ void SelectedJointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/
     vel_err_[i] = des_vel_[i] - vel_[i];
     op_cmd_[i]  = des_acc_[i] + kp_[i] * pos_err_[i] + kd_[i] * vel_err_[i];
   }
-  SyncLocalToWorld();
+  SyncLocalToWorld();  // Joint-space: no local frame, keep local_* accessors consistent.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -150,7 +150,8 @@ void SelectedJointTask::UpdateJacobianDotQdot() {
 
 ////////////////////////////////////////////////////////////////////////////////
 LinkPosTask::LinkPosTask(PinocchioRobotSystem* robot, int target_idx)
-    : Task(robot, 3) {
+    : Task(robot, 3),
+      full_jac_scratch_(Eigen::MatrixXd::Zero(6, robot->NumQdot())) {
   target_idx_ = target_idx;
 }
 
@@ -199,8 +200,8 @@ void LinkPosTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkPosTask::UpdateJacobian() {
-  jacobian_ =
-      robot_->GetLinkJacobian(target_idx_).block(3, 0, dim_, robot_->NumQdot());
+  robot_->FillLinkJacobian(target_idx_, full_jac_scratch_);
+  jacobian_ = full_jac_scratch_.block(3, 0, dim_, robot_->NumQdot());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -210,7 +211,8 @@ void LinkPosTask::UpdateJacobianDotQdot() {
 
 ////////////////////////////////////////////////////////////////////////////////
 LinkOriTask::LinkOriTask(PinocchioRobotSystem* robot, int target_idx)
-    : Task(robot, 3) {
+    : Task(robot, 3),
+      full_jac_scratch_(Eigen::MatrixXd::Zero(6, robot->NumQdot())) {
   target_idx_ = target_idx;
   des_pos_.resize(4);
   des_pos_.setZero();
@@ -289,8 +291,8 @@ void LinkOriTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkOriTask::UpdateJacobian() {
-  jacobian_ =
-      robot_->GetLinkJacobian(target_idx_).block(0, 0, dim_, robot_->NumQdot());
+  robot_->FillLinkJacobian(target_idx_, full_jac_scratch_);
+  jacobian_ = full_jac_scratch_.block(0, 0, dim_, robot_->NumQdot());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -303,35 +305,34 @@ ComTask::ComTask(PinocchioRobotSystem* robot) : Task(robot, 3) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
-  const Eigen::Vector3d com_pos = robot_->GetComPosition();
-  const Eigen::Vector3d com_vel = robot_->GetComVelocity();
-
-  local_des_pos_ = world_R_local.transpose() * des_pos_;
-  local_des_vel_ = world_R_local.transpose() * des_vel_;
-  local_des_acc_ = world_R_local.transpose() * des_acc_;
-
-  pos_ = com_pos;
+  pos_ = robot_->GetComPosition();
+  vel_ = robot_->GetComVelocity();
   pos_err_ = des_pos_ - pos_;
-  local_pos_ = world_R_local.transpose() * pos_;
-  local_pos_err_ = world_R_local.transpose() * pos_err_;
-
-  vel_ = com_vel;
   vel_err_ = des_vel_ - vel_;
-  local_vel_ = world_R_local.transpose() * vel_;
-  local_vel_err_ = world_R_local.transpose() * vel_err_;
 
-  op_cmd_ = des_acc_ + world_R_local * (kp_.cwiseProduct(local_pos_err_) +
-                                        kd_.cwiseProduct(local_vel_err_));
+  local_des_pos_.noalias() = world_R_local.transpose() * des_pos_;
+  local_des_vel_.noalias() = world_R_local.transpose() * des_vel_;
+  local_des_acc_.noalias() = world_R_local.transpose() * des_acc_;
+  local_pos_.noalias()     = world_R_local.transpose() * pos_;
+  local_pos_err_.noalias() = world_R_local.transpose() * pos_err_;
+  local_vel_.noalias()     = world_R_local.transpose() * vel_;
+  local_vel_err_.noalias() = world_R_local.transpose() * vel_err_;
+
+  op_cmd_.noalias() = des_acc_ + world_R_local * (kp_.cwiseProduct(local_pos_err_) +
+                                                   kd_.cwiseProduct(local_vel_err_));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateJacobian() {
-  jacobian_ = robot_->GetComJacobian();
+  robot_->FillComJacobian(jacobian_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void ComTask::UpdateJacobianDotQdot() {
-  jacobian_dot_q_dot_ = robot_->GetComJacobianDot();
+  // GetComJacobianDot() returns Matrix3Xd zeros — assigning that to a VectorXd
+  // would be a shape mismatch.  The COM Jdot·qdot term is zero in practice
+  // (Pinocchio does not expose an analytic dJcom/dt), so just zero the vector.
+  jacobian_dot_q_dot_.setZero();
 }
 
 } // namespace wbc

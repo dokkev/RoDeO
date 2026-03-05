@@ -1,5 +1,5 @@
 /**
- * @file wbc_trajectory/include/wbc_trajectory/joint_teleop_handler.hpp
+ * @file wbc_handlers/include/wbc_handlers/joint_teleop_handler.hpp
  * @brief Velocity-command-based joint teleop with velocity and position clamping.
  */
 #pragma once
@@ -62,6 +62,7 @@ public:
     if (dt <= 0.0) return;
     const Eigen::VectorXd clamped = qdot_cmd.cwiseMax(-qdot_max_).cwiseMin(qdot_max_);
     q_goal_ = (q_goal_ + clamped * dt).cwiseMax(q_min_).cwiseMin(q_max_);
+    q_des_smooth_ = q_goal_;  // velocity commands are already rate-limited
   }
 
   /**

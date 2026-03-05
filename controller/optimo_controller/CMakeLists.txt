@@ -20,8 +20,11 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(wbc_architecture REQUIRED)
+find_package(wbc_logger REQUIRED)
+find_package(wbc_msgs REQUIRED)
 find_package(wbc_formulation REQUIRED)
 find_package(wbc_fsm REQUIRED)
+find_package(wbc_handlers REQUIRED)
 find_package(wbc_robot_system REQUIRED)
 find_package(wbc_trajectory REQUIRED)
 find_package(wbc_util REQUIRED)
@@ -31,8 +34,7 @@ add_library(${PROJECT_NAME} SHARED
   src/optimo_controller.cpp
   src/state_machines/initialize.cpp
   src/state_machines/joint_teleop.cpp
-  src/state_machines/ee_teleop.cpp
-  src/manipulability_handler.cpp
+  src/state_machines/cartesian_teleop.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -50,7 +52,10 @@ ament_target_dependencies(${PROJECT_NAME}
   std_msgs
   wbc_architecture
   wbc_formulation
+  wbc_logger
+  wbc_msgs
   wbc_fsm
+  wbc_handlers
   wbc_robot_system
   wbc_trajectory
   wbc_util
@@ -105,6 +110,44 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}
     )
   endif()
+
+  ament_add_gtest(test_optimo_controller_service
+    test/test_optimo_controller_service.cpp
+    TIMEOUT 30
+  )
+  if(TARGET test_optimo_controller_service)
+    target_link_libraries(test_optimo_controller_service
+      -Wl,--no-as-needed
+      ${PROJECT_NAME}
+      -Wl,--as-needed
+    )
+    ament_target_dependencies(test_optimo_controller_service
+      rclcpp
+      wbc_msgs
+    )
+  endif()
+
+  find_package(mujoco_vendor QUIET)
+  if(mujoco_vendor_FOUND)
+    ament_add_gtest(test_gain_tuning
+      test/test_gain_tuning.cpp
+      TIMEOUT 300
+    )
+    if(TARGET test_gain_tuning)
+      target_link_libraries(test_gain_tuning
+        -Wl,--no-as-needed
+        ${PROJECT_NAME}
+        -Wl,--as-needed
+        mujoco::mujoco
+        Eigen3::Eigen
+      )
+      ament_target_dependencies(test_gain_tuning
+        wbc_architecture
+        wbc_formulation
+        wbc_robot_system
+      )
+    endif()
+  endif()
 endif()
 
 ament_export_include_directories(include)
@@ -122,7 +165,10 @@ ament_export_dependencies(
   std_msgs
   wbc_architecture
   wbc_formulation
+  wbc_logger
+  wbc_msgs
   wbc_fsm
+  wbc_handlers
   wbc_robot_system
   wbc_trajectory
   wbc_util

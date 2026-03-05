@@ -1,5 +1,5 @@
 /**
- * @file wbc_trajectory/include/wbc_trajectory/joint_trajectory_handler.hpp
+ * @file wbc_handlers/include/wbc_handlers/joint_trajectory_handler.hpp
  * @brief Time-parameterized vector (joint-space) trajectory handler.
  */
 #pragma once

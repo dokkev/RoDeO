@@ -16,6 +16,7 @@
   <depend>wbc_robot_system</depend>
   <depend>wbc_architecture</depend>
   <depend>wbc_trajectory</depend>
+  <depend>wbc_handlers</depend>
   <depend>wbc_util</depend>
   <exec_depend>draco_description</exec_depend>
 

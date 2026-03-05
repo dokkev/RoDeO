@@ -1,19 +1,19 @@
 /**
- * @file controller/optimo_controller/src/state_machines/ee_teleop.cpp
+ * @file controller/optimo_controller/src/state_machines/cartesian_teleop.cpp
  * @brief Cartesian end-effector teleop state for Optimo.
  */
-#include "optimo_controller/state_machines/ee_teleop.hpp"
+#include "optimo_controller/state_machines/cartesian_teleop.hpp"
 
 #include "wbc_fsm/state_factory.hpp"
 #include "wbc_util/yaml_parser.hpp"
 
 namespace wbc {
 
-EETeleop::EETeleop(StateId state_id, const std::string& state_name,
+CartesianTeleop::CartesianTeleop(StateId state_id, const std::string& state_name,
                    const StateMachineConfig& context)
     : StateMachine(state_id, state_name, context) {}
 
-void EETeleop::SetParameters(const YAML::Node& node) {
+void CartesianTeleop::SetParameters(const YAML::Node& node) {
   SetCommonParameters(node);
   SetMotionTask("ee_pos_task", ee_pos_task_);
   SetMotionTask("ee_ori_task", ee_ori_task_);
@@ -26,22 +26,16 @@ void EETeleop::SetParameters(const YAML::Node& node) {
 
   if (params["manipulability"]) {
     const auto& m = params["manipulability"];
-    if (m["step_size"])          manip_config_.step_size          = m["step_size"].as<double>();
-    if (m["sigma_threshold"])    manip_config_.sigma_threshold    = m["sigma_threshold"].as<double>();
-    if (m["gradient_interval"])  manip_config_.gradient_interval  = m["gradient_interval"].as<int>();
+    if (m["step_size"])     manip_config_.step_size     = m["step_size"].as<double>();
+    if (m["w_threshold"])   manip_config_.w_threshold   = m["w_threshold"].as<double>();
+    if (m["fd_epsilon"])    manip_config_.fd_epsilon    = m["fd_epsilon"].as<double>();
   }
 }
 
-void EETeleop::FirstVisit() {
+void CartesianTeleop::FirstVisit() {
   const Eigen::Isometry3d iso  = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
   const Eigen::Quaterniond quat(iso.rotation());
   ee_handler_.Init(iso.translation(), quat, linear_vel_max_, angular_vel_max_);
-
-  jpos_handler_.Init(
-      robot_->GetJointPos(),
-      robot_->GetJointPositionLimits().col(0),
-      robot_->GetJointPositionLimits().col(1),
-      robot_->GetJointVelocityLimits().col(1));
 
   manip_handler_.Init(robot_, ee_pos_task_->TargetIdx(), manip_config_);
 
@@ -52,7 +46,7 @@ void EETeleop::FirstVisit() {
   prev_pose_ts_ns_ = 0;
 }
 
-void EETeleop::UpdateCommand(const Eigen::Vector3d& xdot,
+void CartesianTeleop::UpdateCommand(const Eigen::Vector3d& xdot,
                               const Eigen::Vector3d& wdot,
                               int64_t vel_ts_ns,
                               const Eigen::Vector3d& x_des,
@@ -71,44 +65,52 @@ void EETeleop::UpdateCommand(const Eigen::Vector3d& xdot,
   }
 }
 
-void EETeleop::OneStep() {
-  watchdog_.Update(sp_->servo_dt_);
+void CartesianTeleop::OneStep() {
+  const double dt = sp_->servo_dt_;
+
+  // --- Task 1: Cartesian teleop (EE position + orientation) ---
+  watchdog_.Update(dt);
   if (watchdog_.IsTimeout()) {
-    current_xdot_.setZero();   // watchdog: hold position
+    current_xdot_.setZero();
     current_wdot_.setZero();
   }
-  // Integrate stored velocity into the goal; no-op when zero (kEps guard in handler).
-  ee_handler_.SetLinearVelocity(current_xdot_, sp_->servo_dt_);
 
-  // Clamp pos_goal_ against workspace boundary and anti-windup radius.
-  // actual_ee_pos is free (FK already updated by ctrl_arch_->Update before OneStep).
+  ee_handler_.SetLinearVelocity(current_xdot_, dt);
+  ee_handler_.SetAngularVelocity(current_wdot_, dt);
+
+  // Anti-windup: keep pos_goal within max_lookahead of actual EE position.
   const Eigen::Vector3d actual_ee_pos =
-    robot_->GetLinkIsometry(ee_pos_task_->TargetIdx()).translation();
-  ee_handler_.SetPosGoal(workspace_.Clamp(ee_handler_.PosGoal(), actual_ee_pos, max_lookahead_));
-
-  ee_handler_.SetAngularVelocity(current_wdot_, sp_->servo_dt_);
-  ee_handler_.UpdatePos(ee_pos_task_, sp_->servo_dt_);
-  ee_handler_.UpdateOri(ee_ori_task_, sp_->servo_dt_);
-  manip_handler_.Update(sp_->servo_dt_);
-  if (manip_handler_.is_active()) {
-    jpos_handler_.SetVelocity(manip_handler_.avoidance_velocity(), sp_->servo_dt_);
+      robot_->GetLinkIsometry(ee_pos_task_->TargetIdx()).translation();
+  {
+    const Eigen::Vector3d diff = ee_handler_.PosGoal() - actual_ee_pos;
+    const double dist = diff.norm();
+    if (max_lookahead_ > 0.0 && dist > max_lookahead_) {
+      ee_handler_.SetPosGoal(actual_ee_pos + diff * (max_lookahead_ / dist));
+    }
   }
-  jpos_handler_.Update(jpos_task_, sp_->servo_dt_);
+
+  ee_handler_.UpdatePos(ee_pos_task_, dt);
+  ee_handler_.UpdateOri(ee_ori_task_, dt);
+
+  // --- Task 2: Null-space posture (manipulability singularity avoidance) ---
+  manip_handler_.Update(dt);
+  const Eigen::VectorXd& qdot_avoid = manip_handler_.avoidance_velocity();
+
+  // 1-tick lookahead: target = current + avoidance_velocity * dt
+  const Eigen::VectorXd q_des = robot_->GetJointPos() + qdot_avoid * dt;
+  const Eigen::VectorXd zero_acc = Eigen::VectorXd::Zero(robot_->NumActiveDof());
+  jpos_task_->UpdateDesired(q_des, qdot_avoid, zero_acc);
 }
 
-bool EETeleop::LoadWorkspace(const std::string& yaml_path) {
-  return workspace_.Load(yaml_path);
-}
+void CartesianTeleop::LastVisit() {}
 
-void EETeleop::LastVisit() {}
-
-bool EETeleop::EndOfState() { return false; }
+bool CartesianTeleop::EndOfState() { return false; }
 
 WBC_REGISTER_STATE(
-    "ee_teleop",
+    "cartesian_teleop",
     [](StateId id, const std::string& state_name,
        const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
-      return std::make_unique<EETeleop>(id, state_name, context);
+      return std::make_unique<CartesianTeleop>(id, state_name, context);
     });
 
 }  // namespace wbc

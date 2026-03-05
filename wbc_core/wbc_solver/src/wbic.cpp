@@ -5,92 +5,30 @@
 #include "wbc_solver/wbic.hpp"
 
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <iterator>
 #include <limits>
 
 #include "wbc_formulation/kinematic_constraint.hpp"
-#include "wbc_util/constants.hpp"
 
 namespace wbc {
 namespace {
-// Variable Damped Least Squares (DLS) pseudo-inverse.
-// Reference: Chiaverini 1997, Nakamura & Hanafusa 1986.
+// Damped Least Squares (DLS) pseudo-inverse via LLT Cholesky.
+// Reference: Siciliano et al., "Robotics: Modelling, Planning and Control".
 //
-// When the minimum singular value drops below `threshold`, a damping factor
-// lambda^2 ramps up smoothly from 0 to lambda_max^2, preventing the inverse
-// from blowing up near singularities.
+//   J# = J^T (J J^T + λ²I)^{-1}
 //
-//   s_inv_i = s_i / (s_i^2 + lambda^2)
-//
-// Far from singularity (min_s >> threshold): lambda=0 → exact pseudo-inverse.
-// At singularity (min_s → 0): lambda → lambda_max → bounded output.
+// Fixed damping λ² ensures (J J^T + λ²I) is always SPD, so LLT always
+// succeeds. λ = 0.05 is small enough to not affect tracking far from
+// singularity, but prevents inverse blowup near singularities.
 constexpr double kDlsLambdaMax = 0.05;
-
-Eigen::MatrixXd PseudoInverseSvd(const Eigen::MatrixXd& m, double threshold) {
-  if (m.size() == 0) {
-    return Eigen::MatrixXd::Zero(m.cols(), m.rows());
-  }
-
-  const Eigen::JacobiSVD<Eigen::MatrixXd> svd(
-      m, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  const Eigen::VectorXd& s = svd.singularValues();
-  Eigen::VectorXd s_inv = Eigen::VectorXd::Zero(s.size());
-
-  // Compute adaptive damping from the minimum singular value.
-  double lambda_sq = 0.0;
-  if (s.size() > 0 && threshold > 0.0) {
-    const double min_s = s(s.size() - 1);  // SVD returns descending order
-    if (min_s < threshold) {
-      const double ratio = min_s / threshold;
-      lambda_sq = (1.0 - ratio * ratio) * (kDlsLambdaMax * kDlsLambdaMax);
-    }
-  }
-
-  for (int i = 0; i < s.size(); ++i) {
-    const double denom = s[i] * s[i] + lambda_sq;
-    s_inv[i] = (denom > 1e-18) ? s[i] / denom : 0.0;
-  }
-
-  return svd.matrixV() * s_inv.asDiagonal() * svd.matrixU().transpose();
-}
-
-Eigen::MatrixXd WeightedPinv(const Eigen::MatrixXd& J, const Eigen::MatrixXd& W,
-                             double threshold) {
-  if (J.size() == 0) {
-    return Eigen::MatrixXd::Zero(J.cols(), J.rows());
-  }
-  const Eigen::MatrixXd JWJt = J * W * J.transpose();
-  const Eigen::MatrixXd JWJt_pinv = PseudoInverseSvd(JWJt, threshold);
-  return W * J.transpose() * JWJt_pinv;
-}
-
-Eigen::MatrixXd NullSpaceProjector(const Eigen::MatrixXd& J, double threshold,
-                                   const Eigen::MatrixXd* W) {
-  if (J.cols() == 0) {
-    return Eigen::MatrixXd();
-  }
-  Eigen::MatrixXd Jbar;
-  if (W == nullptr) {
-    Jbar = PseudoInverseSvd(J, threshold);
-  } else {
-    Jbar = WeightedPinv(J, *W, threshold);
-  }
-  return Eigen::MatrixXd::Identity(J.cols(), J.cols()) - Jbar * J;
-}
-
-Eigen::MatrixXd DiagOrIdentity(const Eigen::VectorXd& w, int dim) {
-  if (w.size() == dim) {
-    return w.asDiagonal();
-  }
-  return Eigen::MatrixXd::Identity(dim, dim);
-}
-
+constexpr double kDlsLambdaSq = kDlsLambdaMax * kDlsLambdaMax;
 } // namespace
 
 WBIC::WBIC(const std::vector<bool>& act_qdot_list, QPParams* qp_params)
     : WBC(act_qdot_list),
-      threshold_(kDefaultSvdThreshold),
+
       Ni_dyn_(Eigen::MatrixXd::Identity(num_qdot_, num_qdot_)),
       N_pre_(Eigen::MatrixXd::Identity(num_qdot_, num_qdot_)),
       N_pre_dyn_(Eigen::MatrixXd::Identity(num_qdot_, num_qdot_)),
@@ -109,7 +47,28 @@ WBIC::WBIC(const std::vector<bool>& act_qdot_list, QPParams* qp_params)
       wbic_data_(std::make_unique<WBICData>(num_qdot_, qp_params)),
       tau_0_(Eigen::VectorXd::Zero(num_qdot_)),
       l_bnd_(Eigen::VectorXd::Zero(num_qdot_)),
-      u_bnd_(Eigen::VectorXd::Zero(num_qdot_)) {}
+      u_bnd_(Eigen::VectorXd::Zero(num_qdot_)),
+      sa_tau0_scratch_(Eigen::VectorXd::Zero(num_active_)) {
+  wM_scratch_.resize(num_qdot_, num_qdot_);
+}
+
+void WBIC::ReserveCapacity(int max_contact_dim, int max_uf_rows) {
+  // Contact stacking buffers (FindConfiguration)
+  stacked_contact_jacobian_.resize(max_contact_dim, num_qdot_);
+  stacked_contact_jdot_qdot_.resize(max_contact_dim);
+  stacked_contact_op_cmd_.resize(max_contact_dim);
+
+  // Contact matrices (MakeTorque)
+  Jc_.resize(max_contact_dim, num_qdot_);
+  JcDotQdot_.resize(max_contact_dim);
+  Uf_mat_.resize(max_uf_rows, max_contact_dim);
+  Uf_vec_.resize(max_uf_rows);
+  des_rf_.resize(max_contact_dim);
+
+  // QP cost scratch buffers
+  wJc_scratch_.resize(max_contact_dim, num_qdot_);
+  xc_res_scratch_.resize(max_contact_dim);
+}
 
 bool WBIC::FindConfiguration(
     const WbcFormulation& formulation, const Eigen::VectorXd& curr_jpos,
@@ -118,6 +77,7 @@ bool WBIC::FindConfiguration(
   if (!settings_updated_) {
     return false;
   }
+  const auto t0_fc = std::chrono::high_resolution_clock::now();
 
   const std::vector<Task*>& task_vector = formulation.motion_tasks;
   const std::vector<Contact*>& contact_vector = formulation.contact_constraints;
@@ -134,85 +94,60 @@ bool WBIC::FindConfiguration(
   qdot_cmd_.setZero();
   prev_delta_q_cmd_.setZero();
   prev_qdot_cmd_.setZero();
-  prev_qddot_cmd_.setZero();
 
-  if (has_contact_) {
-    int total_contact_dim = 0;
-    for (const auto* c : contact_vector) {
-      total_contact_dim += c->Dim();
-    }
+  // Contact null-space: project all contacts into N_pre_, N_pre_dyn_
+  // and compute initial qddot_cmd_ from contact constraints.
+  InitContactProjection(contact_vector);
+  prev_qddot_cmd_ = qddot_cmd_;
 
-    stacked_contact_jacobian_.resize(total_contact_dim, num_qdot_);
-    stacked_contact_jdot_qdot_.resize(total_contact_dim);
-    stacked_contact_op_cmd_.resize(total_contact_dim);
-
-    int row_offset = 0;
-    for (const auto* c : contact_vector) {
-      const int dim = c->Dim();
-      stacked_contact_jacobian_.block(row_offset, 0, dim, num_qdot_) = c->Jacobian();
-      stacked_contact_jdot_qdot_.segment(row_offset, dim) = c->JacobianDotQdot();
-      stacked_contact_op_cmd_.segment(row_offset, dim) = c->OpCommand();
-      row_offset += dim;
-    }
-
-    BuildProjectionMatrix(stacked_contact_jacobian_, N_pre_);
-    BuildProjectionMatrix(stacked_contact_jacobian_, N_pre_dyn_, &Minv_);
-    WeightedPseudoInverse(stacked_contact_jacobian_, Minv_, Jc_bar_);
-    qddot_cmd_ = Jc_bar_ * (stacked_contact_op_cmd_ - stacked_contact_jdot_qdot_);
-  } else {
-    qddot_cmd_.setZero();
-  }
-
-  for (auto it = task_vector.begin(); it != task_vector.end(); ++it) {
-    Task* task = *it;
+  // Hierarchical null-space task projection
+  for (size_t i = 0; i < task_vector.size(); ++i) {
+    Task* task = task_vector[i];
     const Eigen::MatrixXd& Jt = task->Jacobian();
     const Eigen::VectorXd& JtDotQdot = task->JacobianDotQdot();
-    // Use pre-allocated member buffers to avoid per-tick heap allocation.
+
     JtPre_.noalias() = Jt * N_pre_;
     PseudoInverse(JtPre_, JtPre_pinv_);
     JtPre_dyn_.noalias() = Jt * N_pre_dyn_;
     WeightedPseudoInverse(JtPre_dyn_, Minv_, JtPre_bar_);
 
-    if (it == task_vector.begin()) {
-      delta_q_cmd_ =
-          JtPre_pinv_ * task->KpIK().cwiseProduct(task->LocalPosError());
-      qdot_cmd_ = JtPre_pinv_ * task->DesiredVel();
-      qddot_cmd_ = qddot_cmd_ +
-                   JtPre_bar_ *
-                       (task->OpCommand() - JtDotQdot - Jt * qddot_cmd_);
-    } else {
-      delta_q_cmd_ =
-          prev_delta_q_cmd_ +
-          JtPre_pinv_ * (task->KpIK().cwiseProduct(task->LocalPosError()) -
-                         Jt * prev_delta_q_cmd_);
-      qdot_cmd_ = prev_qdot_cmd_ +
-                  JtPre_pinv_ * (task->DesiredVel() - Jt * prev_qdot_cmd_);
-      qddot_cmd_ =
-          prev_qddot_cmd_ +
-          JtPre_bar_ * (task->OpCommand() - JtDotQdot - Jt * prev_qddot_cmd_);
-    }
+    delta_q_cmd_ =
+        prev_delta_q_cmd_ +
+        JtPre_pinv_ * (task->KpIK().cwiseProduct(task->LocalPosError()) -
+                        Jt * prev_delta_q_cmd_);
+    qdot_cmd_ = prev_qdot_cmd_ +
+                JtPre_pinv_ * (task->DesiredVel() - Jt * prev_qdot_cmd_);
+    qddot_cmd_ =
+        prev_qddot_cmd_ +
+        JtPre_bar_ * (task->OpCommand() - JtDotQdot - Jt * prev_qddot_cmd_);
 
-    if (std::next(it) != task_vector.end()) {
-      prev_delta_q_cmd_ = delta_q_cmd_;
-      prev_qdot_cmd_ = qdot_cmd_;
-      prev_qddot_cmd_ = qddot_cmd_;
+    prev_delta_q_cmd_ = delta_q_cmd_;
+    prev_qdot_cmd_ = qdot_cmd_;
+    prev_qddot_cmd_ = qddot_cmd_;
+
+    if (i + 1 < task_vector.size()) {
       BuildProjectionMatrix(JtPre_, N_nx_);
       N_pre_ *= N_nx_;
       BuildProjectionMatrix(JtPre_dyn_, N_nx_dyn_, &Minv_);
       N_pre_dyn_ *= N_nx_dyn_;
-    } else {
-      // Sanity check before writing outputs — propagated NaN from a degenerate
-      // Jacobian would silently corrupt all downstream torque commands.
-      if (!delta_q_cmd_.allFinite() || !qdot_cmd_.allFinite() ||
-          !qddot_cmd_.allFinite()) {
-        return false;
-      }
-      jpos_cmd = curr_jpos + delta_q_cmd_.tail(num_qdot_ - num_floating_);
-      jvel_cmd = qdot_cmd_.tail(num_qdot_ - num_floating_);
-      wbc_qddot_cmd = qddot_cmd_;
     }
   }
 
+  // Sanity check — propagated NaN from a degenerate Jacobian would
+  // silently corrupt all downstream torque commands.
+  if (!delta_q_cmd_.allFinite() || !qdot_cmd_.allFinite() ||
+      !qddot_cmd_.allFinite()) {
+    return false;
+  }
+  jpos_cmd = curr_jpos + delta_q_cmd_.tail(num_qdot_ - num_floating_);
+  jvel_cmd = qdot_cmd_.tail(num_qdot_ - num_floating_);
+  wbc_qddot_cmd = qddot_cmd_;
+
+  if (enable_timing_) {
+    const auto t1_fc = std::chrono::high_resolution_clock::now();
+    timing_stats_.find_config_us =
+        std::chrono::duration<double, std::micro>(t1_fc - t0_fc).count();
+  }
   return true;
 }
 
@@ -241,47 +176,137 @@ bool WBIC::MakeTorque(const WbcFormulation& formulation,
     des_rf_.resize(0);
   }
 
-  // Compute slack dimensions based on constraint types and soft flags.
-  // Slack variables are added only for constraints that exist AND are set to soft.
-  dim_slack_pos_ = 0;
-  dim_slack_vel_ = 0;
-  dim_slack_trq_ = 0;
+  // Cache typed constraint pointers (one dynamic_cast per type per MakeTorque call).
+  // Reused by SetQPInEqualityConstraint without additional dynamic_cast.
+  cached_pos_c_ = nullptr;
+  cached_vel_c_ = nullptr;
+  cached_trq_c_ = nullptr;
   for (const Constraint* c : formulation.kinematic_constraints) {
-    if (dynamic_cast<const JointPosLimitConstraint*>(c) && soft_params_.pos) {
-      dim_slack_pos_ = num_active_;
-    } else if (dynamic_cast<const JointVelLimitConstraint*>(c) && soft_params_.vel) {
-      dim_slack_vel_ = num_active_;
-    } else if (dynamic_cast<const JointTrqLimitConstraint*>(c) && soft_params_.trq) {
-      dim_slack_trq_ = num_active_;
+    if (!cached_pos_c_) {
+      if (auto* p = dynamic_cast<const JointPosLimitConstraint*>(c)) { cached_pos_c_ = p; continue; }
+    }
+    if (!cached_vel_c_) {
+      if (auto* v = dynamic_cast<const JointVelLimitConstraint*>(c)) { cached_vel_c_ = v; continue; }
+    }
+    if (!cached_trq_c_) {
+      if (auto* t = dynamic_cast<const JointTrqLimitConstraint*>(c)) { cached_trq_c_ = t; continue; }
     }
   }
+  dim_slack_pos_ = (cached_pos_c_ && soft_params_.pos) ? num_active_ : 0;
+  dim_slack_vel_ = (cached_vel_c_ && soft_params_.vel) ? num_active_ : 0;
+  dim_slack_trq_ = (cached_trq_c_ && soft_params_.trq) ? num_active_ : 0;
   dim_slack_total_ = dim_slack_pos_ + dim_slack_vel_ + dim_slack_trq_;
 
   // Always run QP — even without contacts, delta_qddot regularizes torque
+  const auto t0_mt = std::chrono::high_resolution_clock::now();
   SetQPCost(wbc_qddot_cmd);
   SetQPEqualityConstraint(wbc_qddot_cmd);
   SetQPInEqualityConstraint(formulation, wbc_qddot_cmd);
+  const auto t1_mt = std::chrono::high_resolution_clock::now();
   if (!SolveQP(wbc_qddot_cmd)) {
     return false;
   }
+  const auto t2_mt = std::chrono::high_resolution_clock::now();
 
   GetSolution(wbc_qddot_cmd, jtrq_cmd);
+
+  if (enable_timing_) {
+    const auto t3_mt = std::chrono::high_resolution_clock::now();
+    timing_stats_.qp_setup_us =
+        std::chrono::duration<double, std::micro>(t1_mt - t0_mt).count();
+    timing_stats_.qp_solve_us =
+        std::chrono::duration<double, std::micro>(t2_mt - t1_mt).count();
+    timing_stats_.torque_recovery_us =
+        std::chrono::duration<double, std::micro>(t3_mt - t2_mt).count();
+  }
   return true;
 }
 
-void WBIC::PseudoInverse(const Eigen::MatrixXd& jac, Eigen::MatrixXd& jac_inv) {
-  jac_inv = PseudoInverseSvd(jac, threshold_);
+void WBIC::PseudoInverse(const Eigen::MatrixXd& jac, Eigen::MatrixXd& out) {
+  if (jac.size() == 0) {
+    out.resize(jac.cols(), jac.rows());
+    out.setZero();
+    return;
+  }
+  const int m = jac.rows();
+  assert(m <= kMaxPInvDim && "PseudoInverse: jac.rows() exceeds kMaxPInvDim");
+  // J J^T + λ²I  (m×m, always SPD with λ² > 0)
+  // PInvSquare uses MaxRows/MaxCols → inline storage, no heap alloc on resize.
+  JWJt_scratch_.resize(m, m);
+  JWJt_scratch_.noalias() = jac * jac.transpose();
+  JWJt_scratch_.diagonal().array() += kDlsLambdaSq;
+  llt_scratch_.compute(JWJt_scratch_);
+  // J# = J^T (J J^T + λ²I)^{-1}
+  JWJt_pinv_scratch_.setIdentity(m, m);
+  llt_scratch_.solveInPlace(JWJt_pinv_scratch_);
+  out.noalias() = jac.transpose() * JWJt_pinv_scratch_;
 }
 
 void WBIC::WeightedPseudoInverse(const Eigen::MatrixXd& jac,
                                  const Eigen::MatrixXd& W,
-                                 Eigen::MatrixXd& jac_bar) {
-  jac_bar = WeightedPinv(jac, W, threshold_);
+                                 Eigen::MatrixXd& out) {
+  if (jac.size() == 0) {
+    out.resize(jac.cols(), jac.rows());
+    out.setZero();
+    return;
+  }
+  const int m = jac.rows();
+  assert(m <= kMaxPInvDim && "WeightedPseudoInverse: jac.rows() exceeds kMaxPInvDim");
+  // J W J^T + λ²I  (m×m, always SPD)
+  // PInvSquare uses MaxRows/MaxCols → inline storage, no heap alloc on resize.
+  JWJt_scratch_.resize(m, m);
+  JWJt_scratch_.noalias() = jac * W * jac.transpose();
+  JWJt_scratch_.diagonal().array() += kDlsLambdaSq;
+  llt_scratch_.compute(JWJt_scratch_);
+  // J_bar = W J^T (J W J^T + λ²I)^{-1}
+  JWJt_pinv_scratch_.setIdentity(m, m);
+  llt_scratch_.solveInPlace(JWJt_pinv_scratch_);
+  out.noalias() = W * jac.transpose() * JWJt_pinv_scratch_;
 }
 
 void WBIC::BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
                                  const Eigen::MatrixXd* W) {
-  N = NullSpaceProjector(jac, threshold_, W);
+  if (jac.cols() == 0) {
+    N.resize(0, 0);
+    return;
+  }
+  if (W == nullptr) {
+    PseudoInverse(jac, Jbar_scratch_);
+  } else {
+    WeightedPseudoInverse(jac, *W, Jbar_scratch_);
+  }
+  N.setIdentity(jac.cols(), jac.cols());
+  N.noalias() -= Jbar_scratch_ * jac;
+}
+
+void WBIC::InitContactProjection(const std::vector<Contact*>& contacts) {
+  if (contacts.empty()) {
+    qddot_cmd_.setZero();
+    return;
+  }
+
+  int total_dim = 0;
+  for (const auto* c : contacts) {
+    total_dim += c->Dim();
+  }
+
+  stacked_contact_jacobian_.resize(total_dim, num_qdot_);
+  stacked_contact_jdot_qdot_.resize(total_dim);
+  stacked_contact_op_cmd_.resize(total_dim);
+
+  int row = 0;
+  for (const auto* c : contacts) {
+    const int dim = c->Dim();
+    stacked_contact_jacobian_.block(row, 0, dim, num_qdot_) = c->Jacobian();
+    stacked_contact_jdot_qdot_.segment(row, dim) = c->JacobianDotQdot();
+    stacked_contact_op_cmd_.segment(row, dim) = c->OpCommand();
+    row += dim;
+  }
+
+  BuildProjectionMatrix(stacked_contact_jacobian_, N_pre_);
+  BuildProjectionMatrix(stacked_contact_jacobian_, N_pre_dyn_, &Minv_);
+  WeightedPseudoInverse(stacked_contact_jacobian_, Minv_, Jc_bar_);
+  qddot_cmd_ = Jc_bar_ * (stacked_contact_op_cmd_ - stacked_contact_jdot_qdot_);
 }
 
 void WBIC::BuildContactMtxVect(const std::vector<Contact*>& contacts) {
@@ -295,8 +320,11 @@ void WBIC::BuildContactMtxVect(const std::vector<Contact*>& contacts) {
   dim_contact_ = total_contact_dim;
   Jc_.resize(total_contact_dim, num_qdot_);
   JcDotQdot_.resize(total_contact_dim);
-  Uf_mat_ = Eigen::MatrixXd::Zero(total_uf_rows, total_contact_dim);
+  Uf_mat_.resize(total_uf_rows, total_contact_dim);
+  Uf_mat_.setZero();
   Uf_vec_.resize(total_uf_rows);
+  wJc_scratch_.resize(total_contact_dim, num_qdot_);
+  xc_res_scratch_.resize(total_contact_dim);
 
   int contact_row_offset = 0;
   int uf_row_offset = 0;
@@ -318,7 +346,8 @@ void WBIC::BuildContactMtxVect(const std::vector<Contact*>& contacts) {
 void WBIC::GetDesiredReactionForce(
     const std::vector<ForceTask*>& force_task_vector) {
   if (force_task_vector.empty()) {
-    des_rf_ = Eigen::VectorXd::Zero(dim_contact_);
+    des_rf_.resize(dim_contact_);
+    des_rf_.setZero();
     return;
   }
 
@@ -365,86 +394,197 @@ void WBIC::ExtractBoxBounds(const Constraint* c,
   }
 }
 
+int WBIC::BuildKinematicLimitConstraint(const Constraint* c, bool is_soft,
+                                        bool use_box_solver,
+                                        const Eigen::VectorXd& wbc_qddot_cmd,
+                                        int row, int& slack_col) {
+  ExtractBoxBounds(c, wbc_qddot_cmd);
+
+  if (is_soft) {
+    for (int i = 0; i < num_active_; ++i) {
+      const int idx = num_floating_ + i;
+      C_(row + i, idx) = 1.0;
+      C_(row + i, slack_col + i) = -1.0;
+      l_(row + i) = l_bnd_(idx);
+      u_(row + i) = u_bnd_(idx);
+    }
+    slack_col += num_active_;
+    return num_active_;
+  } else if (!use_box_solver) {
+    for (int i = 0; i < num_active_; ++i) {
+      const int idx = num_floating_ + i;
+      C_(row + i, idx) = 1.0;
+      l_(row + i) = l_bnd_(idx);
+      u_(row + i) = u_bnd_(idx);
+    }
+    return num_active_;
+  } else {
+    for (int i = 0; i < num_qdot_; ++i) {
+      l_box_(i) = std::max(l_box_(i), l_bnd_(i));
+      u_box_(i) = std::min(u_box_(i), u_bnd_(i));
+    }
+    return 0;
+  }
+}
+
+int WBIC::BuildTorqueLimitConstraint(const JointTrqLimitConstraint* c, bool is_soft,
+                                      bool use_box_solver,
+                                      int row, int& slack_col) {
+  const Eigen::MatrixXd& limits = c->EffectiveLimits();
+  sa_tau0_scratch_.noalias() = sa_ * tau_0_;
+
+  if (is_soft) {
+    C_.block(row, 0, num_active_, num_qdot_) = sa_ * M_;
+    if (dim_contact_ > 0) {
+      C_.block(row, num_qdot_, num_active_, dim_contact_) =
+          -sa_ * (Jc_ * Ni_dyn_).transpose();
+    }
+    for (int i = 0; i < num_active_; ++i) {
+      C_(row + i, slack_col + i) = -1.0;
+      l_(row + i) = limits(i, 0) - sa_tau0_scratch_(i);
+      u_(row + i) = limits(i, 1) - sa_tau0_scratch_(i);
+    }
+    slack_col += num_active_;
+    return num_active_;
+  } else if (!use_box_solver) {
+    // Full dynamics torque constraint in C matrix.
+    C_.block(row, 0, num_active_, num_qdot_) = sa_ * M_;
+    if (dim_contact_ > 0) {
+      C_.block(row, num_qdot_, num_active_, dim_contact_) =
+          -sa_ * (Jc_ * Ni_dyn_).transpose();
+    }
+    for (int i = 0; i < num_active_; ++i) {
+      l_(row + i) = limits(i, 0) - sa_tau0_scratch_(i);
+      u_(row + i) = limits(i, 1) - sa_tau0_scratch_(i);
+    }
+    return num_active_;
+  } else {
+    // Diagonal mass approximation as box bounds.
+    for (int i = 0; i < num_active_; ++i) {
+      const int idx = num_floating_ + i;
+      const double M_diag = M_(idx, idx);
+      if (M_diag < 1e-10) continue;
+      l_box_(idx) = std::max(l_box_(idx), (limits(i, 0) - sa_tau0_scratch_(i)) / M_diag);
+      u_box_(idx) = std::min(u_box_(idx), (limits(i, 1) - sa_tau0_scratch_(i)) / M_diag);
+    }
+    return 0;
+  }
+}
+
+int WBIC::BuildFrictionConeConstraint(int row) {
+  const int n_fric = Uf_mat_.rows();
+  C_.block(row, num_qdot_, n_fric, dim_contact_) = Uf_mat_;
+  l_.segment(row, n_fric) = Uf_vec_ - Uf_mat_ * des_rf_;
+  return n_fric;
+}
+
+void WBIC::EnforceBoxFeasibilityGuard(int qp_dim) {
+  for (int i = 0; i < qp_dim; ++i) {
+    if (l_box_(i) > u_box_(i)) {
+      l_box_(i) = u_box_(i);
+    }
+  }
+}
+
 void WBIC::SetQPCost(const Eigen::VectorXd& wbc_qddot_cmd) {
   const int qp_dim = num_qdot_ + dim_contact_ + dim_slack_total_;
-
   H_.setZero(qp_dim, qp_dim);
   g_.setZero(qp_dim);
 
-  // Term 1: delta_qddot tracking (all DOFs)
-  const Eigen::MatrixXd w_dq =
-      DiagOrIdentity(wbic_data_->qp_params_->W_delta_qddot_, num_qdot_);
-  H_.topLeftCorner(num_qdot_, num_qdot_) += w_dq;
+  AddQddotTrackingCost();
+  AddTorqueMinimizationCost(wbc_qddot_cmd);
 
-  // Baseline torque before QP correction (used by torque cost and torque constraint).
-  // tau_0 = M * qddot_ik + Ni_dyn^T * (cori + grav) - (Jc * Ni_dyn)^T * des_rf
-  tau_0_ = M_ * wbc_qddot_cmd + Ni_dyn_.transpose() * (cori_ + grav_);
+  if (has_contact_ && dim_contact_ > 0) {
+    AddContactAccelerationCost(wbc_qddot_cmd);
+    AddReactionForceCost();
+  }
+
+  if (dim_slack_total_ > 0) {
+    AddSlackVariablePenalties();
+  }
+}
+
+void WBIC::AddQddotTrackingCost() {
+  const auto& w = wbic_data_->qp_params_->W_delta_qddot_;
+  if (w.size() == num_qdot_) {
+    H_.diagonal().head(num_qdot_) += w;
+  } else {
+    H_.diagonal().head(num_qdot_).array() += 1.0;
+  }
+}
+
+void WBIC::AddTorqueMinimizationCost(const Eigen::VectorXd& wbc_qddot_cmd) {
+  // Baseline torque: tau_0 = M * qddot_ik + Ni_dyn^T * (cori + grav) - (Jc * Ni_dyn)^T * des_rf
+  tau_0_.noalias() = M_ * wbc_qddot_cmd;
+  tau_0_.noalias() += Ni_dyn_.transpose() * (cori_ + grav_);
   if (has_contact_ && des_rf_.size() > 0) {
     tau_0_ -= (Jc_ * Ni_dyn_).transpose() * des_rf_;
   }
 
-  // Term 2: torque minimization
-  // d(tau)/d(delta_qddot) = M → cost = ||tau_0 + M*dx||^2_W_tau
-  const Eigen::VectorXd& w_tau = wbic_data_->qp_params_->W_tau_;
-  const Eigen::VectorXd& w_tau_dot = wbic_data_->qp_params_->W_tau_dot_;
-  const bool use_tau_cost =
-      (w_tau.squaredNorm() > 0.0) || (w_tau_dot.squaredNorm() > 0.0);
-  if (use_tau_cost) {
-    const Eigen::MatrixXd MtWM = [&]() {
-      Eigen::MatrixXd acc =
-          Eigen::MatrixXd::Zero(num_qdot_, num_qdot_);
-      if (w_tau.squaredNorm() > 0.0) {
-        acc.noalias() += M_.transpose() * w_tau.asDiagonal() * M_;
-      }
-      if (w_tau_dot.squaredNorm() > 0.0) {
-        acc.noalias() += M_.transpose() * w_tau_dot.asDiagonal() * M_;
-      }
-      return acc;
-    }();
-    H_.topLeftCorner(num_qdot_, num_qdot_) += MtWM;
-    // g: M^T * W_tau * tau_0  +  M^T * W_tau_dot * (tau_0 - tau_prev)
-    if (w_tau.squaredNorm() > 0.0) {
-      g_.head(num_qdot_) += M_.transpose() * w_tau.asDiagonal() * tau_0_;
-    }
-    if (w_tau_dot.squaredNorm() > 0.0) {
-      g_.head(num_qdot_) += M_.transpose() * w_tau_dot.asDiagonal() *
-                            (tau_0_ - wbic_data_->tau_prev_);
-    }
+  const auto& w_tau = wbic_data_->qp_params_->W_tau_;
+  const auto& w_tau_dot = wbic_data_->qp_params_->W_tau_dot_;
+
+  if (w_tau.squaredNorm() > 0.0) {
+    wM_scratch_.noalias() = w_tau.asDiagonal() * M_;
+    H_.topLeftCorner(num_qdot_, num_qdot_).noalias() += M_.transpose() * wM_scratch_;
+    trq_ = w_tau.cwiseProduct(tau_0_);
+    g_.head(num_qdot_).noalias() += M_.transpose() * trq_;
   }
-
-  // Term 3: contact acceleration minimization (if contacts)
-  if (has_contact_ && dim_contact_ > 0) {
-    const Eigen::MatrixXd xc_w =
-        DiagOrIdentity(wbic_data_->qp_params_->W_xc_ddot_, Jc_.rows());
-    // Jc is (dim_contact x num_qdot), so Jc^T * W * Jc is (num_qdot x num_qdot)
-    H_.topLeftCorner(num_qdot_, num_qdot_) += Jc_.transpose() * xc_w * Jc_;
-    g_.head(num_qdot_) +=
-        Jc_.transpose() * xc_w * (Jc_ * wbc_qddot_cmd + JcDotQdot_);
-
-    // Term 4: reaction force (delta_rf + force rate of change)
-    H_.block(num_qdot_, num_qdot_, dim_contact_, dim_contact_) =
-        (DiagOrIdentity(wbic_data_->qp_params_->W_delta_rf_, dim_contact_).diagonal() +
-         DiagOrIdentity(wbic_data_->qp_params_->W_f_dot_, dim_contact_).diagonal())
-            .asDiagonal();
-    g_.segment(num_qdot_, dim_contact_) +=
-        DiagOrIdentity(wbic_data_->qp_params_->W_f_dot_, dim_contact_) *
-        (des_rf_ - wbic_data_->rf_prev_cmd_);
+  if (w_tau_dot.squaredNorm() > 0.0) {
+    wM_scratch_.noalias() = w_tau_dot.asDiagonal() * M_;
+    H_.topLeftCorner(num_qdot_, num_qdot_).noalias() += M_.transpose() * wM_scratch_;
+    trq_ = tau_0_ - wbic_data_->tau_prev_;
+    trq_.array() *= w_tau_dot.array();
+    g_.head(num_qdot_).noalias() += M_.transpose() * trq_;
   }
+}
 
-  // Term 5: Slack variable quadratic penalties
-  if (dim_slack_total_ > 0) {
-    int slack_idx = num_qdot_ + dim_contact_;
-    if (dim_slack_pos_ > 0) {
-      H_.diagonal().segment(slack_idx, dim_slack_pos_).setConstant(soft_params_.w_pos);
-      slack_idx += dim_slack_pos_;
-    }
-    if (dim_slack_vel_ > 0) {
-      H_.diagonal().segment(slack_idx, dim_slack_vel_).setConstant(soft_params_.w_vel);
-      slack_idx += dim_slack_vel_;
-    }
-    if (dim_slack_trq_ > 0) {
-      H_.diagonal().segment(slack_idx, dim_slack_trq_).setConstant(soft_params_.w_trq);
-    }
+void WBIC::AddContactAccelerationCost(const Eigen::VectorXd& wbc_qddot_cmd) {
+  const auto& w_xc = wbic_data_->qp_params_->W_xc_ddot_;
+  if (w_xc.size() == dim_contact_) {
+    wJc_scratch_.noalias() = w_xc.asDiagonal() * Jc_;
+  } else {
+    wJc_scratch_ = Jc_;
+  }
+  H_.topLeftCorner(num_qdot_, num_qdot_).noalias() += Jc_.transpose() * wJc_scratch_;
+
+  xc_res_scratch_.noalias() = Jc_ * wbc_qddot_cmd;
+  xc_res_scratch_ += JcDotQdot_;
+  if (w_xc.size() == dim_contact_) {
+    xc_res_scratch_.array() *= w_xc.array();
+  }
+  g_.head(num_qdot_).noalias() += Jc_.transpose() * xc_res_scratch_;
+}
+
+void WBIC::AddReactionForceCost() {
+  const auto& w_rf = wbic_data_->qp_params_->W_delta_rf_;
+  const auto& w_fd = wbic_data_->qp_params_->W_f_dot_;
+
+  auto rf_diag = H_.diagonal().segment(num_qdot_, dim_contact_);
+  if (w_rf.size() == dim_contact_) rf_diag += w_rf;
+  else                             rf_diag.array() += 1.0;
+  if (w_fd.size() == dim_contact_) rf_diag += w_fd;
+  else                             rf_diag.array() += 1.0;
+
+  if (w_fd.size() == dim_contact_) {
+    g_.segment(num_qdot_, dim_contact_) += w_fd.cwiseProduct(des_rf_ - wbic_data_->rf_prev_cmd_);
+  } else {
+    g_.segment(num_qdot_, dim_contact_) += des_rf_ - wbic_data_->rf_prev_cmd_;
+  }
+}
+
+void WBIC::AddSlackVariablePenalties() {
+  int slack_idx = num_qdot_ + dim_contact_;
+  if (dim_slack_pos_ > 0) {
+    H_.diagonal().segment(slack_idx, dim_slack_pos_).setConstant(soft_params_.w_pos);
+    slack_idx += dim_slack_pos_;
+  }
+  if (dim_slack_vel_ > 0) {
+    H_.diagonal().segment(slack_idx, dim_slack_vel_).setConstant(soft_params_.w_vel);
+    slack_idx += dim_slack_vel_;
+  }
+  if (dim_slack_trq_ > 0) {
+    H_.diagonal().segment(slack_idx, dim_slack_trq_).setConstant(soft_params_.w_trq);
   }
 }
 
@@ -465,37 +605,35 @@ void WBIC::SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd) {
   }
 }
 
-void WBIC::SetQPInEqualityConstraint(const WbcFormulation& formulation,
+void WBIC::SetQPInEqualityConstraint(const WbcFormulation& /*formulation*/,
                                      const Eigen::VectorXd& wbc_qddot_cmd) {
   const int qp_dim = num_qdot_ + dim_contact_ + dim_slack_total_;
   const int n_friction = has_contact_ ? Uf_mat_.rows() : 0;
   constexpr double kInf = std::numeric_limits<double>::infinity();
 
-  // --- Collect constraint pointers by type (deterministic ordering) ---
-  const JointPosLimitConstraint* pos_c = nullptr;
-  const JointVelLimitConstraint* vel_c = nullptr;
-  const JointTrqLimitConstraint* trq_c = nullptr;
-  for (const Constraint* c : formulation.kinematic_constraints) {
-    if (auto* p = dynamic_cast<const JointPosLimitConstraint*>(c)) pos_c = p;
-    else if (auto* v = dynamic_cast<const JointVelLimitConstraint*>(c)) vel_c = v;
-    else if (auto* t = dynamic_cast<const JointTrqLimitConstraint*>(c)) trq_c = t;
-  }
+  // Use constraint pointers cached in MakeTorque (no dynamic_cast here).
+  const JointPosLimitConstraint* pos_c = cached_pos_c_;
+  const JointVelLimitConstraint* vel_c = cached_vel_c_;
+  const JointTrqLimitConstraint* trq_c = cached_trq_c_;
 
-  // --- Count general inequality rows (friction + soft constraint rows) ---
-  int n_soft_rows = 0;
-  if (pos_c && soft_params_.pos) n_soft_rows += num_active_;
-  if (vel_c && soft_params_.vel) n_soft_rows += num_active_;
-  if (trq_c && soft_params_.trq) n_soft_rows += num_active_;
-  const int n_ineq = n_friction + n_soft_rows;
-
-  // --- Determine if any hard constraint needs box mode ---
   const bool has_any_hard =
       (pos_c && !soft_params_.pos) ||
       (vel_c && !soft_params_.vel) ||
       (trq_c && !soft_params_.trq);
 
+  // When slack (soft) variables exist, disable box solver to avoid
+  // ProxQP ADMM scaling collapse between huge box bounds and unbounded slacks.
+  const bool force_dense = (dim_slack_total_ > 0);
+  const bool use_box_solver = has_any_hard && !force_dense;
+
+  // --- Count general inequality rows ---
+  int n_ineq = n_friction;
+  if (pos_c && (soft_params_.pos || !use_box_solver)) n_ineq += num_active_;
+  if (vel_c && (soft_params_.vel || !use_box_solver)) n_ineq += num_active_;
+  if (trq_c && (soft_params_.trq || !use_box_solver)) n_ineq += num_active_;
+
   // --- Box constraints ---
-  if (has_any_hard) {
+  if (use_box_solver) {
     l_box_.resize(qp_dim);
     u_box_.resize(qp_dim);
     l_box_.setConstant(-kInf);
@@ -514,101 +652,17 @@ void WBIC::SetQPInEqualityConstraint(const WbcFormulation& formulation,
   int row = 0;
   int slack_col = num_qdot_ + dim_contact_;
 
-  // --- Friction cone constraints ---
-  if (n_friction > 0) {
-    C_.block(0, num_qdot_, n_friction, dim_contact_) = Uf_mat_;
-    l_.head(n_friction) = Uf_vec_ - Uf_mat_ * des_rf_;
-    row += n_friction;
-  }
+  if (n_friction > 0)
+    row += BuildFrictionConeConstraint(row);
+  if (pos_c)
+    row += BuildKinematicLimitConstraint(pos_c, soft_params_.pos, use_box_solver, wbc_qddot_cmd, row, slack_col);
+  if (vel_c)
+    row += BuildKinematicLimitConstraint(vel_c, soft_params_.vel, use_box_solver, wbc_qddot_cmd, row, slack_col);
+  if (trq_c)
+    row += BuildTorqueLimitConstraint(trq_c, soft_params_.trq, use_box_solver, row, slack_col);
 
-  // --- Joint Position Limit ---
-  if (pos_c) {
-    ExtractBoxBounds(pos_c, wbc_qddot_cmd);
-    if (soft_params_.pos) {
-      // Soft: l_bnd <= Δqddot[idx] - ε_pos[i] <= u_bnd (general inequality + slack)
-      for (int i = 0; i < num_active_; ++i) {
-        const int idx = num_floating_ + i;
-        C_(row + i, idx) = 1.0;
-        C_(row + i, slack_col + i) = -1.0;
-        l_(row + i) = l_bnd_(idx);
-        u_(row + i) = u_bnd_(idx);
-      }
-      row += num_active_;
-      slack_col += num_active_;
-    } else {
-      // Hard: intersect into box bounds
-      for (int i = 0; i < num_qdot_; ++i) {
-        l_box_(i) = std::max(l_box_(i), l_bnd_(i));
-        u_box_(i) = std::min(u_box_(i), u_bnd_(i));
-      }
-    }
-  }
-
-  // --- Joint Velocity Limit ---
-  if (vel_c) {
-    ExtractBoxBounds(vel_c, wbc_qddot_cmd);
-    if (soft_params_.vel) {
-      // Soft: l_bnd <= Δqddot[idx] - ε_vel[i] <= u_bnd
-      for (int i = 0; i < num_active_; ++i) {
-        const int idx = num_floating_ + i;
-        C_(row + i, idx) = 1.0;
-        C_(row + i, slack_col + i) = -1.0;
-        l_(row + i) = l_bnd_(idx);
-        u_(row + i) = u_bnd_(idx);
-      }
-      row += num_active_;
-      slack_col += num_active_;
-    } else {
-      // Hard: intersect into box bounds
-      for (int i = 0; i < num_qdot_; ++i) {
-        l_box_(i) = std::max(l_box_(i), l_bnd_(i));
-        u_box_(i) = std::min(u_box_(i), u_bnd_(i));
-      }
-    }
-  }
-
-  // --- Joint Torque Limit ---
-  if (trq_c) {
-    const Eigen::MatrixXd& limits = trq_c->EffectiveLimits();
-    const Eigen::VectorXd sa_tau0 = sa_ * tau_0_;
-    if (soft_params_.trq) {
-      // Soft: full coupled dynamics in C matrix
-      // τ = τ_0 + M*Δqddot - (Jc*Ni_dyn)^T*Δrf
-      // → τ_min - Sa*τ_0 <= Sa*M*Δqddot - Sa*(Jc*Ni_dyn)^T*Δrf - ε_trq <= τ_max - Sa*τ_0
-      C_.block(row, 0, num_active_, num_qdot_) = sa_ * M_;
-      if (dim_contact_ > 0) {
-        C_.block(row, num_qdot_, num_active_, dim_contact_) =
-            -sa_ * (Jc_ * Ni_dyn_).transpose();
-      }
-      for (int i = 0; i < num_active_; ++i) {
-        C_(row + i, slack_col + i) = -1.0;
-        l_(row + i) = limits(i, 0) - sa_tau0(i);
-        u_(row + i) = limits(i, 1) - sa_tau0(i);
-      }
-      row += num_active_;
-      slack_col += num_active_;
-    } else {
-      // Hard: diagonal mass approximation as box bounds
-      // τ_i ≈ τ_0_i + M_ii * Δqddot_i
-      // → (τ_min_i - τ_0_i) / M_ii <= Δqddot_i <= (τ_max_i - τ_0_i) / M_ii
-      for (int i = 0; i < num_active_; ++i) {
-        const int idx = num_floating_ + i;
-        const double M_diag = M_(idx, idx);
-        if (M_diag < 1e-10) continue;
-        l_box_(idx) = std::max(l_box_(idx), (limits(i, 0) - sa_tau0(i)) / M_diag);
-        u_box_(idx) = std::min(u_box_(idx), (limits(i, 1) - sa_tau0(i)) / M_diag);
-      }
-    }
-  }
-
-  // --- Feasibility guard for hard bounds ---
-  if (has_any_hard) {
-    for (int i = 0; i < qp_dim; ++i) {
-      if (l_box_(i) > u_box_(i)) {
-        l_box_(i) = u_box_(i);
-      }
-    }
-  }
+  if (use_box_solver)
+    EnforceBoxFeasibilityGuard(qp_dim);
 }
 
 bool WBIC::SolveQP(const Eigen::VectorXd& wbc_qddot_cmd) {
@@ -626,7 +680,7 @@ bool WBIC::SolveQP(const Eigen::VectorXd& wbc_qddot_cmd) {
       qp_solver_->is_box_constrained() != use_box) {
     qp_solver_ = std::make_unique<proxsuite::proxqp::dense::QP<double>>(
         dim, n_eq, n_ineq, use_box);
-    qp_solver_->settings.eps_abs = 1e-5;
+    qp_solver_->settings.eps_abs = 1e-3;
     qp_solver_->settings.verbose = false;
     qp_solver_->settings.max_iter = 1000;
     qp_solver_->settings.initial_guess =
@@ -662,35 +716,39 @@ bool WBIC::SolveQP(const Eigen::VectorXd& wbc_qddot_cmd) {
 
   if (dim_contact_ > 0) {
     wbic_data_->delta_rf_ = qp_sol.segment(num_qdot_, dim_contact_);
-    wbic_data_->rf_cmd_ = des_rf_ + wbic_data_->delta_rf_;
+    wbic_data_->rf_cmd_.noalias() = des_rf_ + wbic_data_->delta_rf_;
     wbic_data_->rf_prev_cmd_ = wbic_data_->rf_cmd_;
-    wbic_data_->Xc_ddot_ =
-        Jc_ * wbic_data_->corrected_wbc_qddot_cmd_ + JcDotQdot_;
+    wbic_data_->Xc_ddot_.noalias() = Jc_ * wbic_data_->corrected_wbc_qddot_cmd_;
+    wbic_data_->Xc_ddot_ += JcDotQdot_;
   } else {
     wbic_data_->delta_rf_.resize(0);
     wbic_data_->rf_cmd_.resize(0);
     wbic_data_->Xc_ddot_.resize(0);
   }
 
-  // Compute diagnostic costs
-  const Eigen::MatrixXd w_qddot =
-      DiagOrIdentity(wbic_data_->qp_params_->W_delta_qddot_, num_qdot_);
-  wbic_data_->delta_qddot_cost_ =
-      wbic_data_->delta_qddot_.transpose() * w_qddot * wbic_data_->delta_qddot_;
-
+  // Diagnostic costs — only computed in Debug builds (skipped in Release).
+  // Uses x^T * diag(w) * x = w.cwiseProduct(x).dot(x), avoiding NxN matrix allocation.
+#ifndef NDEBUG
+  {
+    const auto& w = wbic_data_->qp_params_->W_delta_qddot_;
+    const auto& dx = wbic_data_->delta_qddot_;
+    wbic_data_->delta_qddot_cost_ =
+        (w.size() == num_qdot_) ? w.cwiseProduct(dx).dot(dx) : dx.squaredNorm();
+  }
   if (dim_contact_ > 0) {
-    const Eigen::MatrixXd w_rf =
-        DiagOrIdentity(wbic_data_->qp_params_->W_delta_rf_, dim_contact_);
-    const Eigen::MatrixXd w_xc =
-        DiagOrIdentity(wbic_data_->qp_params_->W_xc_ddot_, Jc_.rows());
+    const auto& w_rf = wbic_data_->qp_params_->W_delta_rf_;
+    const auto& drf = wbic_data_->delta_rf_;
     wbic_data_->delta_rf_cost_ =
-        wbic_data_->delta_rf_.transpose() * w_rf * wbic_data_->delta_rf_;
+        (w_rf.size() == dim_contact_) ? w_rf.cwiseProduct(drf).dot(drf) : drf.squaredNorm();
+    const auto& w_xc = wbic_data_->qp_params_->W_xc_ddot_;
+    const auto& xc = wbic_data_->Xc_ddot_;
     wbic_data_->Xc_ddot_cost_ =
-        wbic_data_->Xc_ddot_.transpose() * w_xc * wbic_data_->Xc_ddot_;
+        (w_xc.size() == dim_contact_) ? w_xc.cwiseProduct(xc).dot(xc) : xc.squaredNorm();
   } else {
     wbic_data_->delta_rf_cost_ = 0.0;
     wbic_data_->Xc_ddot_cost_ = 0.0;
   }
+#endif
 
   return true;
 }

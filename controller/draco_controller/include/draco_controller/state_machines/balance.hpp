@@ -10,7 +10,7 @@
 
 #include "wbc_formulation/motion_task.hpp"
 #include "wbc_fsm/interface/state_machine.hpp"
-#include "wbc_trajectory/trajectory_handler.hpp"
+#include "wbc_handlers/trajectory_handler.hpp"
 
 namespace wbc {
 
