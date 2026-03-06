@@ -16,4 +16,12 @@ foreach(_asset_dir IN ITEMS launch mjcf)
   endif()
 endforeach()
 
+if(BUILD_TESTING)
+  find_package(launch_testing_ament_cmake REQUIRED)
+  add_launch_test(
+    test/test_optimo_wbc_mujoco.py
+    TIMEOUT 120
+  )
+endif()
+
 ament_package()

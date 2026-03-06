@@ -21,6 +21,7 @@ namespace wbc {
 struct ControlBuffers {
   Eigen::VectorXd wbc_qddot_cmd;   ///< solver output (size = num_qdot)
   Eigen::VectorXd joint_trq_prev;  ///< hold-torque on failure (size = num_active)
+  Eigen::VectorXd zero_qdot;       ///< pre-allocated zeros (size = num_qdot), used for disabled compensation
 };
 
 } // namespace wbc

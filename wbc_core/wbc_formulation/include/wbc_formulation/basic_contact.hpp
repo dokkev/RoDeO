@@ -48,6 +48,7 @@ public:
   void SetFootHalfSize(double foot_half_length, double foot_half_width) {
     foot_half_length_ = foot_half_length;
     foot_half_width_ = foot_half_width;
+    cone_dirty_ = true;
   }
 
 private:

@@ -63,7 +63,6 @@ void PinocchioRobotSystem::Initialize() {
   InitializeRootFrame();
 
   total_mass_ = pinocchio::computeTotalMass(model_);
-  total_mass_legacy_ = total_mass_;
 
   for (pinocchio::FrameIndex i(0);
        i < static_cast<pinocchio::FrameIndex>(model_.nframes); ++i) {
@@ -175,6 +174,7 @@ void PinocchioRobotSystem::InvalidateDynamicsCache() {
   nonlinear_effects_valid_ = false;
   gravity_valid_ = false;
   coriolis_valid_ = false;
+  com_kinematics_valid_ = false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -300,18 +300,19 @@ void PinocchioRobotSystem::UpdateState(
     const std::map<std::string, double>& joint_positions,
     const std::map<std::string, double>& joint_velocities,
     bool update_centroidal) {
+  // Validation: joint maps are set at init and should never change size.
+  // Using assert-style check that survives Release builds (no string alloc).
   const std::size_t expected_joint_count = joint_name_to_q_idx_.size();
   if (joint_positions.size() != expected_joint_count ||
       joint_velocities.size() != expected_joint_count) {
-    throw std::runtime_error(
-        "UpdateState requires complete joint position/velocity maps");
+    std::abort();  // Programmer error — should never happen at runtime
   }
 
   for (const auto& [joint_name, q_idx] : joint_name_to_q_idx_) {
     const auto pos_it = joint_positions.find(joint_name);
     const auto vel_it = joint_velocities.find(joint_name);
     if (pos_it == joint_positions.end() || vel_it == joint_velocities.end()) {
-      throw std::runtime_error("UpdateState missing joint entry: " + joint_name);
+      std::abort();  // Programmer error — joint map mismatch
     }
     q_[q_idx] = pos_it->second;
     qdot_[GetQdotIndex(joint_name)] = vel_it->second;
@@ -335,10 +336,13 @@ void PinocchioRobotSystem::UpdateState(
     joint_velocities_ = GetJointVel();
   }
 
-  pinocchio::forwardKinematics(model_, data_, q_, qdot_);
+  // 1-pass: FK with zero acceleration so getFrameClassicalAcceleration()
+  // returns pure Jdot*qdot without a separate EnsureAccelerationKinematics() call.
+  pinocchio::forwardKinematics(model_, data_, q_, qdot_, zero_qddot_);
   pinocchio::computeJointJacobians(model_, data_, q_);
   pinocchio::updateFramePlacements(model_, data_);
   InvalidateDynamicsCache();
+  acceleration_kinematics_valid_ = true;
 
   if (update_centroidal) {
     UpdateCentroidalQuantities();
@@ -376,10 +380,13 @@ void PinocchioRobotSystem::UpdateRobotModel(
     joint_velocities_ = GetJointVel();
   }
 
-  pinocchio::forwardKinematics(model_, data_, q_, qdot_);
+  // 1-pass: FK with zero acceleration so getFrameClassicalAcceleration()
+  // returns pure Jdot*qdot without a separate EnsureAccelerationKinematics() call.
+  pinocchio::forwardKinematics(model_, data_, q_, qdot_, zero_qddot_);
   pinocchio::computeJointJacobians(model_, data_, q_);
   pinocchio::updateFramePlacements(model_, data_);
   InvalidateDynamicsCache();
+  acceleration_kinematics_valid_ = true;
 
   if (update_centroid) {
     UpdateCentroidalQuantities();
@@ -599,14 +606,23 @@ PinocchioRobotSystem::GetLinkLocalJacobianDotQdot(int link_idx) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+void PinocchioRobotSystem::EnsureComKinematics() {
+  if (com_kinematics_valid_) return;
+  pinocchio::centerOfMass(model_, data_, q_, qdot_);
+  com_pos_cache_ = data_.com[0];
+  com_vel_cache_ = data_.vcom[0];
+  com_kinematics_valid_ = true;
+}
+
 Eigen::Vector3d PinocchioRobotSystem::GetComPosition() {
-  return pinocchio::centerOfMass(model_, data_, q_);
+  EnsureComKinematics();
+  return com_pos_cache_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 Eigen::Vector3d PinocchioRobotSystem::GetComVelocity() {
-  pinocchio::centerOfMass(model_, data_, q_, qdot_);
-  return data_.vcom[0];
+  EnsureComKinematics();
+  return com_vel_cache_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -785,7 +801,7 @@ const Eigen::VectorXd& PinocchioRobotSystem::GetCoriolisRef() {
 
 ////////////////////////////////////////////////////////////////////////////////
 double PinocchioRobotSystem::GetTotalWeight() const {
-  return -1.0 * pinocchio::computeTotalMass(model_) * model_.gravity981.coeff(2);
+  return -1.0 * total_mass_ * model_.gravity981.coeff(2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

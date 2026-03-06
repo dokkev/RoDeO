@@ -8,6 +8,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -172,11 +173,7 @@ public:
       return false;
     }
 
-    // Make rehash behavior explicit during non-RT registration.
-    // Slots are rebound below so pointer stability is restored before return.
-    link_contact_state_.reserve(link_contact_state_.size() + 1);
-    link_contact_wrench_.reserve(link_contact_wrench_.size() + 1);
-
+    // std::map has stable iterators/pointers — no rehash concern.
     auto [state_it, state_inserted] =
         link_contact_state_.emplace(link_name, false);
     auto [wrench_it, wrench_inserted] =
@@ -278,9 +275,11 @@ public:
 private:
   // Contact containers are private so registration/update invariants are
   // enforced through RegisterContactLink/SetContact* APIs only.
-  std::unordered_map<std::string, bool> link_contact_state_;
-  std::unordered_map<std::string, Eigen::VectorXd> link_contact_wrench_;
-  std::unordered_map<std::string, std::size_t> link_contact_index_;
+  // std::map (not unordered_map) so element pointers in contact_*_slots_
+  // remain stable across insertions (no rehash invalidation).
+  std::map<std::string, bool> link_contact_state_;
+  std::map<std::string, Eigen::VectorXd> link_contact_wrench_;
+  std::map<std::string, std::size_t> link_contact_index_;
   std::vector<bool*> contact_state_slots_;
   std::vector<Eigen::VectorXd*> contact_wrench_slots_;
 

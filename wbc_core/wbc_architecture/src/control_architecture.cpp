@@ -40,6 +40,12 @@ ControlArchitecture::ControlArchitecture(
   }
 
   pid_config_           = arch_config.joint_pid;
+  ik_method_            = arch_config.ik_method;
+  enable_gravity_       = arch_config.enable_gravity;
+  enable_coriolis_      = arch_config.enable_coriolis;
+  enable_inertia_       = arch_config.enable_inertia;
+  weight_scheduler_.SetWeightBounds(arch_config.weight_min,
+                                    arch_config.weight_max);
   SetControlDt(arch_config.control_dt);
 }
 
@@ -49,6 +55,12 @@ void ControlArchitecture::Initialize() {
   InitializeFsm();
   InitializeSolver();
   ReserveFormulationCapacity();
+
+  // For weight-based QP: build the formulation once with ALL tasks,
+  // register tasks with the scheduler, and set initial weights.
+  if (ik_method_ == IKMethod::WEIGHTED_QP) {
+    BuildFixedFormulation();
+  }
 
   EnsureCommandBuffers();
 
@@ -173,6 +185,42 @@ void ControlArchitecture::FsmUpdate() {
 
 const StateConfig* ControlArchitecture::SyncActiveState() {
   const StateId state_id = fsm_handler_->GetCurrentStateId();
+
+  if (ik_method_ == IKMethod::WEIGHTED_QP) {
+    // Weight-based QP: formulation is fixed (built once at init).
+    // On state change, schedule weight ramps instead of rebuilding.
+    if (state_id != applied_state_id_) {
+      cached_state_ = runtime_config_->FindState(state_id);
+      if (cached_state_ != nullptr) {
+        const StateConfig& state = *cached_state_;
+        runtime_config_->ApplyStateOverrides(state, WbcType::WBIC);
+
+        // Per-state ramp duration (negative = use scheduler default).
+        const double ramp_dur = (state.weight_ramp_duration >= 0.0)
+            ? state.weight_ramp_duration
+            : weight_scheduler_.GetRampDuration();
+
+        // Zero-allocation: pass state arrays + default configs directly.
+        weight_scheduler_.ScheduleTransition(
+            state.motion, state.motion_cfg,
+            runtime_config_->DefaultMotionTaskConfigs(),
+            current_time_, ramp_dur);
+        applied_state_id_ = state_id;
+      } else {
+        applied_state_id_ = -1;
+      }
+    }
+
+    // Tick the scheduler every cycle to advance ramps.
+    weight_scheduler_.Tick(current_time_);
+
+    if (cached_state_ == nullptr) {
+      applied_state_id_ = -1;
+    }
+    return cached_state_;
+  }
+
+  // Hierarchy mode: rebuild formulation on state change.
   if (state_id != applied_state_id_) {
     cached_state_ = runtime_config_->FindState(state_id);
     if (cached_state_ != nullptr) {
@@ -195,9 +243,13 @@ bool ControlArchitecture::SolverUpdate() {
   const bool timing = enable_timing_;
 
   // --- Dynamics (lazy Pinocchio M, Minv, cori, grav) ---
+  // When a compensation flag is disabled, pass zeros so the solver omits that term
+  // from the torque equation: tau = M*qddot + cori + grav - Jc^T*rf.
   const auto t0 = timing ? Clock::now() : Clock::time_point{};
+  const auto& cori = enable_coriolis_ ? robot_->GetCoriolisRef() : buffers_.zero_qdot;
+  const auto& grav = enable_gravity_  ? robot_->GetGravityRef()  : buffers_.zero_qdot;
   solver_->UpdateSetting(robot_->GetMassMatrixRef(), robot_->GetMassMatrixInverseRef(),
-                         robot_->GetCoriolisRef(), robot_->GetGravityRef());
+                         cori, grav);
   const auto t1 = timing ? Clock::now() : Clock::time_point{};
 
   // --- FindConfiguration (null-space hierarchy + LLT) ---
@@ -212,6 +264,17 @@ bool ControlArchitecture::SolverUpdate() {
   // --- MakeTorque (QP setup + ProxQP solve + torque recovery) ---
   if (!solver_->MakeTorque(formulation_, buffers_.wbc_qddot_cmd, cmd_.tau)) {
     return false;
+  }
+
+  // Inertia compensation: M*qddot is embedded in the solver output.
+  // The QP needs M for its constraints/cost, so we can't zero it beforehand.
+  // Instead, subtract the M*qddot contribution from the actuated torque.
+  if (!enable_inertia_) {
+    const int n_act = robot_->NumActiveDof();
+    // For fixed-base fully-actuated: tau = M*qddot + cori + grav - Jc^T*rf
+    // Subtract M_act * qddot (actuated block of mass matrix times full qddot).
+    cmd_.tau.noalias() -= robot_->GetMassMatrixRef().bottomRows(n_act)
+                          * solver_->GetWbicData()->corrected_wbc_qddot_cmd_;
   }
   const auto t3 = timing ? Clock::now() : Clock::time_point{};
 
@@ -398,6 +461,7 @@ void ControlArchitecture::InitializeSolver() {
   qp_params_->W_tau_.setConstant(reg.w_tau);
   qp_params_->W_tau_dot_.setConstant(reg.w_tau_dot);
   solver_ = std::make_unique<WBIC>(act_qdot_list, qp_params_.get());
+  solver_->SetIKMethod(ik_method_);
 
   // Pre-allocate solver buffers to avoid first-tick heap allocations.
   {
@@ -435,6 +499,59 @@ void ControlArchitecture::ReserveFormulationCapacity() {
   formulation_.Reserve(max_motion, max_contact, max_force, max_kin);
 }
 
+void ControlArchitecture::BuildFixedFormulation() {
+  // Build a single formulation containing ALL tasks from the pool.
+  // This formulation is never rebuilt — only task weights change.
+  formulation_.Clear();
+
+  const auto* reg = runtime_config_->taskRegistry();
+  for (const auto& [name, task_ptr] : reg->GetMotionTasks()) {
+    formulation_.motion_tasks.push_back(task_ptr.get());
+    // Register each task with the weight scheduler.
+    weight_scheduler_.RegisterTask(task_ptr.get());
+  }
+
+  // Global constraints (always active).
+  formulation_.kinematic_constraints.insert(
+      formulation_.kinematic_constraints.end(),
+      runtime_config_->GlobalConstraints().begin(),
+      runtime_config_->GlobalConstraints().end());
+
+  // Collect all contacts and force tasks across all states.
+  // (For weighted QP, contacts/forces from all states are registered.)
+  for (const auto& [state_id, state] : runtime_config_->States()) {
+    (void)state_id;
+    for (Contact* c : state.contacts) {
+      if (std::find(formulation_.contact_constraints.begin(),
+                    formulation_.contact_constraints.end(), c) ==
+          formulation_.contact_constraints.end()) {
+        formulation_.contact_constraints.push_back(c);
+      }
+    }
+    for (ForceTask* ft : state.forces) {
+      if (std::find(formulation_.force_tasks.begin(),
+                    formulation_.force_tasks.end(), ft) ==
+          formulation_.force_tasks.end()) {
+        formulation_.force_tasks.push_back(ft);
+      }
+    }
+    for (Constraint* k : state.kin) {
+      if (std::find(formulation_.kinematic_constraints.begin(),
+                    formulation_.kinematic_constraints.end(), k) ==
+          formulation_.kinematic_constraints.end()) {
+        formulation_.kinematic_constraints.push_back(k);
+      }
+    }
+  }
+
+  // Set all task weights to kMinWeight initially.
+  // The first SyncActiveState will schedule the correct weights.
+  for (Task* task : formulation_.motion_tasks) {
+    task->SetWeight(Eigen::VectorXd::Constant(
+        task->Dim(), TaskWeightScheduler::kMinWeight));
+  }
+}
+
 void ControlArchitecture::EnsureCommandBuffers() {
   const int num_active = robot_->NumActiveDof();
   const int num_qdot = robot_->NumQdot();
@@ -463,6 +580,9 @@ void ControlArchitecture::EnsureCommandBuffers() {
   }
   if (buffers_.wbc_qddot_cmd.size() != num_qdot) {
     buffers_.wbc_qddot_cmd = Eigen::VectorXd::Zero(num_qdot);
+  }
+  if (buffers_.zero_qdot.size() != num_qdot) {
+    buffers_.zero_qdot = Eigen::VectorXd::Zero(num_qdot);
   }
   if (sp_->nominal_jpos_.size() != num_active) {
     sp_->nominal_jpos_ = Eigen::VectorXd::Zero(num_active);

@@ -60,7 +60,9 @@ private:
   double w_{0.0};
   double sigma_min_{0.0};
 
-  Eigen::VectorXd qdot_avoid_;  // num_active_dof
+  Eigen::VectorXd qdot_avoid_;   // num_active_dof
+  Eigen::VectorXd prev_v_min_;   // sign-flip continuity for SVD v_min
+  bool has_prev_v_min_{false};
 };
 
 }  // namespace wbc

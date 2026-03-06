@@ -4,6 +4,7 @@
  */
 #include "wbc_formulation/motion_task.hpp"
 
+#include <pinocchio/spatial/explog.hpp>
 #include <stdexcept>
 
 namespace wbc {
@@ -91,7 +92,11 @@ void Task::ModifyJacobian(const std::vector<int>& joint_idx, int num_float) {
 
 ////////////////////////////////////////////////////////////////////////////////
 JointTask::JointTask(PinocchioRobotSystem* robot)
-    : Task(robot, robot->NumActiveDof()) {}
+    : Task(robot, robot->NumActiveDof()) {
+  // Static Jacobian: [0 | I] — set once, never changes.
+  jacobian_.setZero();
+  jacobian_.block(0, robot_->NumFloatDof(), dim_, robot_->NumActiveDof()).setIdentity();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 void JointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
@@ -105,8 +110,7 @@ void JointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
 
 ////////////////////////////////////////////////////////////////////////////////
 void JointTask::UpdateJacobian() {
-  jacobian_.setZero();
-  jacobian_.block(0, robot_->NumFloatDof(), dim_, robot_->NumActiveDof()).setIdentity();
+  // Jacobian is static [0|I], set once in constructor.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -118,7 +122,14 @@ void JointTask::UpdateJacobianDotQdot() {
 SelectedJointTask::SelectedJointTask(
     PinocchioRobotSystem* robot, const std::vector<int>& joint_idx_container)
     : Task(robot, static_cast<int>(joint_idx_container.size())),
-      joint_idx_container_(joint_idx_container) {}
+      joint_idx_container_(joint_idx_container) {
+  // Static sparse-identity Jacobian: set once, never changes.
+  jacobian_.setZero();
+  for (int i = 0; i < dim_; ++i) {
+    const int idx = robot_->GetQdotIdx(joint_idx_container_[i]);
+    jacobian_(i, idx) = 1.0;
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 void SelectedJointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/) {
@@ -136,11 +147,7 @@ void SelectedJointTask::UpdateOpCommand(const Eigen::Matrix3d& /*world_R_local*/
 
 ////////////////////////////////////////////////////////////////////////////////
 void SelectedJointTask::UpdateJacobian() {
-  jacobian_.setZero();
-  for (int i = 0; i < dim_; ++i) {
-    const int idx = robot_->GetQdotIdx(joint_idx_container_[i]);
-    jacobian_(i, idx) = 1.0;
-  }
+  // Jacobian is static sparse-identity, set once in constructor.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -201,7 +208,7 @@ void LinkPosTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 ////////////////////////////////////////////////////////////////////////////////
 void LinkPosTask::UpdateJacobian() {
   robot_->FillLinkJacobian(target_idx_, full_jac_scratch_);
-  jacobian_ = full_jac_scratch_.block(3, 0, dim_, robot_->NumQdot());
+  jacobian_.noalias() = full_jac_scratch_.block(3, 0, dim_, robot_->NumQdot());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -248,28 +255,25 @@ void LinkOriTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 
   // des_pos_ stores quaternion [x,y,z,w].
   // With ref frame: quaternion is relative to reference frame.
-  // Without: quaternion is in world frame (legacy).
-  Eigen::Quaterniond des_quat(des_pos_[3], des_pos_[0], des_pos_[1],
-                              des_pos_[2]);
-  Eigen::Quaterniond des_quat_world =
-      has_ref ? Eigen::Quaterniond(R * des_quat.toRotationMatrix()) : des_quat;
-  Eigen::Quaterniond des_quat_local(R.transpose() *
-                                    des_quat_world.toRotationMatrix());
+  // Without: quaternion is in world frame.
+  const Eigen::Quaterniond des_quat(des_pos_[3], des_pos_[0], des_pos_[1],
+                                    des_pos_[2]);
+  const Eigen::Matrix3d R_des_world =
+      has_ref ? (R * des_quat.toRotationMatrix()) : des_quat.toRotationMatrix();
+
+  // Store current quaternion for logging/compatibility.
+  const Eigen::Quaterniond cur_quat_world(R_cur_world);
+  pos_ << cur_quat_world.normalized().coeffs();
+  const Eigen::Quaterniond cur_quat_local(R.transpose() * R_cur_world);
+  local_pos_ << cur_quat_local.normalized().coeffs();
+  const Eigen::Quaterniond des_quat_local(R.transpose() * R_des_world);
   local_des_pos_ << des_quat_local.normalized().coeffs();
 
-  Eigen::Quaterniond cur_quat_world(R_cur_world);
-  if (des_quat_world.coeffs().dot(cur_quat_world.coeffs()) < 0.0) {
-    cur_quat_world.coeffs() *= -1.0;
-  }
-  pos_ << cur_quat_world.normalized().coeffs();
-
-  Eigen::Quaterniond cur_quat_local(R.transpose() * R_cur_world);
-  local_pos_ << cur_quat_local.normalized().coeffs();
-
-  // Orientation error (axis-angle) in world frame, then rotate to local.
-  Eigen::Quaterniond quat_err = des_quat_world * cur_quat_world.inverse();
-  const Eigen::AngleAxisd quat_err_aa(quat_err);
-  pos_err_ = quat_err_aa.axis() * quat_err_aa.angle();
+  // Orientation error via Lie group log map: geometrically shortest rotation
+  // vector on SO(3), free of gimbal lock and quaternion unwinding artifacts.
+  const Eigen::Vector3d ori_err_local =
+      pinocchio::log3(R_cur_world.transpose() * R_des_world);
+  pos_err_.noalias() = R_cur_world * ori_err_local;
   local_pos_err_.noalias() = R.transpose() * pos_err_;
 
   vel_ = robot_->GetLinkSpatialVel(target_idx_).head(dim_);
@@ -292,7 +296,7 @@ void LinkOriTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
 ////////////////////////////////////////////////////////////////////////////////
 void LinkOriTask::UpdateJacobian() {
   robot_->FillLinkJacobian(target_idx_, full_jac_scratch_);
-  jacobian_ = full_jac_scratch_.block(0, 0, dim_, robot_->NumQdot());
+  jacobian_.noalias() = full_jac_scratch_.block(0, 0, dim_, robot_->NumQdot());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

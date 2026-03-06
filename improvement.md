@@ -491,3 +491,137 @@ ee_kp  | ee_kd | x_displacement | hold_drift | max_torque
  200.0 |  28.0 |        50.0 mm |    <0.01mm |    19.2 Nm
  400.0 |  40.0 |        50.0 mm |    <0.01mm |    19.2 Nm
 ```
+
+### A.5 IK Method Comparison (HIERARCHY vs WEIGHTED_QP)
+
+Same sinusoidal trajectory as A.3. Tasks: ee_pos (weight=100), ee_ori (weight=100),
+jpos (weight=1). WEIGHTED_QP solves a single weighted least-squares QP over all tasks
+instead of cascading null-space projections.
+
+```
+method     | rms_pos(m)  | max_pos(m)  | rms_ori(rad) | max_ori(rad) | avg_us  | Hz
+-----------+-------------+-------------+--------------+--------------+---------+---------
+HIER+DLS_u | 0.009888    | 0.013076    | 0.000019     | 0.000037     | 45.3    | 22,068
+HIER+SVD   | 0.009888    | 0.013075    | 0.000020     | 0.000037     | 52.3    | 19,113
+WGHT_QP    | 0.010524    | 0.015037    | 0.000297     | 0.000465     | 38.1    | 26,239
+```
+
+**Analysis:**
+
+- **WEIGHTED_QP is 19% faster** than the best hierarchy method (38.1 us vs 45.3 us),
+  reaching 26.2 kHz on Optimo 7-DOF.
+- Position tracking RMS is 6.4% higher (10.5 vs 9.9 mm) — the weight-based priority
+  is softer than strict null-space projection, allowing minor cross-task coupling.
+- Orientation tracking is ~15x worse but still sub-milliradian (0.30 vs 0.02 mrad RMS).
+  This is tunable: increasing ee_ori weight relative to jpos weight would improve this.
+- **Use case:** WEIGHTED_QP is recommended for applications prioritizing throughput
+  over strict task decoupling (e.g., fast motion planning, visual servoing).
+  HIERARCHY remains the default for precision-critical applications.
+
+*Test: `StateMachine.IKMethodComparison`*
+
+---
+
+## 8. Kinematics and Dynamics Improvements (Phases 1-4)
+
+### 8.1 Phase 1: Centralized 1-Pass Kinematics
+
+**Problem:** The reference implementation calls `pinocchio::forwardKinematics(model, data, q, qdot)`
+(2-argument form) in `UpdateRobotModel`, which only computes position/velocity kinematics.
+Acceleration kinematics (`JdotQdot` terms) were computed lazily on first access, requiring
+a second full pass with a deferred `EnsureAccelerationKinematics()` call.
+
+**Solution:** Single call with zero acceleration:
+```cpp
+pinocchio::forwardKinematics(model_, data_, q_, qdot_, zero_qddot_);
+```
+
+This computes position, velocity, and acceleration kinematics in one pass, eliminating
+the deferred second pass entirely. The `zero_qddot_` buffer is pre-allocated as a class
+member.
+
+**Impact (measured in Draco3 benchmark):**
+- Full WBIC cycle: 197 → 194 us (~1.5% improvement)
+- Optimo: 17.4 → 17.0 us (~2.3% improvement)
+
+The improvement is modest because the deferred path was already well-optimized, but the
+single-pass design eliminates a class of bugs where acceleration data could be stale.
+
+### 8.2 Phase 2: Lie Group SO(3) Orientation Error
+
+**Problem:** The reference uses quaternion-based orientation error via `AngleAxisd`:
+```cpp
+Eigen::Quaterniond quat_err = des_quat * cur_quat.inverse();
+Eigen::AngleAxisd quat_err_aa(quat_err);
+pos_err = quat_err_aa.axis() * quat_err_aa.angle();
+```
+
+This has a numerical discontinuity at ±π (the `AngleAxisd` decomposition is ill-defined
+when angle = π, and the axis can flip arbitrarily). The reference also required a
+quaternion sign-flip hack (`if (q.w() < 0) q = -q`) to avoid wrapping.
+
+**Solution:** Use the Pinocchio `log3` map (Lie algebra of SO(3)):
+```cpp
+const Eigen::Vector3d ori_err_local =
+    pinocchio::log3(R_cur_world.transpose() * R_des_world);
+pos_err.noalias() = R_cur_world * ori_err_local;
+```
+
+This is mathematically correct for all orientations, including ±π, and needs no
+sign-flip heuristics. The `log3` function returns the rotation vector in the body
+frame, which is then rotated to world frame for the task-space error.
+
+**Impact:** All orientation tracking tests pass identically — the improvement is in
+robustness (no discontinuity), not in steady-state precision.
+
+### 8.3 Phase 3-4: Weighted QP IK (Alternative to Null-Space Hierarchy)
+
+**Problem:** The classic null-space hierarchy (`FindConfiguration`) requires K sequential
+pseudoinverse + projection operations for K tasks. Each task must be processed in strict
+order, preventing parallelism. The projector accumulates numerical error across tasks.
+
+**Solution:** A single weighted least-squares QP that encodes all tasks simultaneously:
+```
+minimize  Σ_i  w_i * ||J_i * Δq - e_i||²  +  ε * ||Δq||²
+subject to  l ≤ Δq ≤ u   (joint limits)
+```
+
+Where `w_i` is the per-task weight from YAML configuration. Higher weight = higher
+effective priority. Contact tasks are assigned weight 1e6 (near-rigid).
+
+For position (`Δq`) and velocity (`q̇`), the QP reduces to an unconstrained weighted
+least-squares solved via LLT Cholesky (fastest path). For acceleration (`q̈`), box
+constraints from joint limits are enforced via ProxQP.
+
+**Benchmark:** See Appendix A.5. WEIGHTED_QP achieves 26.2 kHz vs 22.1 kHz for
+HIERARCHY — a 19% throughput improvement — with a modest precision trade-off that
+is tunable via task weights.
+
+### 8.4 Phase 4: SVD Sign-Flip Guard (ManipulabilityHandler)
+
+**Problem:** SVD singular vectors have arbitrary sign — the decomposition `J = UΣV^T`
+and `J = U(-Σ)(-V^T)` are both valid. Between ticks, `v_min` (the most singular
+direction) can flip sign, causing the avoidance velocity to reverse direction
+instantaneously.
+
+**Solution:** Dot-product continuity guard:
+```cpp
+if (has_prev_v_min_ && v_min.dot(prev_v_min_) < 0.0) {
+    v_min = -v_min;
+}
+prev_v_min_ = v_min;
+```
+
+This ensures temporal continuity of the avoidance direction across ticks. The guard
+resets (`has_prev_v_min_ = false`) when the handler deactivates (σ_min above threshold),
+so stale directions don't persist across activation/deactivation cycles.
+
+
+
+구성	Avg (μs)	Freq (Hz)
+제약 없음	10.8	92,865
+Pos(hard) only	18.1	55,223
+Pos(soft) only	20.5	48,856
+Pos(soft) + Vel(off) + Trq(off) ← 현재 설정	20.5	48,856
+Pos(hard) + Vel(hard)	19.2	51,961
+전부 soft (worst case)	29.2	34,193

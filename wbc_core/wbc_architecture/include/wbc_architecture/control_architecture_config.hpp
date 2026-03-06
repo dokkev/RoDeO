@@ -16,6 +16,7 @@
 #include "wbc_fsm/fsm_handler.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_robot_system/state_provider.hpp"
+#include "wbc_solver/wbic.hpp"
 #include "wbc_util/joint_pid.hpp"
 #include "wbc_util/ros_path_utils.hpp"
 #include "wbc_util/yaml_parser.hpp"
@@ -57,9 +58,33 @@ public:
     config.state_provider = std::make_unique<StateProvider>(control_dt);
     config.control_dt = control_dt;
 
-    // controller: optional PID feedback on top of WBC inverse dynamics.
+    // controller: physics compensation flags + optional PID feedback.
     const YAML::Node& ctrl = definition.root["controller"];
     if (ctrl) {
+      if (ctrl["enable_gravity_compensation"])
+        config.enable_gravity = ctrl["enable_gravity_compensation"].as<bool>();
+      if (ctrl["enable_coriolis_compensation"])
+        config.enable_coriolis = ctrl["enable_coriolis_compensation"].as<bool>();
+      if (ctrl["enable_inertia_compensation"])
+        config.enable_inertia = ctrl["enable_inertia_compensation"].as<bool>();
+
+      if (ctrl["ik_method"]) {
+        const std::string method = ctrl["ik_method"].as<std::string>();
+        if (method == "weighted_qp")
+          config.ik_method = IKMethod::WEIGHTED_QP;
+        else if (method == "hierarchy")
+          config.ik_method = IKMethod::HIERARCHY;
+        else
+          throw std::runtime_error(
+              "[ControlArchitectureConfig] Unknown ik_method: '" + method +
+              "'. Use 'hierarchy' or 'weighted_qp'.");
+      }
+
+      if (ctrl["weight_min"])
+        config.weight_min = ctrl["weight_min"].as<double>();
+      if (ctrl["weight_max"])
+        config.weight_max = ctrl["weight_max"].as<double>();
+
       // joint_pid: optional joint-level feedback controller.
       const YAML::Node& pid_node = ctrl["joint_pid"];
       if (pid_node) {
@@ -142,6 +167,19 @@ public:
   std::unique_ptr<FSMHandler>           fsm_handler;
   double control_dt{0.001};
   JointPIDConfig joint_pid;
+
+  // IK solver method: HIERARCHY (null-space projection) or WEIGHTED_QP (weight-based).
+  IKMethod ik_method{IKMethod::WEIGHTED_QP};
+
+  // Weight Ratio Guard: clamp all task weights to [weight_min, weight_max].
+  double weight_min{1e-6};
+  double weight_max{1e4};
+
+  // Physics compensation toggles (all true by default — full inverse dynamics).
+  // When disabled, the corresponding term is zeroed before passing to the solver.
+  bool enable_gravity{true};
+  bool enable_coriolis{true};
+  bool enable_inertia{true};
 };
 
 }  // namespace wbc

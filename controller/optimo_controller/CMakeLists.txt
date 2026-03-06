@@ -127,7 +127,16 @@ if(BUILD_TESTING)
     )
   endif()
 
+  find_package(launch_testing_ament_cmake QUIET)
   find_package(mujoco_vendor QUIET)
+
+  if(launch_testing_ament_cmake_FOUND AND mujoco_vendor_FOUND)
+    add_launch_test(
+      test/test_ros2_integration.py
+      TIMEOUT 120
+    )
+  endif()
+
   if(mujoco_vendor_FOUND)
     ament_add_gtest(test_gain_tuning
       test/test_gain_tuning.cpp
@@ -142,6 +151,25 @@ if(BUILD_TESTING)
         Eigen3::Eigen
       )
       ament_target_dependencies(test_gain_tuning
+        wbc_architecture
+        wbc_formulation
+        wbc_robot_system
+      )
+    endif()
+
+    ament_add_gtest(test_dummy_teleop
+      test/test_dummy_teleop.cpp
+      TIMEOUT 120
+    )
+    if(TARGET test_dummy_teleop)
+      target_link_libraries(test_dummy_teleop
+        -Wl,--no-as-needed
+        ${PROJECT_NAME}
+        -Wl,--as-needed
+        mujoco::mujoco
+        Eigen3::Eigen
+      )
+      ament_target_dependencies(test_dummy_teleop
         wbc_architecture
         wbc_formulation
         wbc_robot_system

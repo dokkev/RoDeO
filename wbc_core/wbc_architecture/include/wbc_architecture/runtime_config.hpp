@@ -46,6 +46,12 @@ struct SoftConstraintConfig {
 // for direct use in the control loop (BuildFormulation, ApplyStateOverrides).
 // ---------------------------------------------------------------------------
 struct StateConfig {
+  StateConfig() = default;
+  StateConfig(StateConfig&&) = default;
+  StateConfig& operator=(StateConfig&&) = default;
+  StateConfig(const StateConfig&) = delete;
+  StateConfig& operator=(const StateConfig&) = delete;
+
   StateId id{-1};
   // Factory registration key (WBC_REGISTER_STATE key).
   // If not specified in YAML, defaults to `name` for backward compatibility.
@@ -69,6 +75,9 @@ struct StateConfig {
   Task*      com{nullptr};
   Task*      joint{nullptr};
   ForceTask* ee_force{nullptr};
+
+  // Per-state weight ramp duration (seconds). Negative means use global default.
+  double weight_ramp_duration{-1.0};
 
   // Override ownership (lifetime-safe pointers exposed via motion_cfg/force_cfg).
   std::vector<std::unique_ptr<TaskConfig>>      owned_task_cfg;
@@ -132,6 +141,10 @@ public:
   const std::string& BaseFrameName()     const;
   const std::string& EndEffectorFrameName() const;
   void ValidateRobotDimensions()         const;
+
+  const std::unordered_map<Task*, TaskConfig>& DefaultMotionTaskConfigs() const {
+    return default_motion_task_cfg_;
+  }
 
 private:
   RuntimeConfig() = default;

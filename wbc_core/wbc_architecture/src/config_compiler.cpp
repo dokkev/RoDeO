@@ -4,7 +4,6 @@
  */
 #include "wbc_architecture/config_compiler.hpp"
 
-#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 #include <utility>
@@ -500,8 +499,11 @@ void ConfigCompiler::ParseTaskPool(const YAML::Node& node,
     if (item["weight"]) {
       base_cfg.weight =
           ParseVectorOrScalar(item["weight"], task->Dim(), name, "weight");
-      task->SetWeight(base_cfg.weight);
+    } else {
+      // Default weight: 1.0 for all dimensions (ensures valid pool default).
+      base_cfg.weight = Eigen::VectorXd::Ones(task->Dim());
     }
+    task->SetWeight(base_cfg.weight);
     if (item["kp_ik"]) {
       base_cfg.kp_ik =
           ParseVectorOrScalar(item["kp_ik"], task->Dim(), name, "kp_ik");
@@ -618,6 +620,12 @@ void ConfigCompiler::ParseState(const YAML::Node& state_node,
   out_recipe.type   = out_config.type;
   out_recipe.params = state_node["params"] ? state_node["params"] : YAML::Node();
 
+  // Per-state weight ramp duration (optional, overrides global default).
+  if (out_recipe.params["weight_ramp_duration"]) {
+    out_config.weight_ramp_duration =
+        out_recipe.params["weight_ramp_duration"].as<double>();
+  }
+
   if (state_node["contact_constraints"]) {
     for (const auto& n : state_node["contact_constraints"]) {
       if (!n["name"]) {
@@ -691,27 +699,14 @@ void ConfigCompiler::ParseState(const YAML::Node& state_node,
         (explicit_ee_force != nullptr) ? explicit_ee_force : first_force_task;
   }
 
-  struct OrderedEntry {
-    int priority{99};
-    std::size_t order{0};
-    YAML::Node node;
-  };
-  std::vector<OrderedEntry> ordered_motion_entries;
-
-  if (state_node["task_hierarchy"]) {
-    std::size_t order = 0;
-    for (const auto& n : state_node["task_hierarchy"]) {
-      ordered_motion_entries.push_back({n["priority"].as<int>(99), order++, n});
-    }
+  // Task ordering: insertion order from YAML (no priority sorting).
+  // Weight-based QP uses task weights to determine relative importance.
+  if (!state_node["task_hierarchy"]) {
+    throw std::runtime_error("state '" + out_config.name +
+                             "' has no task_hierarchy.");
   }
-  std::sort(ordered_motion_entries.begin(), ordered_motion_entries.end(),
-            [](const OrderedEntry& a, const OrderedEntry& b) {
-              if (a.priority != b.priority) return a.priority < b.priority;
-              return a.order < b.order;
-            });
 
-  for (const auto& entry : ordered_motion_entries) {
-    const YAML::Node n = entry.node;
+  for (const auto& n : state_node["task_hierarchy"]) {
     if (!n["name"]) {
       throw std::runtime_error("task_hierarchy entry without 'name'.");
     }

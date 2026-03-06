@@ -194,8 +194,7 @@ public:
   bool ForceTransition(StateId id) {
     const auto it = state_map_.find(id);
     if (it == state_map_.end()) {
-      std::cerr << "[FSMHandler] Error: Requested State " << id
-                << " not found!" << std::endl;
+      transition_error_latched_ = true;
       return false;
     }
 
@@ -254,12 +253,7 @@ private:
       StateId next_id = current_state_->GetNextState();
       const auto next_it = state_map_.find(next_id);
       if (next_it == state_map_.end()) {
-        if (!transition_error_latched_) {
-          std::cerr << "[FSMHandler] Error: Next State " << next_id
-                    << " not found. FSM is latched in safe-stop mode."
-                    << std::endl;
-          transition_error_latched_ = true;
-        }
+        transition_error_latched_ = true;
         current_state_ = nullptr;
         current_state_id_.store(-1, std::memory_order_release);
         is_first_visit_.store(true, std::memory_order_release);

@@ -32,7 +32,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("headless", default_value="false"),
-            DeclareLaunchArgument("rviz", default_value="true"),
+            DeclareLaunchArgument("rviz", default_value="false"),
             DeclareLaunchArgument("prefix", default_value=""),
             DeclareLaunchArgument("robot_index", default_value="0"),
             DeclareLaunchArgument("ns", default_value="optimo"),

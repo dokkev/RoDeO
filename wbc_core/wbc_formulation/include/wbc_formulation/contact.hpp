@@ -57,7 +57,7 @@ public:
   /** @brief Set contact parameters. */
   virtual void SetParameters(const ContactConfig& config) = 0;
 
-  void SetMaxFz(double rf_z_max) { rf_z_max_ = rf_z_max; }
+  void SetMaxFz(double rf_z_max) { rf_z_max_ = rf_z_max; cone_dirty_ = true; }
   void SetDesiredPos(const Eigen::Vector3d& pos) { des_pos_ = pos; }
   void SetDesiredOri(const Eigen::Quaterniond& quat) { des_quat_ = quat; }
 
@@ -70,8 +70,8 @@ public:
 
 protected:
   double mu_;
-
   double rf_z_max_;
+  bool cone_dirty_{true};
 
   Eigen::Vector3d des_pos_;
   Eigen::Quaterniond des_quat_;

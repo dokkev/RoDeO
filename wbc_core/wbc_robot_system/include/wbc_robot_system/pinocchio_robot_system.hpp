@@ -338,6 +338,7 @@ private:
   void EnsureNonlinearEffects();
   void EnsureGravity();
   void EnsureCoriolis();
+  void EnsureComKinematics();
 
   // Pinocchio model, geometry, and data
   pinocchio::Model model_;
@@ -368,7 +369,6 @@ private:
 
   // Joint info
   std::vector<std::string> actuated_joint_names_;
-  double total_mass_legacy_{0.0};
   std::string root_frame_name_;
   Eigen::Vector3d base_local_com_pos_{Eigen::Vector3d::Zero()};
   std::string lfoot_cp_string_;
@@ -381,9 +381,12 @@ private:
   bool nonlinear_effects_valid_{false};
   bool gravity_valid_{false};
   bool coriolis_valid_{false};
+  bool com_kinematics_valid_{false};
   Eigen::VectorXd nonlinear_effects_cache_;
   Eigen::VectorXd gravity_cache_;
   Eigen::VectorXd coriolis_cache_;
+  Eigen::Vector3d com_pos_cache_;
+  Eigen::Vector3d com_vel_cache_;
 
   // Scratch buffer for in-place Jacobian computation (6 x num_qdot_).
   // Allocated once in Initialize() and reused in FillLink*Jacobian().

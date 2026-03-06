@@ -22,7 +22,7 @@ public:
         num_floating_(0),
         dim_contact_(0),
         is_floating_base_(false),
-        has_contact_(true),
+        has_contact_(false),
         settings_updated_(false) {
     if (act_qdot_list.empty()) {
       return;

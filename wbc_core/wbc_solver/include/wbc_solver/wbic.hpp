@@ -30,6 +30,14 @@ enum class NullSpaceMethod {
 };
 
 /**
+ * @brief IK method for FindConfiguration.
+ */
+enum class IKMethod {
+  HIERARCHY,       ///< Classic null-space hierarchy (DLS/SVD projector)
+  WEIGHTED_QP,     ///< Weighted least-squares QP (task weights determine priority)
+};
+
+/**
  * @brief Runtime QP weight set for WBIC correction stage.
  */
 struct QPParams {
@@ -60,8 +68,6 @@ struct WBICData {
         delta_qddot_cost_(0.0),
         delta_rf_cost_(0.0),
         Xc_ddot_cost_(0.0),
-        tau_cost_(0.0),
-        tau_dot_cost_(0.0),
         corrected_wbc_qddot_cmd_(Eigen::VectorXd::Zero(num_qdot)),
         rf_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         rf_prev_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
@@ -74,8 +80,6 @@ struct WBICData {
   double delta_qddot_cost_;
   double delta_rf_cost_;
   double Xc_ddot_cost_;
-  double tau_cost_;
-  double tau_dot_cost_;
   Eigen::VectorXd corrected_wbc_qddot_cmd_;
   Eigen::VectorXd rf_cmd_;
   Eigen::VectorXd rf_prev_cmd_;
@@ -108,6 +112,9 @@ public:
 
   void SetNullSpaceMethod(NullSpaceMethod m) { null_space_method_ = m; }
   NullSpaceMethod GetNullSpaceMethod() const { return null_space_method_; }
+
+  void SetIKMethod(IKMethod m) { ik_method_ = m; }
+  IKMethod GetIKMethod() const { return ik_method_; }
 
   /**
    * @brief Pre-allocate solver buffers for the worst-case dimensions.
@@ -146,9 +153,15 @@ private:
                              Eigen::MatrixXd& jac_bar);
   void BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
                              const Eigen::MatrixXd* W = nullptr);
+  bool FindConfigurationWeightedQP(const WbcFormulation& formulation,
+                                    const Eigen::VectorXd& curr_jpos,
+                                    Eigen::VectorXd& jpos_cmd,
+                                    Eigen::VectorXd& jvel_cmd,
+                                    Eigen::VectorXd& wbc_qddot_cmd);
   void InitContactProjection(const std::vector<Contact*>& contacts);
   void BuildContactMtxVect(const std::vector<Contact*>& contacts);
   void GetDesiredReactionForce(const std::vector<ForceTask*>& force_task_vector);
+  void CacheConstraintPointers(const std::vector<Constraint*>& constraints);
   // QP cost assembly
   void SetQPCost(const Eigen::VectorXd& wbc_qddot_cmd);
   void AddQddotTrackingCost();
@@ -177,11 +190,13 @@ private:
                    Eigen::VectorXd& jtrq_cmd);
 
 
-  Eigen::MatrixXd Ni_dyn_;
+  // NOTE: Ni_dyn_ (internal/passive-joint nullspace) is not implemented.
+  // All supported robots are fully actuated with no passive joints.
+  // When passive joint support is added, restore Ni_dyn_ and multiply through
+  // in tau_0_, UNi_, and GetSolution. Until then, all Ni_dyn_ terms are identity.
+
   Eigen::MatrixXd N_pre_;
-  Eigen::MatrixXd N_pre_dyn_;
   Eigen::MatrixXd N_nx_;
-  Eigen::MatrixXd N_nx_dyn_;
   Eigen::MatrixXd Jc_bar_;
   Eigen::VectorXd qddot_cmd_;
   Eigen::VectorXd delta_q_cmd_;
@@ -233,9 +248,6 @@ private:
   // Declared as members to avoid per-tick heap allocation inside the task loop.
   Eigen::MatrixXd JtPre_;      // task jacobian projected into null space (dim x N)
   Eigen::MatrixXd JtPre_pinv_; // pseudo-inverse of JtPre_
-  Eigen::MatrixXd JtPre_dyn_;  // dynamically-weighted projected jacobian
-  Eigen::MatrixXd JtPre_bar_;  // weighted pseudo-inverse of JtPre_dyn_
-
   // Scratch buffers for LLT-based damped pseudo-inverse.
   // MaxRows/MaxCols = 36 ensures inline storage (no heap alloc) for all
   // practical pseudo-inverse calls: tasks (≤6), contacts (≤24), UNi (≤num_active).
@@ -261,10 +273,32 @@ private:
   Eigen::MatrixXd wJc_scratch_;      // dim_contact × num_qdot: diag(w_xc) * Jc
   Eigen::VectorXd xc_res_scratch_;   // dim_contact: Jc * qddot + JcDotQdot
 
+  // Pre-allocated LU factorization for fully-actuated torque recovery.
+  Eigen::PartialPivLU<Eigen::MatrixXd> lu_scratch_;
+
+  // Pre-allocated zero vector for ExtractBoxBounds (avoids per-tick heap alloc).
+  Eigen::VectorXd zero_qddot_scratch_;
+
+  // Maximum QP dimensions (set by ReserveCapacity, used to pre-allocate).
+  int max_qp_dim_{0};
+  int max_n_eq_{0};
+  int max_n_ineq_{0};
+
   // ProxQP dense solver (lazy-initialized on first SolveQP call)
   std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_solver_;
 
+  // IK method and weighted-QP buffers
+  IKMethod ik_method_{IKMethod::WEIGHTED_QP};
   NullSpaceMethod null_space_method_{NullSpaceMethod::DLS_MICRO};
+
+  // Weighted QP IK buffers (pre-allocated in constructor, reused per tick)
+  Eigen::MatrixXd H_ik_;
+  Eigen::VectorXd g_ik_pos_;
+  Eigen::VectorXd g_ik_vel_;
+  Eigen::VectorXd g_ik_acc_;
+  Eigen::VectorXd l_box_ik_;
+  Eigen::VectorXd u_box_ik_;
+  std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_ik_solver_;
 };
 
 } // namespace wbc

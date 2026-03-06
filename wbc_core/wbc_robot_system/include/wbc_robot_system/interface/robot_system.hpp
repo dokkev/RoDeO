@@ -251,10 +251,10 @@ protected:
   Eigen::Matrix<double, 6, Eigen::Dynamic> centroidal_momentum_matrix_;
   Eigen::Matrix<double, 6, 1> centroidal_momentum_;
 
-public:
   Eigen::VectorXd joint_positions_;
   Eigen::VectorXd joint_velocities_;
 
+public:
   // To be implemented by derived classes
   virtual void ConfigRobot() { Initialize(); }
   virtual void Initialize() = 0;

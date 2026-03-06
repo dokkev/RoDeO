@@ -34,7 +34,7 @@ void PointContact::UpdateJacobian() {
   // FillLinkBodyJacobian writes into the pre-allocated scratch in-place,
   // avoiding the temporary 6xN heap allocation from GetLinkBodyJacobian().
   robot_->FillLinkBodyJacobian(target_link_idx_, full_jac_scratch_);
-  jacobian_ = full_jac_scratch_.bottomRows(dim_);  // rows 3-5: linear part
+  jacobian_.noalias() = full_jac_scratch_.bottomRows(dim_);  // rows 3-5: linear part
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -45,6 +45,9 @@ void PointContact::UpdateJacobianDotQdot() {
 
 ////////////////////////////////////////////////////////////////////////////////
 void PointContact::UpdateConeConstraint() {
+  if (!cone_dirty_) return;
+  cone_dirty_ = false;
+
   constraint_matrix_.setZero();
   constraint_vector_.setZero();
 
@@ -90,6 +93,7 @@ void PointContact::SetParameters(const ContactConfig& config) {
   kp_ = config.kp;
   kd_ = config.kd;
   rf_z_max_ = config.max_fz;
+  cone_dirty_ = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -115,6 +119,9 @@ void SurfaceContact::UpdateJacobianDotQdot() {
 
 ////////////////////////////////////////////////////////////////////////////////
 void SurfaceContact::UpdateConeConstraint() {
+  if (!cone_dirty_) return;
+  cone_dirty_ = false;
+
   // Constraint format: constraint_matrix_ * rf >= constraint_vector_
   // rf = [tau_x, tau_y, tau_z, f_x, f_y, f_z] in body frame.
   // 18 rows encode:
@@ -219,6 +226,7 @@ void SurfaceContact::SetParameters(const ContactConfig& config) {
   kp_ = config.kp;
   kd_ = config.kd;
   rf_z_max_ = config.max_fz;
+  cone_dirty_ = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

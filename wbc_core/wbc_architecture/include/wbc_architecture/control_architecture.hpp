@@ -17,6 +17,7 @@
 #include "wbc_architecture/control_architecture_config.hpp"
 #include "wbc_architecture/control_buffers.hpp"
 #include "wbc_architecture/runtime_config.hpp"
+#include "wbc_architecture/task_weight_scheduler.hpp"
 #include "wbc_formulation/wbc_formulation.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_solver/wbic.hpp"
@@ -176,7 +177,10 @@ public:
    *          States that do not support external input use the default no-op.
    *          Only teleop states override it to update their hold references.
    *
-   * @note Non-RT API. Caller is responsible for RT safety (RealtimeBuffer later).
+   * @warning NOT thread-safe. Reads `current_state_` which the RT thread may
+   *          change during state transitions. Must be called from the same
+   *          thread as Update()/Step(), or guarded externally. A RealtimeBuffer
+   *          will be added when the ROS subscriber integration is complete.
    */
   void SetExternalInput(const TaskInput& input);
 
@@ -192,6 +196,7 @@ private:
   void InitializeFsm();
   void InitializeSolver();
   void ReserveFormulationCapacity();
+  void BuildFixedFormulation();
   void UpdateKinematics(const WbcFormulation& formulation) const;
   void ClampCommandLimits();
   void SetSafeCommand();
@@ -222,6 +227,17 @@ private:
   bool fsm_initialized_{false};
   std::atomic<bool> initialized_{false};
   double nominal_dt_{0.001};
+
+  // IK method (parsed from YAML controller section).
+  IKMethod ik_method_{IKMethod::WEIGHTED_QP};
+
+  // Weight-based QP: scheduler for smooth task weight transitions.
+  TaskWeightScheduler weight_scheduler_;
+
+  // Physics compensation toggles (parsed from YAML controller section).
+  bool enable_gravity_{true};
+  bool enable_coriolis_{true};
+  bool enable_inertia_{true};
 };
 
 } // namespace wbc

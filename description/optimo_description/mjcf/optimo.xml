@@ -18,36 +18,49 @@
     <mesh name="col7" content_type="model/stl" file="col7.stl"/>
   </asset>
 
+  <!--
+    Joint dynamics from optimo_description/config/joint_dynamics.yaml:
+      damping      — viscous friction [Nm*s/rad], estimated from gear/bearing losses
+      frictionloss — Coulomb (dry) friction [Nm], from coulomb_fric field
+      stiffness    — unmodeled compliance [Nm/rad] (~5% of real SEA stiffness)
+      springref    — spring equilibrium = home keyframe position [rad]
+
+    NOTE: Full SEA stiffness (450-960 Nm/rad) is NOT modeled here — MuJoCo
+    joint stiffness creates a spring to a FIXED equilibrium, whereas real SEA
+    has the spring between motor (which tracks) and link. We use ~5% of the
+    real values to simulate small unmodeled compliance effects (cable routing,
+    structural flex, etc.) that create model error requiring PD compensation.
+  -->
   <worldbody>
     <geom size="0.05 0.05 0.5" pos="0 0 -0.5" type="box" rgba="1 1 1 1"/>
     <geom pos="0 0 0.07" quat="1 0 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col0"/>
     <body name="link1" pos="0 0 0.07">
       <inertial pos="0 -0.01635 0.01549" quat="0.733993 0.672808 0.0651674 -0.0658565" mass="4.14" diaginertia="0.0100027 0.00995582 0.00747546"/>
-      <joint name="joint1" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.0" frictionloss="0.0"/>
+      <joint name="joint1" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="2.0" frictionloss="1.0" stiffness="48.0" springref="0"/>
       <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col1"/>
       <body name="link2" quat="0.707107 0.707107 0 0">
         <inertial pos="0 -0.05063 0.05677" quat="0.697505 0.116135 -0.116135 0.697505" mass="1.72" diaginertia="0.0063654 0.005694 0.0019516"/>
-        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="1.0472 3.83972" damping="0.0" frictionloss="0.0"/>
+        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="1.0472 3.83972" damping="2.0" frictionloss="1.2" stiffness="47.0" springref="3.14159"/>
         <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col2"/>
         <body name="link3" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
           <inertial pos="-3.9e-05 0.098 0" quat="0.50494 0.474771 -0.494533 0.524466" mass="4.13" diaginertia="0.0130882 0.0129889 0.00254595"/>
-          <joint name="joint3" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.0" frictionloss="0.0"/>
+          <joint name="joint3" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="1.5" frictionloss="1.0" stiffness="25.0" springref="0"/>
           <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col3"/>
           <body name="link4" quat="0.707107 -0.707107 0 0">
             <inertial pos="-1e-05 0.048852 0.0688" quat="0.501659 0.493047 -0.505423 0.499791" mass="1.09" diaginertia="0.0338771 0.0336796 0.00108207"/>
-            <joint name="joint4" pos="0 0 0" axis="0 0 1" range="-2.53073 2.53073" damping="0.0" frictionloss="0.0"/>
+            <joint name="joint4" pos="0 0 0" axis="0 0 1" range="-2.53073 2.53073" damping="1.5" frictionloss="1.0" stiffness="20.0" springref="-1.5708"/>
             <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col4"/>
             <body name="link5" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
               <inertial pos="0.001262 0.085 0.008" quat="0.984064 -0.177814 -8.09748e-06 0.000289155" mass="1.92" diaginertia="0.00093167 0.000813494 0.000721196"/>
-              <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-2.61799 2.61799" damping="0.0" frictionloss="0.0"/>
+              <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-2.61799 2.61799" damping="0.5" frictionloss="2.0" stiffness="24.0" springref="0"/>
               <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col5"/>
               <body name="link6" quat="0.707107 -0.707107 0 0">
                 <inertial pos="0 -7e-05 0.010855" quat="0.984064 -0.177814 -8.09748e-06 0.000289155" mass="1.04" diaginertia="0.00093167 0.000813494 0.000721196"/>
-                <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.0" frictionloss="0.0"/>
+                <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="2.0" stiffness="24.0" springref="-1.5708"/>
                 <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col6"/>
                 <body name="link7" quat="0.707107 0.707107 0 0">
                   <inertial pos="0 0 0.1" quat="0.999477 0.00657917 -0.0101967 0.0299688" mass="0.88" diaginertia="0.0055453 0.00477683 0.00172087"/>
-                  <joint name="joint7" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.0" frictionloss="0.0"/>
+                  <joint name="joint7" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5" frictionloss="2.0" stiffness="23.0" springref="0"/>
                   <geom type="mesh" rgba="1 1 1 1" mesh="col7"/>
                 </body>
               </body>

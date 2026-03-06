@@ -20,6 +20,8 @@ void ManipulabilityHandler::Init(PinocchioRobotSystem* robot,
   num_float_dof_  = robot_->NumFloatDof();
 
   qdot_avoid_.setZero(num_active_dof_);
+  prev_v_min_.setZero(num_active_dof_);
+  has_prev_v_min_ = false;
 
   w_ = 0.0;
   sigma_min_ = 0.0;
@@ -50,11 +52,21 @@ void ManipulabilityHandler::Update(double dt) {
   if (sigma_min_ < config_.w_threshold) {
     // Right singular vector for smallest σ — the joint-space direction
     // that is "lost" at the singularity.
-    const Eigen::VectorXd v_min = svd.matrixV().col(S.size() - 1);
+    Eigen::VectorXd v_min = svd.matrixV().col(S.size() - 1);
+
+    // Sign-flip guard: SVD may arbitrarily flip v_min sign between ticks.
+    // Ensure continuity by checking dot product with previous direction.
+    if (has_prev_v_min_ && v_min.dot(prev_v_min_) < 0.0) {
+      v_min = -v_min;
+    }
+    prev_v_min_ = v_min;
+    has_prev_v_min_ = true;
 
     const double alpha =
         config_.step_size * (1.0 - sigma_min_ / config_.w_threshold);
     qdot_avoid_ = alpha * v_min;
+  } else {
+    has_prev_v_min_ = false;
   }
 }
 

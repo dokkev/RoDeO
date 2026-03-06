@@ -1,21 +1,26 @@
 # =============================================================
 # Optimo State Machine
 # =============================================================
-# the flow of State Machine is
-# initialize -> First Visit ->
-
+# Weight-based priority: all tasks are present in every state.
+# Active tasks get high weight, inactive tasks use pool default weight.
+# State transitions smoothly interpolate weights via cosine ramp.
+# Scalar values are broadcast to all DOFs automatically.
 
 state_machine:
   - id: 0
     name: "initialize"
     params:
-      duration: 0.5     # duration determines time to finish the trajectory from the initial position to the desired position
+      duration: 0.5
       wait_time: 0.5
       stay_here: true
-      # target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
-      # next_state_id: 1  # auto-transition to joint_teleop after init completes
+      weight_ramp_duration: 0.3
     task_hierarchy:
       - name: "jpos_task"
+        weight: 100.0
+      - name: "ee_pos_task"
+        weight: 1e-6
+      - name: "ee_ori_task"
+        weight: 1e-6
 
   - id: 1
     name: "home"
@@ -24,32 +29,44 @@ state_machine:
       duration: 2.0
       wait_time: 0.0
       stay_here: true
+      weight_ramp_duration: 0.3
       target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
     task_hierarchy:
       - name: "jpos_task"
+        weight: 100.0
+      - name: "ee_pos_task"
+        weight: 1e-6
+      - name: "ee_ori_task"
+        weight: 1e-6
 
   - id: 2
     name: "joint_teleop"
     params:
       stay_here: true
-      joint_vel_limit: [0.5, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3]  # (Optional) per-joint velocity limits [rad/s]. These are not applied to the QP as hard constraints, but can be used by the teleop interface to scale the joystick input for each joint.
-                                                            # These values are not computed in QP rather 
+      weight_ramp_duration: 0.3
+      joint_vel_limit: [0.5, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3]
     task_hierarchy:
       - name: "jpos_task"
+        weight: 100.0
+      - name: "ee_pos_task"
+        weight: 1e-6
+      - name: "ee_ori_task"
+        weight: 1e-6
 
   - id: 3
     name: "cartesian_teleop"
     params:
       stay_here: true
-      linear_vel_max: 0.1   # translational speed limit [m/s]
-      angular_vel_max: 0.5  # rotational rate limit [rad/s]
+      weight_ramp_duration: 0.3
+      linear_vel_max: 0.1
+      angular_vel_max: 0.5
       manipulability:
-        step_size: 0.5          # [rad/s] avoidance velocity magnitude
-        w_threshold: 0.01       # w below this activates avoidance
+        step_size: 0.5
+        w_threshold: 0.01
     task_hierarchy:
       - name: "ee_pos_task"
-        priority: 0
+        weight: 100.0
       - name: "ee_ori_task"
-        priority: 1
+        weight: 100.0
       - name: "jpos_task"
-        priority: 2
+        weight: 1.0

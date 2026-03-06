@@ -1357,7 +1357,9 @@ state_machine:
   state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
                               Eigen::VectorXd::Zero(n_act));
 
-  for (int i = 0; i < 50; ++i) {
+  // Warmup: run enough ticks to complete the weight scheduler ramp (~300ms).
+  constexpr int kWarmupTicks = 400;
+  for (int i = 0; i < kWarmupTicks; ++i) {
     UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
   }
 
@@ -1374,7 +1376,7 @@ state_machine:
 
   // Run a few ticks (open-loop, same sensor state each tick).
   for (int i = 0; i < 10; ++i) {
-    UpdateWithJointState(arch.get(), q, qdot, (50 + i) * 0.001, 0.001);
+    UpdateWithJointState(arch.get(), q, qdot, (kWarmupTicks + i) * 0.001, 0.001);
     ASSERT_TRUE(cmd.q.allFinite()) << "NaN q_cmd at tick " << i;
     ASSERT_TRUE(cmd.tau.allFinite()) << "NaN torque at tick " << i;
   }
@@ -1395,7 +1397,7 @@ state_machine:
 
   // Output should be consistent across ticks (deterministic).
   const Eigen::VectorXd q_cmd_prev = cmd.q;
-  UpdateWithJointState(arch.get(), q, qdot, 60 * 0.001, 0.001);
+  UpdateWithJointState(arch.get(), q, qdot, (kWarmupTicks + 10) * 0.001, 0.001);
   const double consistency = (cmd.q - q_cmd_prev).norm();
   EXPECT_LT(consistency, 1e-6)
       << "IK output not consistent across ticks: " << consistency;
@@ -1738,6 +1740,144 @@ state_machine:
             << "  Final ||qdot||: " << final_qdot_norm << " rad/s\n"
             << "  Final q:    " << q_sim.transpose() << "\n"
             << "  Desired q:  " << q_des.transpose() << "\n";
+}
+
+// --- Optimo: Weight transfer verification ---
+// Verify that per-state weights from YAML are correctly applied to tasks
+// after state transitions, and that tasks not in the state revert to pool default.
+TEST_F(ControlArchitectureBehaviorTest, Behavior_Optimo_WeightTransfer) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  // Two-state config: state 1 = joint-dominant, state 2 = EE-dominant.
+  std::ostringstream yaml;
+  yaml << "robot_model:\n"
+       << "  urdf_path: \"" << optimo_urdf << "\"\n"
+       << R"(  is_floating_base: false
+  base_frame: base_link
+regularization:
+  w_qddot: 1.0e-6
+  w_tau: 1.0e-3
+controller:
+  weight_min: 1.0e-6
+  weight_max: 1.0e+4
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: 200.0
+    kd: 28.0
+    kp_ik: 1.0
+    weight: 50.0
+  - name: ee_pos
+    type: LinkPosTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: 100.0
+    kd: 20.0
+    kp_ik: 1.0
+    weight: 50.0
+  - name: ee_ori
+    type: LinkOriTask
+    target_frame: end_effector
+    reference_frame: base_link
+    kp: 100.0
+    kd: 20.0
+    kp_ik: 1.0
+    weight: 50.0
+state_machine:
+  - id: 1
+    name: joint_state
+    type: ut_teleop_state
+    params:
+      weight_ramp_duration: 0.01
+    task_hierarchy:
+      - {name: jpos_task, weight: 100.0}
+      - {name: ee_pos,    weight: 1e-6}
+      - {name: ee_ori,    weight: 1e-6}
+  - id: 2
+    name: ee_state
+    type: ut_teleop_state
+    params:
+      weight_ramp_duration: 0.01
+    task_hierarchy:
+      - {name: ee_pos,    weight: 200.0}
+      - {name: ee_ori,    weight: 200.0}
+      - {name: jpos_task, weight: 0.5}
+)";
+
+  const auto yaml_path = WriteYaml("behavior_optimo_weight_xfer.yaml", yaml.str());
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const int n_act = robot_->NumActiveDof();
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(n_act);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(n_act);
+
+  // Set desired = current (no motion command).
+  const StateConfig* state1 = arch->GetConfig()->FindState(1);
+  ASSERT_NE(state1, nullptr);
+  ASSERT_NE(state1->joint, nullptr);
+  state1->joint->UpdateDesired(q, Eigen::VectorXd::Zero(n_act),
+                                Eigen::VectorXd::Zero(n_act));
+
+  // Run enough ticks to complete the 10ms ramp.
+  for (int i = 0; i < 50; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Check state 1 weights: jpos=100, ee_pos=1e-6, ee_ori=1e-6
+  auto* reg = arch->GetConfig()->taskRegistry();
+  Task* jpos_task = reg->GetMotionTask("jpos_task");
+  Task* ee_pos_task = reg->GetMotionTask("ee_pos");
+  Task* ee_ori_task = reg->GetMotionTask("ee_ori");
+  ASSERT_NE(jpos_task, nullptr);
+  ASSERT_NE(ee_pos_task, nullptr);
+  ASSERT_NE(ee_ori_task, nullptr);
+
+  // After ramp completes, weights should be at their state targets.
+  EXPECT_NEAR(jpos_task->Weight().maxCoeff(), 100.0, 1e-3)
+      << "jpos_task weight should be 100 in state 1";
+  EXPECT_NEAR(ee_pos_task->Weight().maxCoeff(), 1e-6, 1e-7)
+      << "ee_pos weight should be ~0 in state 1";
+  EXPECT_NEAR(ee_ori_task->Weight().maxCoeff(), 1e-6, 1e-7)
+      << "ee_ori weight should be ~0 in state 1";
+
+  // Transition to state 2.
+  arch->GetFsmHandler()->RequestState(2);
+  for (int i = 50; i < 100; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Check state 2 weights: ee_pos=200, ee_ori=200, jpos=0.5
+  EXPECT_NEAR(ee_pos_task->Weight().maxCoeff(), 200.0, 1e-3)
+      << "ee_pos weight should be 200 in state 2";
+  EXPECT_NEAR(ee_ori_task->Weight().maxCoeff(), 200.0, 1e-3)
+      << "ee_ori weight should be 200 in state 2";
+  EXPECT_NEAR(jpos_task->Weight().maxCoeff(), 0.5, 1e-3)
+      << "jpos_task weight should be 0.5 in state 2";
+
+  // Transition back to state 1.
+  arch->GetFsmHandler()->RequestState(1);
+  for (int i = 100; i < 150; ++i) {
+    UpdateWithJointState(arch.get(), q, qdot, i * 0.001, 0.001);
+  }
+
+  // Weights should return to state 1 values.
+  EXPECT_NEAR(jpos_task->Weight().maxCoeff(), 100.0, 1e-3)
+      << "jpos_task weight should return to 100 in state 1";
+  EXPECT_NEAR(ee_pos_task->Weight().maxCoeff(), 1e-6, 1e-7)
+      << "ee_pos weight should return to ~0 in state 1";
+
+  std::cout << "[Optimo WeightTransfer] State transitions verified.\n"
+            << "  State 1: jpos=" << jpos_task->Weight().maxCoeff()
+            << ", ee_pos=" << ee_pos_task->Weight().maxCoeff()
+            << ", ee_ori=" << ee_ori_task->Weight().maxCoeff() << "\n";
 }
 
 // --- Draco3: CoM IK output direction after step command ---
@@ -2724,6 +2864,300 @@ task_pool:
   }
   std::cout
       << "======================================================================\n";
+}
+
+// ---------------------------------------------------------------------------
+// Compensation flag tests: verify enable_gravity/coriolis/inertia_compensation
+// actually change the output torque.
+// ---------------------------------------------------------------------------
+
+TEST_F(ControlArchitectureBehaviorTest, CompensationFlags_GravityToggle) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  auto make_yaml = [&](bool grav, bool cori, bool inertia) {
+    std::ostringstream yaml;
+    yaml << "robot_model:\n"
+         << "  urdf_path: \"" << optimo_urdf << "\"\n"
+         << "  is_floating_base: false\n"
+         << "  base_frame: base_link\n"
+         << "controller:\n"
+         << "  enable_gravity_compensation: " << (grav ? "true" : "false") << "\n"
+         << "  enable_coriolis_compensation: " << (cori ? "true" : "false") << "\n"
+         << "  enable_inertia_compensation: " << (inertia ? "true" : "false") << "\n"
+         << R"(regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+global_constraints:
+  JointPosLimitConstraint:
+    enabled: true
+    scale: 0.9
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.8
+  JointTrqLimitConstraint:
+    enabled: true
+    scale: 0.9
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    params:
+      stay_here: true
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+    return yaml.str();
+  };
+
+  // Non-trivial pose so gravity is non-zero.
+  Eigen::VectorXd q(7);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(7);
+
+  // Build "all enabled" config, run ticks, capture tau AND gravity reference.
+  const auto yaml_all = WriteYaml("comp_grav_all.yaml", make_yaml(true, true, true));
+  auto arch_all = MakeArchitecture(yaml_all);
+  ASSERT_NE(arch_all, nullptr);
+  ASSERT_EQ(robot_->NumActiveDof(), 7);
+  {
+    const StateConfig* state = arch_all->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(7), Eigen::VectorXd::Zero(7));
+  }
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch_all.get(), q, qdot, i * 0.001, 0.001);
+  }
+  const Eigen::VectorXd tau_all = arch_all->GetCommand().tau;
+  const Eigen::VectorXd grav_ref = robot_->GetGravityRef();  // valid while arch_all alive
+  ASSERT_TRUE(tau_all.allFinite());
+
+  // Build "gravity disabled" config.
+  const auto yaml_ng = WriteYaml("comp_grav_off.yaml", make_yaml(false, true, true));
+  auto arch_ng = MakeArchitecture(yaml_ng);
+  ASSERT_NE(arch_ng, nullptr);
+  {
+    const StateConfig* state = arch_ng->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q, Eigen::VectorXd::Zero(7), Eigen::VectorXd::Zero(7));
+  }
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch_ng.get(), q, qdot, i * 0.001, 0.001);
+  }
+  const Eigen::VectorXd tau_no_grav = arch_ng->GetCommand().tau;
+  ASSERT_TRUE(tau_no_grav.allFinite());
+
+  const Eigen::VectorXd grav_diff = tau_all - tau_no_grav;
+  std::cout << "\n--- Gravity compensation toggle ---\n"
+            << "  tau_all:     " << tau_all.transpose() << "\n"
+            << "  tau_no_grav: " << tau_no_grav.transpose() << "\n"
+            << "  diff:        " << grav_diff.transpose() << "\n"
+            << "  grav_ref:    " << grav_ref.transpose() << "\n";
+
+  // Disabling gravity should significantly change the output torque.
+  EXPECT_GT(grav_diff.norm(), 0.1)
+      << "Disabling gravity should significantly change torque";
+
+  // The torque difference won't exactly equal grav_ref because the QP cost
+  // also sees gravity in tau_0, so the QP's corrected qddot shifts. But the
+  // difference direction should correlate strongly with the gravity vector.
+  const double cos_angle =
+      grav_diff.dot(grav_ref) / (grav_diff.norm() * grav_ref.norm() + 1e-12);
+  EXPECT_GT(cos_angle, 0.8)
+      << "Gravity diff direction should align with gravity vector (cos=" << cos_angle << ")";
+}
+
+TEST_F(ControlArchitectureBehaviorTest, CompensationFlags_CoriolisToggle) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  auto make_yaml = [&](bool cori) {
+    std::ostringstream yaml;
+    yaml << "robot_model:\n"
+         << "  urdf_path: \"" << optimo_urdf << "\"\n"
+         << "  is_floating_base: false\n"
+         << "  base_frame: base_link\n"
+         << "controller:\n"
+         << "  enable_gravity_compensation: true\n"
+         << "  enable_coriolis_compensation: " << (cori ? "true" : "false") << "\n"
+         << "  enable_inertia_compensation: true\n"
+         << R"(regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    params:
+      stay_here: true
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+    return yaml.str();
+  };
+
+  // Non-zero velocity so Coriolis is non-zero.
+  Eigen::VectorXd q(7);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  Eigen::VectorXd qdot(7);
+  qdot << 0.5, -0.3, 0.2, 0.4, -0.1, 0.3, -0.2;
+
+  // Build "coriolis enabled" config, capture tau AND coriolis reference.
+  const auto yaml_on = WriteYaml("comp_cori_on.yaml", make_yaml(true));
+  auto arch_on = MakeArchitecture(yaml_on);
+  ASSERT_NE(arch_on, nullptr);
+  {
+    const StateConfig* state = arch_on->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q, qdot, Eigen::VectorXd::Zero(7));
+  }
+  UpdateWithJointState(arch_on.get(), q, qdot, 0.0, 0.001);
+  const Eigen::VectorXd tau_with = arch_on->GetCommand().tau;
+  const Eigen::VectorXd cori_ref = arch_on->GetRobot()->GetCoriolisRef();
+  ASSERT_TRUE(tau_with.allFinite());
+
+  // Build "coriolis disabled" config.
+  const auto yaml_off = WriteYaml("comp_cori_off.yaml", make_yaml(false));
+  auto arch_off = MakeArchitecture(yaml_off);
+  ASSERT_NE(arch_off, nullptr);
+  {
+    const StateConfig* state = arch_off->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q, qdot, Eigen::VectorXd::Zero(7));
+  }
+  UpdateWithJointState(arch_off.get(), q, qdot, 0.0, 0.001);
+  const Eigen::VectorXd tau_without = arch_off->GetCommand().tau;
+  ASSERT_TRUE(tau_without.allFinite());
+
+  const Eigen::VectorXd cori_diff = tau_with - tau_without;
+  std::cout << "\n--- Coriolis compensation toggle ---\n"
+            << "  tau_with:    " << tau_with.transpose() << "\n"
+            << "  tau_without: " << tau_without.transpose() << "\n"
+            << "  diff:        " << cori_diff.transpose() << "\n"
+            << "  cori_ref:    " << cori_ref.transpose() << "\n"
+            << "  cori_norm:   " << cori_ref.norm() << "\n";
+
+  // Torque should change when coriolis is toggled (at non-zero velocity).
+  EXPECT_NE(tau_with, tau_without)
+      << "Disabling coriolis should produce different torque";
+
+  // The magnitude of change may be small relative to cori_ref because the QP
+  // adapts its qddot solution. Just verify the torques are not identical.
+  EXPECT_GT((tau_with - tau_without).norm(), 1e-6);
+}
+
+TEST_F(ControlArchitectureBehaviorTest, CompensationFlags_InertiaToggle) {
+  const std::string optimo_urdf =
+      "/home/dk/workspace/rpc_ws/src/rpc_ros/description/"
+      "optimo_description/urdf/optimo.urdf";
+  if (!std::filesystem::exists(optimo_urdf)) {
+    GTEST_SKIP() << "Optimo URDF not found";
+  }
+
+  auto make_yaml = [&](bool inertia) {
+    std::ostringstream yaml;
+    yaml << "robot_model:\n"
+         << "  urdf_path: \"" << optimo_urdf << "\"\n"
+         << "  is_floating_base: false\n"
+         << "  base_frame: base_link\n"
+         << "controller:\n"
+         << "  enable_gravity_compensation: true\n"
+         << "  enable_coriolis_compensation: true\n"
+         << "  enable_inertia_compensation: " << (inertia ? "true" : "false") << "\n"
+         << R"(regularization:
+  w_tau: 1.0e-3
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    kp_ik: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+state_machine:
+  - id: 1
+    name: ut_teleop_state
+    params:
+      stay_here: true
+    task_hierarchy:
+      - {name: jpos_task, priority: 0}
+)";
+    return yaml.str();
+  };
+
+  // Non-trivial pose with zero velocity.
+  Eigen::VectorXd q(7);
+  q << 0.0, -0.5, 0.0, 1.0, 0.0, -0.5, 0.0;
+  const Eigen::VectorXd qdot = Eigen::VectorXd::Zero(7);
+
+  // Desired differs from current → produces non-zero qddot from IK.
+  Eigen::VectorXd q_des(7);
+  q_des << 0.1, -0.4, 0.1, 0.9, 0.1, -0.4, 0.1;
+
+  // Build "inertia enabled" config.
+  const auto yaml_on = WriteYaml("comp_inertia_on.yaml", make_yaml(true));
+  auto arch_on = MakeArchitecture(yaml_on);
+  ASSERT_NE(arch_on, nullptr);
+  {
+    const StateConfig* state = arch_on->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q_des, Eigen::VectorXd::Zero(7), Eigen::VectorXd::Zero(7));
+  }
+  UpdateWithJointState(arch_on.get(), q, qdot, 0.0, 0.001);
+  const Eigen::VectorXd tau_with = arch_on->GetCommand().tau;
+  ASSERT_TRUE(tau_with.allFinite());
+
+  // Build "inertia disabled" config.
+  const auto yaml_off = WriteYaml("comp_inertia_off.yaml", make_yaml(false));
+  auto arch_off = MakeArchitecture(yaml_off);
+  ASSERT_NE(arch_off, nullptr);
+  {
+    const StateConfig* state = arch_off->GetConfig()->FindState(1);
+    ASSERT_NE(state, nullptr);
+    state->joint->UpdateDesired(q_des, Eigen::VectorXd::Zero(7), Eigen::VectorXd::Zero(7));
+  }
+  UpdateWithJointState(arch_off.get(), q, qdot, 0.0, 0.001);
+  const Eigen::VectorXd tau_without = arch_off->GetCommand().tau;
+  ASSERT_TRUE(tau_without.allFinite());
+
+  // With inertia disabled, tau should be closer to pure gravity compensation.
+  // The gravity vector from the robot model (qdot=0, so cori=0).
+  const Eigen::VectorXd grav = arch_off->GetRobot()->GetGravityRef();
+
+  const Eigen::VectorXd inertia_diff = tau_with - tau_without;
+  std::cout << "\n--- Inertia compensation toggle ---\n"
+            << "  tau_with:    " << tau_with.transpose() << "\n"
+            << "  tau_without: " << tau_without.transpose() << "\n"
+            << "  diff:        " << inertia_diff.transpose() << "\n"
+            << "  grav_ref:    " << grav.transpose() << "\n";
+
+  // With a position error, the solver produces non-zero qddot, so M*qddot
+  // should be significant.
+  EXPECT_GT(inertia_diff.norm(), 0.01)
+      << "Disabling inertia should change torque when qddot is non-zero";
+
+  // Without inertia, the output torque should approximate pure gravity
+  // (since qdot=0 → cori=0, and inertia term removed).
+  const double grav_err = (tau_without - grav).norm();
+  EXPECT_LT(grav_err, 0.1)
+      << "With inertia disabled + zero velocity, tau should be ~gravity (err=" << grav_err << ")";
 }
 
 } // namespace

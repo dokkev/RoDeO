@@ -32,12 +32,10 @@ void ForceTask::UpdateDesiredToLocal(const Eigen::VectorXd& rf_des) {
   const Eigen::Matrix3d r =
       robot_->GetLinkIsometry(contact_->TargetLinkIdx()).linear().transpose();
   if (dim_ == 6) {
-    Eigen::Matrix<double, 6, 6> local_R_world = Eigen::Matrix<double, 6, 6>::Zero();
-    local_R_world.topLeftCorner<3, 3>()     = r;
-    local_R_world.bottomRightCorner<3, 3>() = r;
-    rf_des_ = local_R_world * rf_des;
+    rf_des_.head<3>().noalias() = r * rf_des.head<3>();
+    rf_des_.tail<3>().noalias() = r * rf_des.tail<3>();
   } else {  // dim_ == 3, validated at construction
-    rf_des_ = r * rf_des;
+    rf_des_.noalias() = r * rf_des;
   }
 }
 

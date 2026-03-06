@@ -26,6 +26,7 @@ add_library(${PROJECT_NAME} SHARED
   src/control_architecture.cpp
   src/config_compiler.cpp
   src/runtime_config.cpp
+  src/task_weight_scheduler.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -108,6 +109,17 @@ if(BUILD_TESTING)
     target_link_libraries(test_cascade_pid
       ${PROJECT_NAME}
       Eigen3::Eigen
+    )
+  endif()
+
+  ament_add_gtest(test_real_tasks
+    test/test_real_tasks.cpp
+  )
+  if(TARGET test_real_tasks)
+    target_link_libraries(test_real_tasks
+      ${PROJECT_NAME}
+      Eigen3::Eigen
+      yaml-cpp
     )
   endif()
 endif()
