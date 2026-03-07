@@ -31,7 +31,7 @@ state_machine:
       wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3
-      target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
+      # target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0
@@ -71,3 +71,37 @@ state_machine:
         weight: 100.0
       - name: "jpos_task"
         weight: 1.0
+
+  - id: 4
+    name: "sys_id"
+    params:
+      stay_here: true
+      weight_ramp_duration: 0.3
+      mode: "sine"             # off | gravity_grid | friction_sweep | sine | chirp
+      enabled: false
+      joint_idx: 0
+      start_delay: 1.0
+      duration: 20.0
+      amplitude: 0.05
+      offset: 0.0
+      frequency_hz: 0.5
+      cruise_vel: 0.2
+      chirp_f0_hz: 0.2
+      chirp_f1_hz: 3.0
+      chirp_duration: 20.0
+      ramp_time: 1.0
+      dwell_time: 1.0
+      gravity_offsets_rad: [-0.5, -0.25, 0.0, 0.25, 0.5]
+      max_tracking_err: 0.15
+      max_meas_vel: 2.0
+      max_tau_ratio: 0.9
+      abort_on_safety: true
+      hold_on_abort: true
+      end_on_finish: true
+    task_hierarchy:
+      - name: "jpos_task"
+        weight: 100.0
+      - name: "ee_pos_task"
+        weight: 1e-6
+      - name: "ee_ori_task"
+        weight: 1e-6

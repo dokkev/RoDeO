@@ -17,9 +17,9 @@
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_robot_system/state_provider.hpp"
 #include "wbc_solver/wbic.hpp"
-#include "wbc_util/adaptive_friction_compensator.hpp"
+#include "residual_compensator/adaptive_friction_compensator.hpp"
+#include "residual_compensator/momentum_observer.hpp"
 #include "wbc_util/joint_pid.hpp"
-#include "wbc_util/momentum_observer.hpp"
 #include "wbc_util/ros_path_utils.hpp"
 #include "wbc_util/yaml_parser.hpp"
 
@@ -72,14 +72,15 @@ public:
 
       if (ctrl["ik_method"]) {
         const std::string method = ctrl["ik_method"].as<std::string>();
-        if (method == "weighted_qp")
+        if (method == "weighted_qp" || method == "hierarchy") {
+          // WBIC hierarchy/null-space path was removed. Keep "hierarchy"
+          // accepted for backward-compatible YAML parsing.
           config.ik_method = IKMethod::WEIGHTED_QP;
-        else if (method == "hierarchy")
-          config.ik_method = IKMethod::HIERARCHY;
-        else
+        } else {
           throw std::runtime_error(
               "[ControlArchitectureConfig] Unknown ik_method: '" + method +
-              "'. Use 'hierarchy' or 'weighted_qp'.");
+              "'. Use 'weighted_qp'.");
+        }
       }
 
       if (ctrl["weight_min"])

@@ -2,7 +2,7 @@
   ros__parameters:
     pid_gains:
       position:
-        joint1:
+        optimo_joint1:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -11,7 +11,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint2:
+        optimo_joint2:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -20,7 +20,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint3:
+        optimo_joint3:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -29,7 +29,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint4:
+        optimo_joint4:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -38,7 +38,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint5:
+        optimo_joint5:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -47,7 +47,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint6:
+        optimo_joint6:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -56,7 +56,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint7:
+        optimo_joint7:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -66,7 +66,7 @@
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
       velocity:
-        joint1:
+        optimo_joint1:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -75,7 +75,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint2:
+        optimo_joint2:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -84,7 +84,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint3:
+        optimo_joint3:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -93,7 +93,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint4:
+        optimo_joint4:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -102,7 +102,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint5:
+        optimo_joint5:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -111,7 +111,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint6:
+        optimo_joint6:
           p: 0.0
           i: 0.0
           d: 0.0
@@ -120,7 +120,7 @@
           i_clamp_max: 0.0
           i_clamp_min: 0.0
           antiwindup_strategy: "none"
-        joint7:
+        optimo_joint7:
           p: 0.0
           i: 0.0
           d: 0.0

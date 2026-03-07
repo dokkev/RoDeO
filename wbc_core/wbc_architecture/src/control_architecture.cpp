@@ -341,13 +341,25 @@ bool ControlArchitecture::SolverUpdate() {
 
   // Log tick data for offline analysis.
   if (logger_.enabled) {
+    QpStateData qp_state;
+    if (const WBICData* wbic_data = solver_->GetWbicData(); wbic_data != nullptr) {
+      qp_state.solved = wbic_data->qp_solved_;
+      qp_state.status = wbic_data->qp_status_;
+      qp_state.iter = wbic_data->qp_iter_;
+      qp_state.pri_res = wbic_data->qp_pri_res_;
+      qp_state.dua_res = wbic_data->qp_dua_res_;
+      qp_state.obj = wbic_data->qp_obj_;
+      qp_state.setup_time_us = wbic_data->qp_setup_time_us_;
+      qp_state.solve_time_us = wbic_data->qp_solve_time_us_;
+    }
+
     logger_.LogTick(current_time_, applied_state_id_,
                     cmd_.q, cmd_.qdot, buffers_.wbc_qddot_cmd,
                     cmd_.tau_ff, cmd_.tau_fb, cmd_.tau,
                     robot_->GetQRef().tail(n_active),
                     robot_->GetQdotRef().tail(n_active),
                     robot_->GetGravityRef().tail(n_active),
-                    formulation_);
+                    formulation_, &qp_state);
   }
 
   return true;
@@ -382,6 +394,80 @@ void ControlArchitecture::SetControlDt(double dt) {
   }
   nominal_dt_ = dt;
   sp_->servo_dt_ = dt;
+}
+
+bool ControlArchitecture::SetResidualDynamicsConfig(
+    const FrictionCompensatorConfig& friction,
+    const MomentumObserverConfig& observer,
+    std::string* error_msg) {
+  const int num_active = robot_->NumActiveDof();
+  if (num_active <= 0) {
+    if (error_msg != nullptr) {
+      *error_msg = "invalid active dof";
+    }
+    return false;
+  }
+
+  const auto valid_size = [num_active](const Eigen::VectorXd& v) {
+    return v.size() == 1 || v.size() == num_active;
+  };
+  const auto expand = [num_active](const Eigen::VectorXd& v) -> Eigen::VectorXd {
+    if (v.size() == num_active) {
+      return v;
+    }
+    return Eigen::VectorXd::Constant(num_active, v[0]);
+  };
+
+  if (!valid_size(friction.gamma_c) || !valid_size(friction.gamma_v) ||
+      !valid_size(friction.max_f_c) || !valid_size(friction.max_f_v)) {
+    if (error_msg != nullptr) {
+      *error_msg = "friction vectors must be size 1 or num_active";
+    }
+    return false;
+  }
+  if (!valid_size(observer.K_o) || !valid_size(observer.max_tau_dist)) {
+    if (error_msg != nullptr) {
+      *error_msg = "observer vectors must be size 1 or num_active";
+    }
+    return false;
+  }
+
+  friction_config_ = friction;
+  observer_config_ = observer;
+
+  if (!friction_comp_.IsSetup()) {
+    friction_comp_.Setup(num_active);
+  }
+  if (tau_fric_comp_.size() != num_active) {
+    tau_fric_comp_.setZero(num_active);
+  }
+  friction_comp_.SetGains(expand(friction_config_.gamma_c),
+                          expand(friction_config_.gamma_v));
+  friction_comp_.SetLimits(expand(friction_config_.max_f_c),
+                           expand(friction_config_.max_f_v));
+  if (friction_config_.enabled) {
+    friction_comp_.Reset();
+  } else {
+    tau_fric_comp_.setZero();
+  }
+  friction_comp_enabled_ = friction_config_.enabled;
+
+  if (!momentum_obs_.IsSetup()) {
+    momentum_obs_.Setup(num_active);
+  }
+  if (tau_dist_comp_.size() != num_active) {
+    tau_dist_comp_.setZero(num_active);
+  }
+  momentum_obs_.SetGain(expand(observer_config_.K_o));
+  momentum_obs_.SetLimit(expand(observer_config_.max_tau_dist));
+  if (observer_config_.enabled) {
+    momentum_obs_.Reset();
+  } else {
+    tau_dist_comp_.setZero();
+  }
+  momentum_obs_enabled_ = observer_config_.enabled;
+
+  return true;
 }
 
 void ControlArchitecture::UpdateKinematics(

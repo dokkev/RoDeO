@@ -18,6 +18,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ConfigureContact.srv"
   "srv/ListTasks.srv"
   "srv/TransitionState.srv"
+  "srv/TaskGainService.srv"
+  "srv/TaskWeightService.srv"
+  "srv/ResidualDynamicsService.srv"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

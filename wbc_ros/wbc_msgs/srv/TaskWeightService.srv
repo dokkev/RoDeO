@@ -1,0 +1,8 @@
+# Set scalar hierarchy weights for named motion tasks.
+# Values are broadcast to each task dimension.
+
+string[] task_names
+float64[] weight
+---
+bool success
+string message

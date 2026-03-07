@@ -6,17 +6,21 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
-#include <realtime_tools/realtime_buffer.h>
+#include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include "wbc_architecture/control_architecture.hpp"
 #include "wbc_logger/wbc_logger.hpp"
 #include "wbc_msgs/msg/wbc_state.hpp"
+#include "wbc_msgs/srv/residual_dynamics_service.hpp"
+#include "wbc_msgs/srv/task_gain_service.hpp"
+#include "wbc_msgs/srv/task_weight_service.hpp"
 #include "wbc_msgs/srv/transition_state.hpp"
 #include "wbc_util/actuator_interface.hpp"
 
@@ -83,6 +87,28 @@ private:
     Eigen::Quaterniond w{Eigen::Quaterniond::Identity()};  // orientation,          world frame
     int64_t            ts_ns{0};     // from msg->header.stamp [ns]
   };
+  struct TaskGainUpdate {
+    std::vector<std::string> task_names;
+    std::vector<double> kp;
+    std::vector<double> kd;
+    int64_t ts_ns{0};
+  };
+  struct TaskWeightUpdate {
+    std::vector<std::string> task_names;
+    std::vector<double> weight;
+    int64_t ts_ns{0};
+  };
+  struct ResidualDynamicsUpdate {
+    bool friction_enabled{false};
+    std::vector<double> gamma_c;
+    std::vector<double> gamma_v;
+    std::vector<double> max_f_c;
+    std::vector<double> max_f_v;
+    bool observer_enabled{false};
+    std::vector<double> k_o;
+    std::vector<double> max_tau_dist;
+    int64_t ts_ns{0};
+  };
 
   static constexpr std::size_t kInterfacesPerJoint = 3U;
   static constexpr std::size_t kPositionBlock = 0U;
@@ -119,7 +145,24 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr ee_vel_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_pos_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr  ee_pos_sub_;
-  rclcpp::Service<wbc_msgs::srv::TransitionState>::SharedPtr       set_state_srv_;
+  rclcpp::Service<wbc_msgs::srv::TransitionState>::SharedPtr         set_state_srv_;
+  rclcpp::Service<wbc_msgs::srv::TaskGainService>::SharedPtr         task_gain_srv_;
+  rclcpp::Service<wbc_msgs::srv::TaskWeightService>::SharedPtr       task_weight_srv_;
+  rclcpp::Service<wbc_msgs::srv::ResidualDynamicsService>::SharedPtr residual_dyn_srv_;
+
+  // Non-RT service requests are latched and consumed in update() (RT thread).
+  realtime_tools::RealtimeBuffer<TaskGainUpdate>         task_gain_update_buf_;
+  realtime_tools::RealtimeBuffer<TaskWeightUpdate>       task_weight_update_buf_;
+  realtime_tools::RealtimeBuffer<ResidualDynamicsUpdate> residual_update_buf_;
+  int64_t last_task_gain_update_ts_{0};
+  int64_t last_task_weight_update_ts_{0};
+  int64_t last_residual_update_ts_{0};
+
+  // Tuned scalar maps keyed by task name. Reapplied on each state transition.
+  std::unordered_map<std::string, double> tuned_task_kp_;
+  std::unordered_map<std::string, double> tuned_task_kd_;
+  std::unordered_map<std::string, double> tuned_task_weight_;
+  wbc::StateId last_tuned_state_id_{-1};
 
   // Typed state pointers — cached at configure time, valid for controller lifetime.
   // Allows RT-safe direct dispatch without dynamic_cast in the hot path.
@@ -135,6 +178,8 @@ private:
 
   /// Copy WbcStateData → WbcState msg and try-publish (non-blocking).
   void PublishWbcState(const rclcpp::Time& time);
+  void ApplyPendingRuntimeUpdates();
+  void ReapplyTunedTaskParams();
 };
 
 }  // namespace optimo_controller

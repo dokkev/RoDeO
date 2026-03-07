@@ -1,0 +1,24 @@
+/optimo/controller_manager:
+  ros__parameters:
+    update_rate: 1000
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    wbc_controller:
+      type: optimo_controller/OptimoController
+
+/optimo/joint_state_broadcaster:
+  ros__parameters:
+    use_local_topics: true
+
+/optimo/wbc_controller:
+  ros__parameters:
+    wbc_yaml_path: package://optimo_controller/config/optimo_wbc.yaml
+    is_simulation: false
+    joints:
+      - optimo_joint1
+      - optimo_joint2
+      - optimo_joint3
+      - optimo_joint4
+      - optimo_joint5
+      - optimo_joint6
+      - optimo_joint7

@@ -14,7 +14,6 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>mujoco_ros2_control</exec_depend>
   <exec_depend>optimo_controller</exec_depend>
   <exec_depend>optimo_description</exec_depend>
   <exec_depend>optimo_hardware_interface</exec_depend>

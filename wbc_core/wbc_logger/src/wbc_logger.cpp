@@ -73,7 +73,8 @@ void WbcLogger::UpdateStateData(
     const Eigen::VectorXd& q_curr,
     const Eigen::VectorXd& qdot_curr,
     const Eigen::VectorXd& gravity,
-    const WbcFormulation& formulation) {
+    const WbcFormulation& formulation,
+    const QpStateData* qp_state) {
 
   state_data_.state_id = state_id;
   EigenToStd(q_cmd,     state_data_.q_cmd);
@@ -85,6 +86,36 @@ void WbcLogger::UpdateStateData(
   EigenToStd(q_curr,    state_data_.q_curr);
   EigenToStd(qdot_curr, state_data_.qdot_curr);
   EigenToStd(gravity,   state_data_.gravity);
+
+  if (qp_state != nullptr) {
+    state_data_.qp_solved = qp_state->solved;
+    state_data_.qp_status = qp_state->status;
+    state_data_.qp_iter = qp_state->iter;
+    state_data_.qp_pri_res = qp_state->pri_res;
+    state_data_.qp_dua_res = qp_state->dua_res;
+    state_data_.qp_obj = qp_state->obj;
+    state_data_.qp_setup_time_us = qp_state->setup_time_us;
+    state_data_.qp_solve_time_us = qp_state->solve_time_us;
+  } else {
+    state_data_.qp_solved = false;
+    state_data_.qp_status = -1;
+    state_data_.qp_iter = 0;
+    state_data_.qp_pri_res = 0.0;
+    state_data_.qp_dua_res = 0.0;
+    state_data_.qp_obj = 0.0;
+    state_data_.qp_setup_time_us = 0.0;
+    state_data_.qp_solve_time_us = 0.0;
+  }
+
+  const Eigen::VectorXd q_err = q_cmd - q_curr;
+  const Eigen::VectorXd qdot_err = qdot_cmd - qdot_curr;
+  state_data_.joint_pos_err_norm = q_err.norm();
+  state_data_.joint_vel_err_norm = qdot_err.norm();
+  state_data_.joint_pos_err_max =
+      (q_err.size() > 0) ? q_err.cwiseAbs().maxCoeff() : 0.0;
+  state_data_.joint_vel_err_max =
+      (qdot_err.size() > 0) ? qdot_err.cwiseAbs().maxCoeff() : 0.0;
+  state_data_.tau_fb_norm = tau_fb.norm();
 
   // Extract q_des/qdot_des from JointTask (dim == n_active).
   for (const Task* task : formulation.motion_tasks) {
@@ -114,6 +145,7 @@ void WbcLogger::UpdateStateData(
       td.op_cmd.resize(td.dim);
       td.kp.resize(td.dim);
       td.kd.resize(td.dim);
+      td.weight.resize(td.dim);
     }
 
     EigenToStd(task->DesiredPos(), td.x_des);
@@ -123,6 +155,8 @@ void WbcLogger::UpdateStateData(
     EigenToStd(task->OpCommand(),  td.op_cmd);
     EigenToStd(task->Kp(),         td.kp);
     EigenToStd(task->Kd(),         td.kd);
+    EigenToStd(task->Weight(),     td.weight);
+    td.x_err_norm = task->PosError().norm();
   }
 }
 
@@ -198,7 +232,8 @@ void WbcLogger::LogTick(double time, int state_id,
                          const Eigen::VectorXd& q_curr,
                          const Eigen::VectorXd& qdot_curr,
                          const Eigen::VectorXd& gravity,
-                         const WbcFormulation& formulation) {
+                         const WbcFormulation& formulation,
+                         const QpStateData* qp_state) {
   if (!enabled || !initialized_) return;
 
   // Always update state data for publisher (decimated by publish_rate_hz).
@@ -206,7 +241,7 @@ void WbcLogger::LogTick(double time, int state_id,
   if (time - last_publish_time_ >= pub_interval) {
     UpdateStateData(state_id, q_cmd, qdot_cmd, qddot_cmd,
                     tau_ff, tau_fb, tau, q_curr, qdot_curr,
-                    gravity, formulation);
+                    gravity, formulation, qp_state);
     last_publish_time_ = time;
     has_new_data_ = true;
   }

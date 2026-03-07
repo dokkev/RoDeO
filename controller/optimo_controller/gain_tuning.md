@@ -203,7 +203,7 @@ Two independent modules added to `ControlArchitecture`, executed between WBIC so
 
 **Safety:** Estimates clamped to `[0, max_f_c]` and `[0, max_f_v]`.
 
-**Source:** `wbc_util/include/wbc_util/adaptive_friction_compensator.hpp`
+**Source:** `residual_compensator/include/residual_compensator/adaptive_friction_compensator.hpp`
 
 ### 2. Momentum Observer (De Luca 2003)
 
@@ -214,7 +214,7 @@ Two independent modules added to `ControlArchitecture`, executed between WBIC so
 
 **Key:** K_o controls observer bandwidth. Higher K_o → faster tracking but more noise.
 
-**Source:** `wbc_util/include/wbc_util/momentum_observer.hpp`
+**Source:** `residual_compensator/include/residual_compensator/momentum_observer.hpp`
 
 ### YAML Configuration
 
@@ -318,7 +318,7 @@ controller:
 
 ## Test Infrastructure (Phase 3-4)
 
-- **Compensator classes:** `wbc_util/include/wbc_util/adaptive_friction_compensator.hpp`, `momentum_observer.hpp`
+- **Compensator classes:** `residual_compensator/include/residual_compensator/adaptive_friction_compensator.hpp`, `momentum_observer.hpp`
 - **Integration:** `wbc_architecture/src/control_architecture.cpp` → SolverUpdate() between WBIC and PID
 - **Test file:** `optimo_controller/test/test_domain_randomization.cpp`
 - **Tests:** `CompensatorComparison` (5 seeds), `FrictionCompGainSweep`, `MomentumObserverGainSweep`

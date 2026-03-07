@@ -21,6 +21,7 @@ find_package(wbc_solver REQUIRED)
 find_package(wbc_trajectory REQUIRED)
 find_package(wbc_logger REQUIRED)
 find_package(wbc_util REQUIRED)
+find_package(residual_compensator REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/control_architecture.cpp
@@ -48,6 +49,7 @@ ament_target_dependencies(${PROJECT_NAME}
   wbc_solver
   wbc_trajectory
   wbc_util
+  residual_compensator
 )
 
 install(DIRECTORY include/
@@ -139,6 +141,7 @@ ament_export_dependencies(
   wbc_logger
   wbc_trajectory
   wbc_util
+  residual_compensator
 )
 
 ament_package()

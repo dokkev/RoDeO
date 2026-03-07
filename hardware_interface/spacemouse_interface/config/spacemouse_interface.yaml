@@ -1,0 +1,9 @@
+/**:
+  ros__parameters:
+    translation_scale: 0.1
+    rotation_scale: 0.2
+    translation_threshold: 0.1
+    rotation_threshold: 0.1
+    publish_rate: 100.0
+    twist_topic: "/optimo/wbc_controller/ee_vel_cmd"
+    frame_id: "world"

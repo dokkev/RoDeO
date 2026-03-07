@@ -91,7 +91,7 @@ void CartesianTeleop::OneStep() {
   ee_handler_.UpdatePos(ee_pos_task_, dt);
   ee_handler_.UpdateOri(ee_ori_task_, dt);
 
-  // --- Task 2: Null-space posture (manipulability singularity avoidance) ---
+  // --- Task 2: Soft posture bias (manipulability singularity avoidance) ---
   manip_handler_.Update(dt);
   const Eigen::VectorXd& qdot_avoid = manip_handler_.avoidance_velocity();
 

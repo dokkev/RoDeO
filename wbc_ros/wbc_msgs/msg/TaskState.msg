@@ -20,3 +20,9 @@ float64[] op_cmd
 # Gains
 float64[] kp
 float64[] kd
+
+# Runtime task weight (used by weighted-QP / prioritization).
+float64[] weight
+
+# Instantaneous tracking quality metric.
+float64 x_err_norm

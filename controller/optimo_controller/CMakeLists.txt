@@ -35,6 +35,7 @@ add_library(${PROJECT_NAME} SHARED
   src/state_machines/initialize.cpp
   src/state_machines/joint_teleop.cpp
   src/state_machines/cartesian_teleop.cpp
+  src/state_machines/sys_id.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -61,6 +62,19 @@ ament_target_dependencies(${PROJECT_NAME}
   wbc_util
 )
 
+add_executable(gain_sweep_node
+  src/gain_sweep_node.cpp
+)
+target_include_directories(gain_sweep_node PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+ament_target_dependencies(gain_sweep_node
+  geometry_msgs
+  rclcpp
+  std_msgs
+  wbc_msgs
+)
+
 pluginlib_export_plugin_description_file(
   controller_interface
   optimo_controller_plugin.xml
@@ -71,6 +85,10 @@ install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS gain_sweep_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/

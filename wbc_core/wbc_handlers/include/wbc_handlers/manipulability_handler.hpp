@@ -5,8 +5,8 @@
  * Monitors the minimum singular value of the end-effector Jacobian. When it
  * drops below a threshold, commands an avoidance velocity along the
  * corresponding right singular vector (the joint-space direction that is
- * "lost" at the singularity). The WBC task-priority structure naturally
- * projects this into the null space of higher-priority EE tasks.
+ * "lost" at the singularity). In weighted-QP IK this acts as a soft
+ * low-priority posture bias (not a strict null-space guarantee).
  *
  * Unlike gradient-based approaches, the SVD method works correctly even at
  * exact singularity (where the manipulability gradient is zero due to the

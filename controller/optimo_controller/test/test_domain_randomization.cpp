@@ -14,6 +14,8 @@
  */
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -41,6 +43,8 @@ constexpr double kDt = 0.001;
 
 const std::array<double, kNJoints> kHomeQpos = {
     0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0};
+const std::array<double, kNJoints> kJointTorqueLimitNm = {
+    79.0, 95.0, 32.0, 40.0, 15.0, 15.0, 15.0};
 
 // Nominal dynamics from optimo.xml
 const std::array<double, kNJoints> kNomDamping = {0.4, 0.4, 0.3, 0.3, 0.1, 0.1, 0.1};
@@ -380,6 +384,7 @@ struct CompensatorConfig {
   double K_o;
   double max_tau_dist;
   double kp_vel{1.0};  // 0 = direct-PD mode (no velocity loop)
+  bool enforce_torque_limit{false};
 };
 
 void WriteWbcYaml(const std::filesystem::path& dir, const CompensatorConfig& cc) {
@@ -424,12 +429,13 @@ void WriteWbcYaml(const std::filesystem::path& dir, const CompensatorConfig& cc)
     << "  w_xc_ddot: 1.0e-3\n"
     << "  w_f_dot: 1.0e-3\n"
     << "\n"
+    << "global_constraints:\n"
     << "  JointPosLimitConstraint:\n"
     << "    enabled: false\n"
     << "  JointVelLimitConstraint:\n"
     << "    enabled: false\n"
     << "  JointTrqLimitConstraint:\n"
-    << "    enabled: false\n"
+    << "    enabled: " << b(cc.enforce_torque_limit) << "\n"
     << "\n"
     << "task_pool_yaml: \"task_list.yaml\"\n"
     << "state_machine_yaml: \"state_machine.yaml\"\n";
@@ -454,7 +460,10 @@ struct SimEnv {
 
 std::unique_ptr<SimEnv> BuildEnv(const CompensatorConfig& cc,
                                   const std::string& mjcf_path,
-                                  const TaskGains& gains = TaskGains{}) {
+                                  const TaskGains& gains = TaskGains{},
+                                  wbc::HardTorqueLimitMode hard_torque_mode =
+                                      wbc::HardTorqueLimitMode::DIAGONAL_M_BOX,
+                                  bool enable_timing = false) {
   auto env = std::make_unique<SimEnv>();
   env->tmp_dir = std::filesystem::temp_directory_path() / "wbc_domrand";
   std::filesystem::create_directories(env->tmp_dir);
@@ -469,6 +478,11 @@ std::unique_ptr<SimEnv> BuildEnv(const CompensatorConfig& cc,
   arch_config.state_provider = std::make_unique<wbc::StateProvider>(kDt);
   env->arch = std::make_unique<wbc::ControlArchitecture>(std::move(arch_config));
   env->arch->Initialize();
+  env->arch->enable_timing_ = enable_timing;
+  if (env->arch->GetSolver() != nullptr) {
+    env->arch->GetSolver()->enable_timing_ = enable_timing;
+    env->arch->GetSolver()->SetHardTorqueLimitMode(hard_torque_mode);
+  }
 
   char error[1000] = "";
   env->m = mj_loadXML(mjcf_path.c_str(), nullptr, error, sizeof(error));
@@ -515,12 +529,75 @@ struct JointTrajectoryResult {
   bool stable{true};
 };
 
+struct TimingAndTorqueStats {
+  double qp_setup_us_sum{0.0};
+  double qp_solve_us_sum{0.0};
+  double make_torque_us_sum{0.0};
+  double find_config_us_sum{0.0};
+  double tau_violation_sq_sum{0.0};
+  double tau_violation_max_nm{0.0};
+  int samples{0};
+
+  void Accumulate(const wbc::ControlArchitecture& arch) {
+    const wbc::WBIC* solver = arch.GetSolver();
+    if (solver != nullptr) {
+      qp_setup_us_sum += solver->timing_stats_.qp_setup_us;
+      qp_solve_us_sum += solver->timing_stats_.qp_solve_us;
+    }
+    find_config_us_sum += arch.timing_stats_.find_config_us;
+    make_torque_us_sum += arch.timing_stats_.make_torque_us;
+
+    const auto& cmd = arch.GetCommand();
+    if (cmd.tau_ff.size() == kNJoints) {
+      for (int i = 0; i < kNJoints; ++i) {
+        const double excess = std::max(0.0, std::abs(cmd.tau_ff[i]) - kJointTorqueLimitNm[i]);
+        tau_violation_sq_sum += excess * excess;
+        tau_violation_max_nm = std::max(tau_violation_max_nm, excess);
+      }
+    }
+    ++samples;
+  }
+
+  void Merge(const TimingAndTorqueStats& other) {
+    qp_setup_us_sum += other.qp_setup_us_sum;
+    qp_solve_us_sum += other.qp_solve_us_sum;
+    make_torque_us_sum += other.make_torque_us_sum;
+    find_config_us_sum += other.find_config_us_sum;
+    tau_violation_sq_sum += other.tau_violation_sq_sum;
+    tau_violation_max_nm = std::max(tau_violation_max_nm, other.tau_violation_max_nm);
+    samples += other.samples;
+  }
+
+  double MeanQpSetupUs() const {
+    return (samples > 0) ? (qp_setup_us_sum / static_cast<double>(samples)) : 0.0;
+  }
+  double MeanQpSolveUs() const {
+    return (samples > 0) ? (qp_solve_us_sum / static_cast<double>(samples)) : 0.0;
+  }
+  double MeanFindConfigUs() const {
+    return (samples > 0) ? (find_config_us_sum / static_cast<double>(samples)) : 0.0;
+  }
+  double MeanMakeTorqueUs() const {
+    return (samples > 0) ? (make_torque_us_sum / static_cast<double>(samples)) : 0.0;
+  }
+  double RmsTauViolationNm() const {
+    if (samples <= 0) return 0.0;
+    const double denom = static_cast<double>(samples * kNJoints);
+    return std::sqrt(tau_violation_sq_sum / denom);
+  }
+};
+
 TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
                                   const std::string& mjcf_path,
                                   const TaskGains& gains = TaskGains{},
-                                  int trajectory_profile = 0) {
+                                  int trajectory_profile = 0,
+                                  wbc::HardTorqueLimitMode hard_torque_mode =
+                                      wbc::HardTorqueLimitMode::DIAGONAL_M_BOX,
+                                  TimingAndTorqueStats* perf_stats = nullptr,
+                                  double speed_scale = 1.0) {
   TrackingResult result{};
-  auto env = BuildEnv(cc, mjcf_path, gains);
+  auto env = BuildEnv(cc, mjcf_path, gains, hard_torque_mode,
+                      perf_stats != nullptr);
 
   auto* robot = env->arch->GetRobot();
   int ee_idx = robot->GetFrameIndex("optimo_end_effector");
@@ -530,6 +607,7 @@ TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
   for (int step = 0; step < 2000; ++step, t += kDt) {
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
   }
@@ -544,6 +622,7 @@ TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
   for (int step = 0; step < 500; ++step, t += kDt) {
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
   }
@@ -595,19 +674,21 @@ TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
     double distance = direction.norm();
     Eigen::Vector3d unit_dir = (distance > 1e-6)
         ? direction.normalized() : Eigen::Vector3d::Zero();
-    double travel_time = (distance > 1e-6) ? distance / wp.speed : 0.0;
+    const double cmd_speed = std::max(1e-4, wp.speed * speed_scale);
+    double travel_time = (distance > 1e-6) ? distance / cmd_speed : 0.0;
     int travel_steps = std::max(1, static_cast<int>(travel_time / kDt));
 
     double sum_sq = 0;
     int n_samples = 0;
 
     for (int step = 0; step < travel_steps; ++step, t += kDt) {
-      Eigen::Vector3d vel_cmd = unit_dir * wp.speed;
+      Eigen::Vector3d vel_cmd = unit_dir * cmd_speed;
 
       ts += 1000000;
       ct->UpdateCommand(vel_cmd, zero3, ts, zero3, ident, 0);
       ReadJointState(env.get());
       env->arch->Update(env->js, t, kDt);
+      if (perf_stats) perf_stats->Accumulate(*env->arch);
 
       // Compare actual EE against controller's internal desired position
       Eigen::Vector3d act = robot->GetLinkIsometry(ee_idx).translation();
@@ -632,12 +713,14 @@ TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
       ct->UpdateCommand(zero3, zero3, ts, zero3, ident, 0);
       ReadJointState(env.get());
       env->arch->Update(env->js, t, kDt);
+      if (perf_stats) perf_stats->Accumulate(*env->arch);
       ApplyCommand(env.get());
       mj_step(env->m, env->d);
     }
 
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     Eigen::Vector3d hold_pos = robot->GetLinkIsometry(ee_idx).translation();
     double hold_err = (hold_pos - ct->PosDesired()).norm();
     total_hold += hold_err;
@@ -659,15 +742,21 @@ TrackingResult RunCartesianTeleop(const CompensatorConfig& cc,
 
 JointTrajectoryResult RunJointTeleopTrajectory(
     const CompensatorConfig& cc, const std::string& mjcf_path,
-    const TaskGains& gains = TaskGains{}, int trajectory_profile = 0) {
+    const TaskGains& gains = TaskGains{}, int trajectory_profile = 0,
+    wbc::HardTorqueLimitMode hard_torque_mode =
+        wbc::HardTorqueLimitMode::DIAGONAL_M_BOX,
+    TimingAndTorqueStats* perf_stats = nullptr,
+    double vel_scale = 1.0) {
   JointTrajectoryResult result{};
-  auto env = BuildEnv(cc, mjcf_path, gains);
+  auto env = BuildEnv(cc, mjcf_path, gains, hard_torque_mode,
+                      perf_stats != nullptr);
 
   // Init 2s
   double t = 0.0;
   for (int step = 0; step < 2000; ++step, t += kDt) {
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
   }
@@ -685,6 +774,7 @@ JointTrajectoryResult RunJointTeleopTrajectory(
   for (int step = 0; step < 500; ++step, t += kDt) {
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
   }
@@ -723,6 +813,7 @@ JointTrajectoryResult RunJointTeleopTrajectory(
       vel_cmd(3) = 0.12 * std::cos(2.0 * M_PI * 0.40 * tau);
       vel_cmd(5) = 0.10 * std::sin(2.0 * M_PI * 0.60 * tau + 1.2);
     }
+    vel_cmd *= vel_scale;
 
     ts += 1000000;
     jt->UpdateCommand(vel_cmd, ts, dummy_pos, 0);
@@ -730,6 +821,7 @@ JointTrajectoryResult RunJointTeleopTrajectory(
 
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
 
@@ -754,6 +846,7 @@ JointTrajectoryResult RunJointTeleopTrajectory(
     jt->UpdateCommand(vel_cmd, ts, dummy_pos, 0);
     ReadJointState(env.get());
     env->arch->Update(env->js, t, kDt);
+    if (perf_stats) perf_stats->Accumulate(*env->arch);
     ApplyCommand(env.get());
     mj_step(env->m, env->d);
   }
@@ -1271,6 +1364,304 @@ TEST(DomainRandomization, GainSweep) {
   std::filesystem::remove_all(sweep_dir);
 }
 
+TEST(DomainRandomization, DISABLED_TorqueLimitApproxVsExactDense) {
+  std::cout << "\n===== Hard Torque Limit: Approximation vs Exact Dense =====\n\n";
+
+  constexpr int kNumSeeds = 3;
+  constexpr int kNumCartesianProfiles = 2;
+  constexpr int kNumJointProfiles = 2;
+  constexpr double kRange = 1.0;       // damping/friction/stiffness ±100%
+  constexpr double kMassRange = 0.6;   // mass ±60%
+  constexpr double kPayloadMax = 4.0;  // payload up to 4kg
+  constexpr double kComRange = 0.04;   // CoM offset ±4cm per axis
+
+  std::string base_mjcf =
+      ResolvePackagePath("optimo_description", "mjcf/optimo.xml");
+  auto sweep_dir = std::filesystem::temp_directory_path() / "wbc_trqmode_compare";
+  std::filesystem::create_directories(sweep_dir);
+
+  std::vector<std::string> mjcf_paths;
+  for (int seed = 0; seed < kNumSeeds; ++seed) {
+    std::mt19937 rng(1337 + seed);
+    DynamicsParams dyn =
+        RandomizeDynamics(rng, kRange, kMassRange, kPayloadMax, kComRange);
+    auto path = sweep_dir / ("optimo_seed" + std::to_string(seed) + ".xml");
+    WriteRandomizedMjcf(path, base_mjcf, dyn);
+    mjcf_paths.push_back(path.string());
+  }
+
+  struct ModeCfg {
+    const char* label;
+    wbc::HardTorqueLimitMode mode;
+  };
+  const std::vector<ModeCfg> modes = {
+      {"diag_M_box", wbc::HardTorqueLimitMode::DIAGONAL_M_BOX},
+      {"exact_dense", wbc::HardTorqueLimitMode::EXACT_DENSE},
+  };
+
+  struct Aggregate {
+    double cart_transit_mm_sum{0.0};
+    double cart_hold_mm_sum{0.0};
+    double cart_ori_deg_sum{0.0};
+    double joint_rms_mrad_sum{0.0};
+    double joint_hold_mrad_sum{0.0};
+    int stable_seed_count{0};
+    TimingAndTorqueStats perf;
+  };
+  std::vector<Aggregate> agg(modes.size());
+
+  CompensatorConfig cc{};
+  cc.label = "trq_compare";
+  cc.pid = false;
+  cc.friction = false;
+  cc.observer = false;
+  cc.kp_vel = 0.0;
+  cc.enforce_torque_limit = true;
+
+  const TaskGains gains{200.0, 28.0, 6400.0, 160.0};
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    for (int seed = 0; seed < kNumSeeds; ++seed) {
+      bool seed_stable = true;
+      double seed_cart_transit = 0.0;
+      double seed_cart_hold = 0.0;
+      double seed_cart_ori = 0.0;
+      double seed_joint_rms = 0.0;
+      double seed_joint_hold = 0.0;
+      TimingAndTorqueStats seed_perf;
+
+      for (int p = 0; p < kNumCartesianProfiles; ++p) {
+        const auto r = RunCartesianTeleop(cc, mjcf_paths[seed], gains, p,
+                                          modes[mi].mode, &seed_perf);
+        if (!r.stable) {
+          seed_stable = false;
+          break;
+        }
+        seed_cart_transit += r.avg_transit_rms_mm;
+        seed_cart_hold += r.avg_hold_err_mm;
+        seed_cart_ori += r.worst_ori_deg;
+      }
+      if (!seed_stable) {
+        continue;
+      }
+
+      for (int p = 0; p < kNumJointProfiles; ++p) {
+        const auto r = RunJointTeleopTrajectory(cc, mjcf_paths[seed], gains, p,
+                                                modes[mi].mode, &seed_perf);
+        if (!r.stable) {
+          seed_stable = false;
+          break;
+        }
+        seed_joint_rms += r.rms_err_mrad;
+        seed_joint_hold += r.hold_err_mrad;
+      }
+      if (!seed_stable) {
+        continue;
+      }
+
+      agg[mi].stable_seed_count += 1;
+      agg[mi].cart_transit_mm_sum +=
+          seed_cart_transit / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].cart_hold_mm_sum +=
+          seed_cart_hold / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].cart_ori_deg_sum +=
+          seed_cart_ori / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].joint_rms_mrad_sum +=
+          seed_joint_rms / static_cast<double>(kNumJointProfiles);
+      agg[mi].joint_hold_mrad_sum +=
+          seed_joint_hold / static_cast<double>(kNumJointProfiles);
+      agg[mi].perf.Merge(seed_perf);
+    }
+  }
+
+  std::cout << std::fixed << std::setprecision(3);
+  std::cout << std::left << std::setw(14) << "mode"
+            << " | stable | c_trn | c_hold | c_ori | j_rms | j_hold"
+            << " | qp_setup(us) | qp_solve(us) | make_torque(us)"
+            << " | tau_rms_excess | tau_max_excess\n";
+  std::cout << std::string(170, '-') << "\n";
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    const int denom = std::max(1, agg[mi].stable_seed_count);
+    std::cout << std::left << std::setw(14) << modes[mi].label
+              << " | " << std::setw(6) << agg[mi].stable_seed_count << "/" << kNumSeeds
+              << " | " << std::setw(6) << (agg[mi].cart_transit_mm_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].cart_hold_mm_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].cart_ori_deg_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].joint_rms_mrad_sum / denom)
+              << " | " << std::setw(7) << (agg[mi].joint_hold_mrad_sum / denom)
+              << " | " << std::setw(12) << agg[mi].perf.MeanQpSetupUs()
+              << " | " << std::setw(12) << agg[mi].perf.MeanQpSolveUs()
+              << " | " << std::setw(14) << agg[mi].perf.MeanMakeTorqueUs()
+              << " | " << std::setw(14) << agg[mi].perf.RmsTauViolationNm()
+              << " | " << agg[mi].perf.tau_violation_max_nm << "\n";
+  }
+
+  if (agg[0].perf.MeanMakeTorqueUs() > 1e-9) {
+    const double slowdown =
+        agg[1].perf.MeanMakeTorqueUs() / agg[0].perf.MeanMakeTorqueUs();
+    std::cout << "\nExact dense / diag-M make_torque slowdown: "
+              << slowdown << "x\n";
+  }
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    EXPECT_GT(agg[mi].stable_seed_count, 0)
+        << "No stable seed for mode: " << modes[mi].label;
+    EXPECT_GT(agg[mi].perf.samples, 0)
+        << "No timing samples for mode: " << modes[mi].label;
+  }
+
+  std::filesystem::remove_all(sweep_dir);
+}
+
+TEST(DomainRandomization, DISABLED_TorqueLimitApproxVsExactDenseQuasiStatic) {
+  std::cout << "\n===== Quasi-Static: Approximation vs Exact Dense =====\n\n";
+
+  constexpr int kNumSeeds = 3;
+  constexpr int kNumCartesianProfiles = 1;
+  constexpr int kNumJointProfiles = 1;
+  constexpr double kRange = 0.2;       // damping/friction/stiffness ±20%
+  constexpr double kMassRange = 0.1;   // mass ±10%
+  constexpr double kPayloadMax = 0.5;  // payload up to 0.5kg
+  constexpr double kComRange = 0.005;  // CoM offset ±5mm per axis
+  constexpr double kCartSpeedScale = 0.2;
+  constexpr double kJointVelScale = 0.2;
+
+  std::string base_mjcf =
+      ResolvePackagePath("optimo_description", "mjcf/optimo.xml");
+  auto sweep_dir = std::filesystem::temp_directory_path() / "wbc_trqmode_compare_quasi";
+  std::filesystem::create_directories(sweep_dir);
+
+  std::vector<std::string> mjcf_paths;
+  for (int seed = 0; seed < kNumSeeds; ++seed) {
+    std::mt19937 rng(2026 + seed);
+    DynamicsParams dyn =
+        RandomizeDynamics(rng, kRange, kMassRange, kPayloadMax, kComRange);
+    auto path = sweep_dir / ("optimo_seed" + std::to_string(seed) + ".xml");
+    WriteRandomizedMjcf(path, base_mjcf, dyn);
+    mjcf_paths.push_back(path.string());
+  }
+
+  struct ModeCfg {
+    const char* label;
+    wbc::HardTorqueLimitMode mode;
+  };
+  const std::vector<ModeCfg> modes = {
+      {"diag_M_box", wbc::HardTorqueLimitMode::DIAGONAL_M_BOX},
+      {"exact_dense", wbc::HardTorqueLimitMode::EXACT_DENSE},
+  };
+
+  struct Aggregate {
+    double cart_transit_mm_sum{0.0};
+    double cart_hold_mm_sum{0.0};
+    double cart_ori_deg_sum{0.0};
+    double joint_rms_mrad_sum{0.0};
+    double joint_hold_mrad_sum{0.0};
+    int stable_seed_count{0};
+    TimingAndTorqueStats perf;
+  };
+  std::vector<Aggregate> agg(modes.size());
+
+  CompensatorConfig cc{};
+  cc.label = "trq_compare_quasi";
+  cc.pid = false;
+  cc.friction = false;
+  cc.observer = false;
+  cc.kp_vel = 0.0;
+  cc.enforce_torque_limit = true;
+
+  const TaskGains gains{80.0, 16.0, 1200.0, 45.0};
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    for (int seed = 0; seed < kNumSeeds; ++seed) {
+      bool seed_stable = true;
+      double seed_cart_transit = 0.0;
+      double seed_cart_hold = 0.0;
+      double seed_cart_ori = 0.0;
+      double seed_joint_rms = 0.0;
+      double seed_joint_hold = 0.0;
+      TimingAndTorqueStats seed_perf;
+
+      for (int p = 0; p < kNumCartesianProfiles; ++p) {
+        const auto r = RunCartesianTeleop(
+            cc, mjcf_paths[seed], gains, p, modes[mi].mode, &seed_perf,
+            kCartSpeedScale);
+        if (!r.stable) {
+          seed_stable = false;
+          break;
+        }
+        seed_cart_transit += r.avg_transit_rms_mm;
+        seed_cart_hold += r.avg_hold_err_mm;
+        seed_cart_ori += r.worst_ori_deg;
+      }
+      if (!seed_stable) {
+        continue;
+      }
+
+      for (int p = 0; p < kNumJointProfiles; ++p) {
+        const auto r = RunJointTeleopTrajectory(
+            cc, mjcf_paths[seed], gains, p, modes[mi].mode, &seed_perf,
+            kJointVelScale);
+        if (!r.stable) {
+          seed_stable = false;
+          break;
+        }
+        seed_joint_rms += r.rms_err_mrad;
+        seed_joint_hold += r.hold_err_mrad;
+      }
+      if (!seed_stable) {
+        continue;
+      }
+
+      agg[mi].stable_seed_count += 1;
+      agg[mi].cart_transit_mm_sum +=
+          seed_cart_transit / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].cart_hold_mm_sum +=
+          seed_cart_hold / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].cart_ori_deg_sum +=
+          seed_cart_ori / static_cast<double>(kNumCartesianProfiles);
+      agg[mi].joint_rms_mrad_sum +=
+          seed_joint_rms / static_cast<double>(kNumJointProfiles);
+      agg[mi].joint_hold_mrad_sum +=
+          seed_joint_hold / static_cast<double>(kNumJointProfiles);
+      agg[mi].perf.Merge(seed_perf);
+    }
+  }
+
+  std::cout << std::fixed << std::setprecision(3);
+  std::cout << std::left << std::setw(14) << "mode"
+            << " | stable | c_trn | c_hold | c_ori | j_rms | j_hold"
+            << " | qp_setup(us) | qp_solve(us) | make_torque(us)"
+            << " | tau_rms_excess | tau_max_excess\n";
+  std::cout << std::string(170, '-') << "\n";
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    const int denom = std::max(1, agg[mi].stable_seed_count);
+    std::cout << std::left << std::setw(14) << modes[mi].label
+              << " | " << std::setw(6) << agg[mi].stable_seed_count << "/"
+              << kNumSeeds
+              << " | " << std::setw(6) << (agg[mi].cart_transit_mm_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].cart_hold_mm_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].cart_ori_deg_sum / denom)
+              << " | " << std::setw(6) << (agg[mi].joint_rms_mrad_sum / denom)
+              << " | " << std::setw(7) << (agg[mi].joint_hold_mrad_sum / denom)
+              << " | " << std::setw(12) << agg[mi].perf.MeanQpSetupUs()
+              << " | " << std::setw(12) << agg[mi].perf.MeanQpSolveUs()
+              << " | " << std::setw(14) << agg[mi].perf.MeanMakeTorqueUs()
+              << " | " << std::setw(14) << agg[mi].perf.RmsTauViolationNm()
+              << " | " << agg[mi].perf.tau_violation_max_nm << "\n";
+  }
+
+  for (size_t mi = 0; mi < modes.size(); ++mi) {
+    EXPECT_GT(agg[mi].stable_seed_count, 0)
+        << "No stable seed for mode: " << modes[mi].label;
+    EXPECT_GT(agg[mi].perf.samples, 0)
+        << "No timing samples for mode: " << modes[mi].label;
+  }
+
+  std::filesystem::remove_all(sweep_dir);
+}
+
 // =============================================================================
 // Tunable Search (manual): joint + Cartesian trajectories with CoM randomization
 // =============================================================================
@@ -1288,6 +1679,17 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
   std::string base_mjcf = ResolvePackagePath("optimo_description", "mjcf/optimo.xml");
   auto sweep_dir = std::filesystem::temp_directory_path() / "wbc_optimal_param_search";
   std::filesystem::create_directories(sweep_dir);
+  const auto csv_path = std::filesystem::temp_directory_path() / "gain_sweep_domain_randomized.csv";
+  std::ofstream csv(csv_path);
+  if (csv.is_open()) {
+    csv << "label,jpos_kp,jpos_kd,ee_kp,ee_kd,"
+        << "friction_enabled,gamma_c,gamma_v,max_f_c,max_f_v,"
+        << "observer_enabled,K_o,max_tau_dist,"
+        << "stable_seeds,num_seeds,"
+        << "cart_transit_mm,cart_hold_mm,cart_ori_deg,"
+        << "joint_rms_mrad,joint_hold_mrad,score,"
+        << "rand_scale_range,rand_mass_range,rand_payload_max_kg,rand_com_range_m\n";
+  }
 
   std::vector<std::string> mjcf_paths;
   for (int seed = 0; seed < kNumSeeds; ++seed) {
@@ -1369,7 +1771,8 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
   std::cout << "Candidate count: " << candidates.size()
             << ", seeds: " << kNumSeeds
             << ", trajectory profiles: C" << kNumCartesianProfiles
-            << " + J" << kNumJointProfiles << "\n\n";
+            << " + J" << kNumJointProfiles
+            << ", torque_limit=on\n\n";
 
   std::cout << "\n";
   std::cout << std::left << std::setw(36) << "candidate"
@@ -1395,6 +1798,7 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
     cc.K_o = cand.K_o;
     cc.max_tau_dist = cand.max_tau_dist;
     cc.kp_vel = 0.0;
+    cc.enforce_torque_limit = true;
 
     double sum_c_trn = 0.0;
     double sum_c_hold = 0.0;
@@ -1457,13 +1861,27 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
     }
 
     const int denom = std::max(1, n_stable);
-    const double avg_score = sum_score / static_cast<double>(denom);
+    double avg_c_trn = std::numeric_limits<double>::quiet_NaN();
+    double avg_c_hold = std::numeric_limits<double>::quiet_NaN();
+    double avg_c_ori = std::numeric_limits<double>::quiet_NaN();
+    double avg_j_rms = std::numeric_limits<double>::quiet_NaN();
+    double avg_j_hold = std::numeric_limits<double>::quiet_NaN();
+    double avg_score = std::numeric_limits<double>::infinity();
+    if (n_stable > 0) {
+      avg_c_trn = sum_c_trn / static_cast<double>(denom);
+      avg_c_hold = sum_c_hold / static_cast<double>(denom);
+      avg_c_ori = sum_c_ori / static_cast<double>(denom);
+      avg_j_rms = sum_j_rms / static_cast<double>(denom);
+      avg_j_hold = sum_j_hold / static_cast<double>(denom);
+      avg_score = sum_score / static_cast<double>(denom);
+    }
+
     std::cout << std::left << std::setw(36) << cand.label << " | "
-              << std::setw(5) << (sum_c_trn / denom) << " | "
-              << std::setw(6) << (sum_c_hold / denom) << " | "
-              << std::setw(5) << (sum_c_ori / denom) << " | "
-              << std::setw(5) << (sum_j_rms / denom) << " | "
-              << std::setw(6) << (sum_j_hold / denom) << " | "
+              << std::setw(5) << avg_c_trn << " | "
+              << std::setw(6) << avg_c_hold << " | "
+              << std::setw(5) << avg_c_ori << " | "
+              << std::setw(5) << avg_j_rms << " | "
+              << std::setw(6) << avg_j_hold << " | "
               << std::setw(6) << avg_score << " | "
               << n_stable << "/" << kNumSeeds << "\n";
 
@@ -1472,6 +1890,47 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
       best_stable = n_stable;
       best_score = avg_score;
       best_idx = static_cast<int>(i);
+    }
+
+    if (csv.is_open()) {
+      const auto esc = [](const std::string& s) {
+        std::string out;
+        out.reserve(s.size());
+        for (char c : s) {
+          if (c == '"') {
+            out.push_back('"');
+          }
+          out.push_back(c);
+        }
+        return out;
+      };
+
+      csv << '"' << esc(cand.label) << '"' << ','
+          << cand.gains.jpos_kp << ','
+          << cand.gains.jpos_kd << ','
+          << cand.gains.ee_kp << ','
+          << cand.gains.ee_kd << ','
+          << (cand.friction ? 1 : 0) << ','
+          << cand.gamma_c << ','
+          << cand.gamma_v << ','
+          << cand.max_f_c << ','
+          << cand.max_f_v << ','
+          << (cand.observer ? 1 : 0) << ','
+          << cand.K_o << ','
+          << cand.max_tau_dist << ','
+          << n_stable << ','
+          << kNumSeeds << ','
+          << avg_c_trn << ','
+          << avg_c_hold << ','
+          << avg_c_ori << ','
+          << avg_j_rms << ','
+          << avg_j_hold << ','
+          << avg_score << ','
+          << kRange << ','
+          << kMassRange << ','
+          << kPayloadMax << ','
+          << kComRange
+          << '\n';
     }
   }
 
@@ -1490,6 +1949,9 @@ TEST(DomainRandomization, DISABLED_OptimalParamSearchJointAndCartesian) {
             << ", observer=" << (best.observer ? "on" : "off")
             << ", K_o=" << best.K_o
             << ", max_tau_dist=" << best.max_tau_dist << "\n";
+  if (csv.is_open()) {
+    std::cout << "CSV written: " << csv_path << "\n";
+  }
 
   std::filesystem::remove_all(sweep_dir);
 }

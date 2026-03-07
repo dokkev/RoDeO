@@ -78,9 +78,9 @@ SENSOR_QOS = QoSProfile(
 # ---------------------------------------------------------------------------
 @pytest.mark.rostest
 def generate_test_description():
-    optimo_bringup_dir = get_package_share_directory("optimo_bringup")
+    mujoco_sim_dir = get_package_share_directory("mujoco_sim")
     launch_file = os.path.join(
-        optimo_bringup_dir, "launch", "optimo_wbc_mujoco.launch.py"
+        mujoco_sim_dir, "launch", "mujoco_sim.launch.py"
     )
 
     optimo_launch = IncludeLaunchDescription(

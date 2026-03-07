@@ -382,6 +382,10 @@ private:
   bool gravity_valid_{false};
   bool coriolis_valid_{false};
   bool com_kinematics_valid_{false};
+  bool link_jacobian_cache_valid_{false};
+  bool link_body_jacobian_cache_valid_{false};
+  int link_jacobian_cache_frame_idx_{-1};
+  int link_body_jacobian_cache_frame_idx_{-1};
   Eigen::VectorXd nonlinear_effects_cache_;
   Eigen::VectorXd gravity_cache_;
   Eigen::VectorXd coriolis_cache_;
@@ -391,6 +395,10 @@ private:
   // Scratch buffer for in-place Jacobian computation (6 x num_qdot_).
   // Allocated once in Initialize() and reused in FillLink*Jacobian().
   Eigen::MatrixXd link_jac_scratch_;
+  // 1-entry per-tick Jacobian caches (output ordering: [angular; linear]).
+  // Avoids recomputing the same EE frame Jacobian across handler/task updates.
+  Eigen::MatrixXd link_jacobian_cache_;
+  Eigen::MatrixXd link_body_jacobian_cache_;
 
   // Scratch buffers for ComputeManipulability (separate Data to avoid
   // corrupting the main model state when evaluating at perturbed q).

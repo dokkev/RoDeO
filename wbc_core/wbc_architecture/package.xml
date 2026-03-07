@@ -22,6 +22,7 @@
   <depend>wbc_solver</depend>
   <depend>wbc_trajectory</depend>
   <depend>wbc_util</depend>
+  <depend>residual_compensator</depend>
   <test_depend>ament_cmake_gtest</test_depend>
 
   <export>

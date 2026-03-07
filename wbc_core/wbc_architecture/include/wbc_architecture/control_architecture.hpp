@@ -21,10 +21,10 @@
 #include "wbc_formulation/wbc_formulation.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_solver/wbic.hpp"
-#include "wbc_util/adaptive_friction_compensator.hpp"
 #include "wbc_util/joint_pid.hpp"
-#include "wbc_util/momentum_observer.hpp"
 #include "wbc_logger/wbc_logger.hpp"
+#include "residual_compensator/adaptive_friction_compensator.hpp"
+#include "residual_compensator/momentum_observer.hpp"
 
 namespace wbc {
 
@@ -142,6 +142,23 @@ public:
     hold_prev_torque_on_fail_ = hold;
   }
   bool HoldPreviousTorqueOnFailure() const { return hold_prev_torque_on_fail_; }
+
+  /**
+   * @brief Update residual dynamics compensator runtime parameters.
+   *
+   * @details
+   * This API is intended for non-RT service-style tuning paths that latch
+   * updates and apply them from the control thread. Each gain/limit vector may
+   * be scalar (size 1) or per-joint (size = num_active).
+   *
+   * @param friction New adaptive friction config.
+   * @param observer New momentum observer config.
+   * @param error_msg Optional output message on validation failure.
+   * @return true when parameters were applied.
+   */
+  bool SetResidualDynamicsConfig(const FrictionCompensatorConfig& friction,
+                                 const MomentumObserverConfig& observer,
+                                 std::string* error_msg = nullptr);
 
   FSMHandler* GetFsmHandler() const { return fsm_handler_.get(); }
   PinocchioRobotSystem* GetRobot() const { return robot_.get(); }

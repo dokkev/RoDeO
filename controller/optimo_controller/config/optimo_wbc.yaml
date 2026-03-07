@@ -59,7 +59,9 @@ controller:
   # consider enabling this if your motor controller only accepts desired torque (current) commands.
   # if your motor controller accepts desired position and velocity along with torque (a.k.a impedance control)
   # I recommend leaving this disabled and directly passing the q_cmd and qdot_cmd from the WBIC to your motor controller, which will handle the internal control loop inside the motor controller firmware.
-  # ik_method: "weighted_qp"   # default. Use "hierarchy" for legacy null-space projection.
+  # Soft singularity-avoidance mode: keep weighted_qp so secondary posture terms
+  # act as soft biases instead of strict hard-priority null-space constraints.
+  ik_method: "weighted_qp"
 
   joint_pid:
     enabled: false
@@ -87,6 +89,7 @@ regularization:
 #   is_soft: false (default) → hard QP box constraint (strict enforcement)
 #   is_soft: true            → slack variable with quadratic penalty (controlled violation)
 #   soft_weight: 1.0e+5      → penalty weight when is_soft=true (higher = stricter)
+global_constraints:
   JointPosLimitConstraint:
     enabled: true
     scale: 1.0      # 90% of URDF position range (safety margin)
@@ -100,9 +103,9 @@ regularization:
     soft_weight: 1.0e+5
 
   JointTrqLimitConstraint:
-    enabled: false   # enable if running torque-only control (no motor PD)
+    enabled: true   # enable if running torque-only control (no motor PD)
     scale: 1.0      # fraction of URDF torque limits
-    is_soft: true    # soft → full coupled dynamics (Sa*M) in C matrix
+    is_soft: false    # soft → full coupled dynamics (Sa*M) in C matrix
     soft_weight: 1.0e+5
 
 

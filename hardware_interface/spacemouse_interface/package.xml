@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>spacemouse_interface</name>
+  <version>0.1.0</version>
+  <description>Python SpaceMouse teleop interface for Optimo/WBC command topics.</description>
+
+  <maintainer email="dk@todo.todo">dk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>rclpy</depend>
+  <exec_depend>python3-pyspacemouse</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

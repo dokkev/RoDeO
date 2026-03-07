@@ -1,0 +1,9 @@
+# Set scalar kp/kd gains for named motion tasks.
+# Values are broadcast to each task dimension.
+
+string[] task_names
+float64[] kp
+float64[] kd
+---
+bool success
+string message

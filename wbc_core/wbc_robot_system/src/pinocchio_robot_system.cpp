@@ -150,6 +150,8 @@ void PinocchioRobotSystem::Initialize() {
   gravity_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   coriolis_cache_ = Eigen::VectorXd::Zero(num_qdot_);
   link_jac_scratch_ = Eigen::MatrixXd::Zero(6, num_qdot_);
+  link_jacobian_cache_ = Eigen::MatrixXd::Zero(6, num_qdot_);
+  link_body_jacobian_cache_ = Eigen::MatrixXd::Zero(6, num_qdot_);
   manip_data_ = pinocchio::Data(model_);
   manip_jac_ = Eigen::MatrixXd::Zero(6, num_qdot_);
   InvalidateDynamicsCache();
@@ -175,6 +177,10 @@ void PinocchioRobotSystem::InvalidateDynamicsCache() {
   gravity_valid_ = false;
   coriolis_valid_ = false;
   com_kinematics_valid_ = false;
+  link_jacobian_cache_valid_ = false;
+  link_body_jacobian_cache_valid_ = false;
+  link_jacobian_cache_frame_idx_ = -1;
+  link_body_jacobian_cache_frame_idx_ = -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -534,20 +540,33 @@ PinocchioRobotSystem::GetLinkJacobianDotQdot(int link_idx) {
 
 ////////////////////////////////////////////////////////////////////////////////
 void PinocchioRobotSystem::FillLinkJacobian(int link_idx, Eigen::MatrixXd& out) {
-  link_jac_scratch_.setZero();
-  pinocchio::getFrameJacobian(model_, data_, link_idx,
-                              pinocchio::LOCAL_WORLD_ALIGNED, link_jac_scratch_);
-  out.topRows<3>()    = link_jac_scratch_.bottomRows<3>();
-  out.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+  assert(out.rows() == 6 && out.cols() == num_qdot_);
+  if (!link_jacobian_cache_valid_ || link_jacobian_cache_frame_idx_ != link_idx) {
+    link_jac_scratch_.setZero();
+    pinocchio::getFrameJacobian(model_, data_, link_idx,
+                                pinocchio::LOCAL_WORLD_ALIGNED, link_jac_scratch_);
+    link_jacobian_cache_.topRows<3>() = link_jac_scratch_.bottomRows<3>();
+    link_jacobian_cache_.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+    link_jacobian_cache_frame_idx_ = link_idx;
+    link_jacobian_cache_valid_ = true;
+  }
+  out.noalias() = link_jacobian_cache_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void PinocchioRobotSystem::FillLinkBodyJacobian(int link_idx, Eigen::MatrixXd& out) {
-  link_jac_scratch_.setZero();
-  pinocchio::getFrameJacobian(model_, data_, link_idx, pinocchio::LOCAL,
-                              link_jac_scratch_);
-  out.topRows<3>()    = link_jac_scratch_.bottomRows<3>();
-  out.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+  assert(out.rows() == 6 && out.cols() == num_qdot_);
+  if (!link_body_jacobian_cache_valid_ ||
+      link_body_jacobian_cache_frame_idx_ != link_idx) {
+    link_jac_scratch_.setZero();
+    pinocchio::getFrameJacobian(model_, data_, link_idx, pinocchio::LOCAL,
+                                link_jac_scratch_);
+    link_body_jacobian_cache_.topRows<3>() = link_jac_scratch_.bottomRows<3>();
+    link_body_jacobian_cache_.bottomRows<3>() = link_jac_scratch_.topRows<3>();
+    link_body_jacobian_cache_frame_idx_ = link_idx;
+    link_body_jacobian_cache_valid_ = true;
+  }
+  out.noalias() = link_body_jacobian_cache_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

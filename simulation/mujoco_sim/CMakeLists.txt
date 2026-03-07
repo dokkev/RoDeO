@@ -7,7 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 
-foreach(_asset_dir IN ITEMS launch mjcf)
+foreach(_asset_dir IN ITEMS config launch mjcf)
   if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_asset_dir}")
     install(
       DIRECTORY ${_asset_dir}

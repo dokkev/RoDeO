@@ -233,6 +233,8 @@ private:
 
     // (1) First Visit
     if (is_first_visit_.load(std::memory_order_acquire)) {
+      LogStateEntry(current_state_id_.load(std::memory_order_acquire), current_state_,
+                    has_time ? current_global_time : nullptr);
       if (has_time) {
         current_state_->EnterState(*current_global_time);
       }
@@ -264,6 +266,7 @@ private:
       // observes a state/configuration-consistent desired/task setup.
       current_state_ = next_it->second.get();
       current_state_id_.store(next_id, std::memory_order_release);
+      LogStateEntry(next_id, current_state_, has_time ? current_global_time : nullptr);
       if (has_time) {
         current_state_->EnterState(*current_global_time);
       }
@@ -275,6 +278,19 @@ private:
       transition_error_latched_ = false;
       return;
     }
+  }
+
+  void LogStateEntry(StateId id, const StateMachine* state,
+                     const double* current_global_time) const {
+    if (state == nullptr) {
+      return;
+    }
+    std::cout << "[FSMHandler] Enter state: id=" << id
+              << ", name=" << state->name();
+    if (current_global_time != nullptr) {
+      std::cout << ", t=" << *current_global_time;
+    }
+    std::cout << std::endl;
   }
   std::atomic<StateId> current_state_id_;
   StateMachine* current_state_;

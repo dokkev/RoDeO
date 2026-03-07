@@ -13,11 +13,13 @@ find_package(ament_cmake REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
+find_package(residual_compensator REQUIRED)
 find_package(wbc_robot_system REQUIRED)
 find_package(wbc_trajectory REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/manipulability_handler.cpp
+  src/sys_id_handler.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -31,6 +33,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
+  residual_compensator
   wbc_robot_system
   wbc_trajectory
 )
@@ -73,6 +76,7 @@ ament_export_dependencies(
   eigen3_cmake_module
   Eigen3
   pinocchio
+  residual_compensator
   wbc_robot_system
   wbc_trajectory
 )

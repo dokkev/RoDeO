@@ -32,6 +32,20 @@ struct TaskStateData {
   std::vector<double> op_cmd;
   std::vector<double> kp;
   std::vector<double> kd;
+  std::vector<double> weight;
+  double x_err_norm{0.0};
+};
+
+/// QP solve diagnostics snapshot.
+struct QpStateData {
+  bool solved{false};
+  int status{-1};
+  int iter{0};
+  double pri_res{0.0};
+  double dua_res{0.0};
+  double obj{0.0};
+  double setup_time_us{0.0};
+  double solve_time_us{0.0};
 };
 
 /// Full WBC pipeline snapshot (ROS-free, pre-allocated).
@@ -56,6 +70,23 @@ struct WbcStateData {
   std::vector<double> tau_fb;
   std::vector<double> tau;
   std::vector<double> gravity;
+
+  // QP diagnostics (WBIC correction QP)
+  bool qp_solved{false};
+  int qp_status{-1};
+  int qp_iter{0};
+  double qp_pri_res{0.0};
+  double qp_dua_res{0.0};
+  double qp_obj{0.0};
+  double qp_setup_time_us{0.0};
+  double qp_solve_time_us{0.0};
+
+  // Tracking performance (instantaneous)
+  double joint_pos_err_norm{0.0};
+  double joint_vel_err_norm{0.0};
+  double joint_pos_err_max{0.0};
+  double joint_vel_err_max{0.0};
+  double tau_fb_norm{0.0};
 
   // Per-task details
   std::vector<TaskStateData> tasks;
@@ -87,7 +118,8 @@ public:
                const Eigen::VectorXd& q_curr,
                const Eigen::VectorXd& qdot_curr,
                const Eigen::VectorXd& gravity,
-               const WbcFormulation& formulation);
+               const WbcFormulation& formulation,
+               const QpStateData* qp_state = nullptr);
 
   /// Access the latest snapshot (for RT publisher).
   const WbcStateData& GetStateData() const { return state_data_; }
@@ -126,7 +158,8 @@ private:
                        const Eigen::VectorXd& q_curr,
                        const Eigen::VectorXd& qdot_curr,
                        const Eigen::VectorXd& gravity,
-                       const WbcFormulation& formulation);
+                       const WbcFormulation& formulation,
+                       const QpStateData* qp_state);
 
   void PrintToConsole(double time, int state_id,
                       const Eigen::VectorXd& q_curr,

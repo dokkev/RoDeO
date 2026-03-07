@@ -14,7 +14,9 @@
 
 #include "optimo_controller/state_machines/cartesian_teleop.hpp"
 #include "optimo_controller/state_machines/joint_teleop.hpp"
+#include "wbc_formulation/interface/task.hpp"
 #include "wbc_util/ros_path_utils.hpp"
+#include "wbc_util/task_registry.hpp"
 
 namespace optimo_controller
 {
@@ -230,6 +232,120 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
       }
     });
 
+  // Task gains service — scalar kp/kd per task name (broadcast per task dim).
+  task_gain_srv_ = get_node()->create_service<wbc_msgs::srv::TaskGainService>(
+    "~/set_task_gains",
+    [this](const wbc_msgs::srv::TaskGainService::Request::SharedPtr req,
+           wbc_msgs::srv::TaskGainService::Response::SharedPtr res) {
+      if (req->task_names.empty()) {
+        res->success = false;
+        res->message = "task_names is empty";
+        return;
+      }
+      if (req->kp.size() != req->task_names.size() ||
+          req->kd.size() != req->task_names.size()) {
+        res->success = false;
+        res->message = "kp/kd size must match task_names size";
+        return;
+      }
+
+      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+      for (const auto& name : req->task_names) {
+        if (reg->GetMotionTask(name) == nullptr) {
+          res->success = false;
+          res->message = "unknown motion task: " + name;
+          return;
+        }
+      }
+
+      TaskGainUpdate upd;
+      upd.task_names = req->task_names;
+      upd.kp = req->kp;
+      upd.kd = req->kd;
+      upd.ts_ns = get_node()->now().nanoseconds();
+      task_gain_update_buf_.writeFromNonRT(upd);
+
+      res->success = true;
+      res->message = "task gain update latched";
+    });
+
+  // Task weights service — scalar weight per task name (broadcast per task dim).
+  task_weight_srv_ = get_node()->create_service<wbc_msgs::srv::TaskWeightService>(
+    "~/set_task_weights",
+    [this](const wbc_msgs::srv::TaskWeightService::Request::SharedPtr req,
+           wbc_msgs::srv::TaskWeightService::Response::SharedPtr res) {
+      if (req->task_names.empty()) {
+        res->success = false;
+        res->message = "task_names is empty";
+        return;
+      }
+      if (req->weight.size() != req->task_names.size()) {
+        res->success = false;
+        res->message = "weight size must match task_names size";
+        return;
+      }
+
+      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+      for (const auto& name : req->task_names) {
+        if (reg->GetMotionTask(name) == nullptr) {
+          res->success = false;
+          res->message = "unknown motion task: " + name;
+          return;
+        }
+      }
+
+      TaskWeightUpdate upd;
+      upd.task_names = req->task_names;
+      upd.weight = req->weight;
+      upd.ts_ns = get_node()->now().nanoseconds();
+      task_weight_update_buf_.writeFromNonRT(upd);
+
+      res->success = true;
+      res->message = "task weight update latched";
+    });
+
+  // Residual dynamics service — friction/observer parameter update.
+  residual_dyn_srv_ =
+    get_node()->create_service<wbc_msgs::srv::ResidualDynamicsService>(
+      "~/set_residual_dynamics",
+      [this](const wbc_msgs::srv::ResidualDynamicsService::Request::SharedPtr req,
+             wbc_msgs::srv::ResidualDynamicsService::Response::SharedPtr res) {
+        const auto valid = [this](const std::vector<double>& v) {
+          return v.size() == 1 || v.size() == joint_count_;
+        };
+
+        if (req->friction_enabled) {
+          if (!valid(req->gamma_c) || !valid(req->gamma_v) ||
+              !valid(req->max_f_c) || !valid(req->max_f_v)) {
+            res->success = false;
+            res->message = "friction vectors must be size 1 or num_joints";
+            return;
+          }
+        }
+        if (req->observer_enabled) {
+          if (!valid(req->k_o) || !valid(req->max_tau_dist)) {
+            res->success = false;
+            res->message = "observer vectors must be size 1 or num_joints";
+            return;
+          }
+        }
+
+        ResidualDynamicsUpdate upd;
+        upd.friction_enabled = req->friction_enabled;
+        upd.gamma_c = req->gamma_c;
+        upd.gamma_v = req->gamma_v;
+        upd.max_f_c = req->max_f_c;
+        upd.max_f_v = req->max_f_v;
+        upd.observer_enabled = req->observer_enabled;
+        upd.k_o = req->k_o;
+        upd.max_tau_dist = req->max_tau_dist;
+        upd.ts_ns = get_node()->now().nanoseconds();
+        residual_update_buf_.writeFromNonRT(upd);
+
+        res->success = true;
+        res->message = "residual dynamics update latched";
+      });
+
   // Log available states for discoverability.
   {
     const auto& states = ctrl_arch_->GetFsmHandler()->GetStates();
@@ -321,6 +437,9 @@ controller_interface::return_type OptimoController::update(
 {
   if (!ctrl_arch_) return controller_interface::return_type::OK;
 
+  // Consume pending non-RT service updates on the control thread.
+  ApplyPendingRuntimeUpdates();
+
   /**
    * @brief Direct joint path (control-critical, RT primary).
    *
@@ -400,7 +519,11 @@ void OptimoController::PublishWbcState(const rclcpp::Time& time)
 
     const auto n = joint_count_;
     auto copy = [&](auto& dst, const auto& s, std::size_t count) {
-      for (std::size_t i = 0; i < count; ++i) dst[i] = s[i];
+      const std::size_t safe_count =
+          std::min({count, dst.size(), s.size()});
+      for (std::size_t i = 0; i < safe_count; ++i) {
+        dst[i] = s[i];
+      }
     };
 
     copy(msg.q_des,     src.q_des,     n);
@@ -414,6 +537,21 @@ void OptimoController::PublishWbcState(const rclcpp::Time& time)
     copy(msg.tau_fb,    src.tau_fb,    n);
     copy(msg.tau,       src.tau,       n);
     copy(msg.gravity,   src.gravity,   n);
+
+    msg.joint_pos_err_norm = src.joint_pos_err_norm;
+    msg.joint_vel_err_norm = src.joint_vel_err_norm;
+    msg.joint_pos_err_max = src.joint_pos_err_max;
+    msg.joint_vel_err_max = src.joint_vel_err_max;
+    msg.tau_fb_norm = src.tau_fb_norm;
+
+    msg.qp_solved = src.qp_solved;
+    msg.qp_status = src.qp_status;
+    msg.qp_iter = src.qp_iter;
+    msg.qp_pri_res = src.qp_pri_res;
+    msg.qp_dua_res = src.qp_dua_res;
+    msg.qp_obj = src.qp_obj;
+    msg.qp_setup_time_us = src.qp_setup_time_us;
+    msg.qp_solve_time_us = src.qp_solve_time_us;
 
     msg.tasks.resize(src.tasks.size());
     for (std::size_t t = 0; t < src.tasks.size(); ++t) {
@@ -429,10 +567,104 @@ void OptimoController::PublishWbcState(const rclcpp::Time& time)
       td.op_cmd   = ts.op_cmd;
       td.kp       = ts.kp;
       td.kd       = ts.kd;
+      td.weight   = ts.weight;
+      td.x_err_norm = ts.x_err_norm;
     }
 
     rt_wbc_pub_->unlockAndPublish();
     ctrl_arch_->logger_.ClearNewData();
+  }
+}
+
+void OptimoController::ApplyPendingRuntimeUpdates()
+{
+  bool task_update_arrived = false;
+
+  if (const auto* upd = task_gain_update_buf_.readFromRT();
+      upd != nullptr && upd->ts_ns > last_task_gain_update_ts_) {
+    last_task_gain_update_ts_ = upd->ts_ns;
+    for (std::size_t i = 0; i < upd->task_names.size(); ++i) {
+      tuned_task_kp_[upd->task_names[i]] = upd->kp[i];
+      tuned_task_kd_[upd->task_names[i]] = upd->kd[i];
+    }
+    task_update_arrived = true;
+  }
+
+  if (const auto* upd = task_weight_update_buf_.readFromRT();
+      upd != nullptr && upd->ts_ns > last_task_weight_update_ts_) {
+    last_task_weight_update_ts_ = upd->ts_ns;
+    for (std::size_t i = 0; i < upd->task_names.size(); ++i) {
+      tuned_task_weight_[upd->task_names[i]] = upd->weight[i];
+    }
+    task_update_arrived = true;
+  }
+
+  if (const auto* upd = residual_update_buf_.readFromRT();
+      upd != nullptr && upd->ts_ns > last_residual_update_ts_) {
+    last_residual_update_ts_ = upd->ts_ns;
+
+    auto to_eigen = [](const std::vector<double>& src, double def) -> Eigen::VectorXd {
+      if (src.empty()) {
+        return Eigen::VectorXd::Constant(1, def);
+      }
+      Eigen::VectorXd v(static_cast<Eigen::Index>(src.size()));
+      for (std::size_t i = 0; i < src.size(); ++i) {
+        v[static_cast<Eigen::Index>(i)] = src[i];
+      }
+      return v;
+    };
+
+    wbc::FrictionCompensatorConfig fric;
+    fric.enabled = upd->friction_enabled;
+    fric.gamma_c = to_eigen(upd->gamma_c, 0.0);
+    fric.gamma_v = to_eigen(upd->gamma_v, 0.0);
+    fric.max_f_c = to_eigen(upd->max_f_c, 10.0);
+    fric.max_f_v = to_eigen(upd->max_f_v, 5.0);
+
+    wbc::MomentumObserverConfig obs;
+    obs.enabled = upd->observer_enabled;
+    obs.K_o = to_eigen(upd->k_o, 50.0);
+    obs.max_tau_dist = to_eigen(upd->max_tau_dist, 50.0);
+
+    std::string err;
+    if (!ctrl_arch_->SetResidualDynamicsConfig(fric, obs, &err)) {
+      RCLCPP_WARN(get_node()->get_logger(),
+        "[OptimoController] residual dynamics update rejected: %s", err.c_str());
+    } else {
+      RCLCPP_INFO(get_node()->get_logger(),
+        "[OptimoController] residual dynamics updated (friction=%s, observer=%s)",
+        fric.enabled ? "on" : "off", obs.enabled ? "on" : "off");
+    }
+  }
+
+  // Reapply tuned task params when a new request arrives, or when state changed.
+  if (task_update_arrived || active_state_id_ != last_tuned_state_id_) {
+    ReapplyTunedTaskParams();
+    last_tuned_state_id_ = active_state_id_;
+  }
+}
+
+void OptimoController::ReapplyTunedTaskParams()
+{
+  auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+  if (reg == nullptr) {
+    return;
+  }
+
+  for (const auto& [name, kp] : tuned_task_kp_) {
+    auto* task = reg->GetMotionTask(name);
+    if (task == nullptr) continue;
+    task->SetKp(Eigen::VectorXd::Constant(task->Dim(), kp));
+  }
+  for (const auto& [name, kd] : tuned_task_kd_) {
+    auto* task = reg->GetMotionTask(name);
+    if (task == nullptr) continue;
+    task->SetKd(Eigen::VectorXd::Constant(task->Dim(), kd));
+  }
+  for (const auto& [name, w] : tuned_task_weight_) {
+    auto* task = reg->GetMotionTask(name);
+    if (task == nullptr) continue;
+    task->SetWeight(Eigen::VectorXd::Constant(task->Dim(), w));
   }
 }
 

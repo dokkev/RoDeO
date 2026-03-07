@@ -16,7 +16,7 @@ namespace wbc {
 
 /**
  * @brief Holds the current EE pose and tracks external Cartesian commands,
- *        with a joint posture task in the null-space.
+ *        with a soft joint posture bias for singularity avoidance.
  *
  * YAML params (under `params:`):
  *   - `linear_vel_max`:  translational speed limit [m/s]   (default: 0.1)

@@ -18,22 +18,30 @@
 namespace wbc {
 
 /**
- * @brief Null-space projection method for WBIC's hierarchical task projection.
+ * @brief Deprecated compatibility enum.
  *
- * Controls how N = I - pinv(J) * J is computed in FindConfiguration.
- * The choice affects both accuracy (null-space leakage) and performance.
+ * Hierarchical null-space projection path has been removed from WBIC.
+ * Values are kept only to avoid downstream build breakage.
  */
 enum class NullSpaceMethod {
-  DLS,             ///< DLS pseudoinverse: N = I - J#_dls * J (λ=0.05, leakage depends on Jacobian spectrum)
-  DLS_MICRO,       ///< DLS with micro-lambda: N = I - J#_dls * J (λ=1e-4, low but non-zero leakage)
+  DLS,
+  DLS_MICRO,
 };
 
 /**
  * @brief IK method for FindConfiguration.
  */
 enum class IKMethod {
-  HIERARCHY,       ///< Classic null-space hierarchy (DLS projector)
+  HIERARCHY,       ///< Deprecated: retained for source compatibility (falls back to WEIGHTED_QP)
   WEIGHTED_QP,     ///< Weighted least-squares QP (task weights determine priority)
+};
+
+/**
+ * @brief Hard torque-limit handling mode in WBIC correction QP.
+ */
+enum class HardTorqueLimitMode {
+  DIAGONAL_M_BOX,  ///< Fast box approximation using only diag(M) for hard torque limits
+  EXACT_DENSE,     ///< Exact coupled hard torque limits in dense inequality rows
 };
 
 /**
@@ -71,7 +79,15 @@ struct WBICData {
         rf_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         rf_prev_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         Xc_ddot_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
-        tau_prev_(Eigen::VectorXd::Zero(num_qdot)) {}
+        tau_prev_(Eigen::VectorXd::Zero(num_qdot)),
+        qp_solved_(false),
+        qp_status_(-1),
+        qp_iter_(0),
+        qp_pri_res_(0.0),
+        qp_dua_res_(0.0),
+        qp_obj_(0.0),
+        qp_setup_time_us_(0.0),
+        qp_solve_time_us_(0.0) {}
 
   QPParams* qp_params_;
   Eigen::VectorXd delta_qddot_;
@@ -84,6 +100,16 @@ struct WBICData {
   Eigen::VectorXd rf_prev_cmd_;
   Eigen::VectorXd Xc_ddot_;
   Eigen::VectorXd tau_prev_;
+
+  // QP diagnostics from the latest SolveQP call.
+  bool qp_solved_;
+  int qp_status_;
+  int qp_iter_;
+  double qp_pri_res_;
+  double qp_dua_res_;
+  double qp_obj_;
+  double qp_setup_time_us_;
+  double qp_solve_time_us_;
 };
 
 /**
@@ -109,11 +135,19 @@ public:
   void SetParameters() override {}
   WBICData* GetWbicData() { return wbic_data_.get(); }
 
-  void SetNullSpaceMethod(NullSpaceMethod m) { null_space_method_ = m; }
-  NullSpaceMethod GetNullSpaceMethod() const { return null_space_method_; }
+  // Deprecated API shim: null-space hierarchy path was removed.
+  void SetNullSpaceMethod(NullSpaceMethod /*unused*/) {}
+  NullSpaceMethod GetNullSpaceMethod() const { return NullSpaceMethod::DLS_MICRO; }
 
   void SetIKMethod(IKMethod m) { ik_method_ = m; }
   IKMethod GetIKMethod() const { return ik_method_; }
+
+  void SetHardTorqueLimitMode(HardTorqueLimitMode m) {
+    hard_torque_limit_mode_ = m;
+  }
+  HardTorqueLimitMode GetHardTorqueLimitMode() const {
+    return hard_torque_limit_mode_;
+  }
 
   /**
    * @brief Pre-allocate solver buffers for the worst-case dimensions.
@@ -136,7 +170,8 @@ public:
   /// Per-constraint soft/hard toggle and penalty weights.
   /// When soft, the constraint becomes a slack variable with quadratic penalty
   /// in the QP cost, allowing controlled violation. When hard, it becomes a
-  /// box constraint (or diagonal-M box approximation for torque, not exact coupled dynamics).
+  /// box constraint (torque hard-limit handling is selected by
+  /// `hard_torque_limit_mode_`).
   struct SoftLimitParams {
     bool pos{false};   ///< Joint position limit: soft (slack) or hard (box)
     bool vel{false};   ///< Joint velocity limit: soft (slack) or hard (box)
@@ -147,17 +182,13 @@ public:
   } soft_params_;
 
 private:
-  void PseudoInverse(const Eigen::MatrixXd& jac, Eigen::MatrixXd& jac_inv);
   void WeightedPseudoInverse(const Eigen::MatrixXd& jac, const Eigen::MatrixXd& W,
                              Eigen::MatrixXd& jac_bar);
-  void BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
-                             const Eigen::MatrixXd* W = nullptr);
   bool FindConfigurationWeightedQP(const WbcFormulation& formulation,
                                     const Eigen::VectorXd& curr_jpos,
                                     Eigen::VectorXd& jpos_cmd,
                                     Eigen::VectorXd& jvel_cmd,
                                     Eigen::VectorXd& wbc_qddot_cmd);
-  void InitContactProjection(const std::vector<Contact*>& contacts);
   void BuildContactMtxVect(const std::vector<Contact*>& contacts);
   void GetDesiredReactionForce(const std::vector<ForceTask*>& force_task_vector);
   void CacheConstraintPointers(const std::vector<Constraint*>& constraints);
@@ -196,23 +227,12 @@ private:
   // When passive joint support is added, restore Ni_dyn_ and multiply through
   // in tau_0_, UNi_, and GetSolution. Until then, all Ni_dyn_ terms are identity.
 
-  Eigen::MatrixXd N_pre_;
-  Eigen::MatrixXd N_nx_;
-  Eigen::MatrixXd Jc_bar_;
   Eigen::VectorXd qddot_cmd_;
   Eigen::VectorXd delta_q_cmd_;
   Eigen::VectorXd qdot_cmd_;
-  Eigen::VectorXd prev_qddot_cmd_;
-  Eigen::VectorXd prev_delta_q_cmd_;
-  Eigen::VectorXd prev_qdot_cmd_;
   Eigen::VectorXd trq_;
   Eigen::MatrixXd UNi_;
   Eigen::MatrixXd UNi_bar_;
-
-  // Reused buffers for contact/task stacking in control loop.
-  Eigen::MatrixXd stacked_contact_jacobian_;
-  Eigen::VectorXd stacked_contact_jdot_qdot_;
-  Eigen::VectorXd stacked_contact_op_cmd_;
 
   Eigen::MatrixXd Jc_;
   Eigen::VectorXd JcDotQdot_;
@@ -245,10 +265,6 @@ private:
   Eigen::VectorXd l_bnd_;
   Eigen::VectorXd u_bnd_;
 
-  // Reused buffers for per-task nullspace projection in FindConfiguration.
-  // Declared as members to avoid per-tick heap allocation inside the task loop.
-  Eigen::MatrixXd JtPre_;      // task jacobian projected into null space (dim x N)
-  Eigen::MatrixXd JtPre_pinv_; // pseudo-inverse of JtPre_
   // Scratch buffers for LLT-based damped pseudo-inverse.
   // MaxRows/MaxCols = 36 keeps common paths inline. Larger rows fall back to
   // dynamic temporaries to preserve correctness when systems scale up.
@@ -258,7 +274,6 @@ private:
   Eigen::LLT<PInvSquare> llt_scratch_;
   PInvSquare JWJt_scratch_;
   PInvSquare JWJt_pinv_scratch_;
-  Eigen::MatrixXd Jbar_scratch_;
 
   // Cached kinematic constraint pointers (set once per MakeTorque call,
   // avoids repeated dynamic_cast in SetQPInEqualityConstraint).
@@ -290,7 +305,8 @@ private:
 
   // IK method and weighted-QP buffers
   IKMethod ik_method_{IKMethod::WEIGHTED_QP};
-  NullSpaceMethod null_space_method_{NullSpaceMethod::DLS_MICRO};
+  HardTorqueLimitMode hard_torque_limit_mode_{
+      HardTorqueLimitMode::EXACT_DENSE};
 
   // Weighted QP IK buffers (pre-allocated in constructor, reused per tick)
   Eigen::MatrixXd H_ik_;

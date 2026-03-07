@@ -1,0 +1,15 @@
+# Update residual dynamics compensator parameters.
+# Each vector supports scalar (size 1) or per-joint (size n_act) values.
+
+bool friction_enabled
+float64[] gamma_c
+float64[] gamma_v
+float64[] max_f_c
+float64[] max_f_v
+
+bool observer_enabled
+float64[] k_o
+float64[] max_tau_dist
+---
+bool success
+string message
