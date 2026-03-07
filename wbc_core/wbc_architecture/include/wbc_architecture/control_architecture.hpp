@@ -21,7 +21,9 @@
 #include "wbc_formulation/wbc_formulation.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_solver/wbic.hpp"
+#include "wbc_util/adaptive_friction_compensator.hpp"
 #include "wbc_util/joint_pid.hpp"
+#include "wbc_util/momentum_observer.hpp"
 #include "wbc_logger/wbc_logger.hpp"
 
 namespace wbc {
@@ -238,6 +240,19 @@ private:
   bool enable_gravity_{true};
   bool enable_coriolis_{true};
   bool enable_inertia_{true};
+
+  // Feedforward compensators (adaptive, RT-safe after Setup).
+  FrictionCompensatorConfig friction_config_;
+  AdaptiveFrictionCompensator friction_comp_;
+  bool friction_comp_enabled_{false};
+
+  MomentumObserverConfig observer_config_;
+  MomentumObserver momentum_obs_;
+  bool momentum_obs_enabled_{false};
+
+  // Pre-allocated scratch for compensator outputs.
+  Eigen::VectorXd tau_fric_comp_;
+  Eigen::VectorXd tau_dist_comp_;
 };
 
 } // namespace wbc

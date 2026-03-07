@@ -62,6 +62,10 @@ public:
                      const Eigen::Quaterniond& w_des,
                      int64_t pose_ts_ns);
 
+  /// Controller's internal desired EE position (for diagnostics / tests).
+  const Eigen::Vector3d& PosDesired() const { return ee_handler_.PosDesired(); }
+  const Eigen::Vector3d& PosGoal()    const { return ee_handler_.PosGoal(); }
+
 private:
   LinkPosTask*       ee_pos_task_{nullptr};
   LinkOriTask*       ee_ori_task_{nullptr};

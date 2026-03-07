@@ -10,10 +10,11 @@ state_machine:
   - id: 0
     name: "initialize"
     params:
-      duration: 0.5
-      wait_time: 0.5
+      duration: 2.0
+      wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3
+      # target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0

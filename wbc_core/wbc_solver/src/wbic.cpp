@@ -4,6 +4,7 @@
  */
 #include "wbc_solver/wbic.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -24,7 +25,6 @@ namespace {
 // singularity, but prevents inverse blowup near singularities.
 constexpr double kDlsLambdaMax = 0.05;
 constexpr double kDlsLambdaSq = kDlsLambdaMax * kDlsLambdaMax;
-constexpr double kSvdNullThreshold = 1e-3;  // singular value threshold for null-space
 constexpr double kDlsMicroLambda = 1e-4;
 constexpr double kDlsMicroLambdaSq = kDlsMicroLambda * kDlsMicroLambda;
 } // namespace
@@ -121,8 +121,14 @@ void WBIC::ReserveCapacity(int max_contact_dim, int max_uf_rows) {
     qp_solver_->init(H_, g_, A_, b_, C_, l_, u_, l_box_, u_box_);
   }
 
-  // IK solver (box-constrained, fixed dims = num_qdot, no eq/ineq).
-  // Init with identity H and infinite box so first hot-path call can use update().
+  // Optional pre-allocation for IK solver; FindConfiguration can also lazy-init.
+  EnsureIkQPSolverInitialized();
+}
+
+void WBIC::EnsureIkQPSolverInitialized() {
+  if (qp_ik_solver_) {
+    return;
+  }
   qp_ik_solver_ = std::make_unique<proxsuite::proxqp::dense::QP<double>>(
       num_qdot_, 0, 0, true);
   qp_ik_solver_->settings.eps_abs = 1e-3;
@@ -130,14 +136,13 @@ void WBIC::ReserveCapacity(int max_contact_dim, int max_uf_rows) {
   qp_ik_solver_->settings.max_iter = 1000;
   qp_ik_solver_->settings.initial_guess =
       proxsuite::proxqp::InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT;
-  {
-    Eigen::MatrixXd H_init = Eigen::MatrixXd::Identity(num_qdot_, num_qdot_);
-    Eigen::VectorXd g_init = Eigen::VectorXd::Zero(num_qdot_);
-    Eigen::VectorXd lb = Eigen::VectorXd::Constant(num_qdot_, -1e30);
-    Eigen::VectorXd ub = Eigen::VectorXd::Constant(num_qdot_,  1e30);
-    qp_ik_solver_->init(H_init, g_init, std::nullopt, std::nullopt,
-                         std::nullopt, std::nullopt, std::nullopt, lb, ub);
-  }
+
+  Eigen::MatrixXd H_init = Eigen::MatrixXd::Identity(num_qdot_, num_qdot_);
+  Eigen::VectorXd g_init = Eigen::VectorXd::Zero(num_qdot_);
+  Eigen::VectorXd lb = Eigen::VectorXd::Constant(num_qdot_, -1e30);
+  Eigen::VectorXd ub = Eigen::VectorXd::Constant(num_qdot_, 1e30);
+  qp_ik_solver_->init(H_init, g_init, std::nullopt, std::nullopt,
+                      std::nullopt, std::nullopt, std::nullopt, lb, ub);
 }
 
 bool WBIC::FindConfiguration(
@@ -292,7 +297,7 @@ bool WBIC::FindConfigurationWeightedQP(
   const Constraint* ik_limits[] = {cached_pos_c_, cached_vel_c_};
   for (const Constraint* c : ik_limits) {
     if (!c) continue;
-    ExtractBoxBounds(c, zero_qddot_scratch_);
+    ExtractAxisAlignedBoxBounds(c, zero_qddot_scratch_);
     for (int i = 0; i < num_qdot_; ++i) {
       l_box_ik_(i) = std::max(l_box_ik_(i), l_bnd_(i));
       u_box_ik_(i) = std::min(u_box_ik_(i), u_bnd_(i));
@@ -313,6 +318,7 @@ bool WBIC::FindConfigurationWeightedQP(
   }
 
   if (has_bounds) {
+    EnsureIkQPSolverInitialized();
     // QP solve with box constraints
     qp_ik_solver_->update(H_ik_, g_ik_acc_, std::nullopt, std::nullopt,
                            std::nullopt, std::nullopt, std::nullopt,
@@ -323,8 +329,7 @@ bool WBIC::FindConfigurationWeightedQP(
         proxsuite::proxqp::QPSolverOutput::PROXQP_SOLVED) {
       qddot_cmd_ = qp_ik_solver_->results.x;
     } else {
-      // Fallback to unconstrained LLT
-      qddot_cmd_ = llt_scratch_.solve(-g_ik_acc_);
+      return false;
     }
   } else {
     // No kinematic constraints: pure LLT
@@ -370,6 +375,15 @@ bool WBIC::MakeTorque(const WbcFormulation& formulation,
     }
   } else {
     dim_contact_ = 0;
+    Jc_.resize(0, num_qdot_);
+    JcDotQdot_.resize(0);
+    Uf_mat_.resize(0, 0);
+    Uf_vec_.resize(0);
+    des_rf_.resize(0);
+    wbic_data_->delta_rf_.resize(0);
+    wbic_data_->rf_cmd_.resize(0);
+    wbic_data_->rf_prev_cmd_.resize(0);
+    wbic_data_->Xc_ddot_.resize(0);
   }
 
   // Cache typed constraint pointers (reused by SetQPInEqualityConstraint).
@@ -414,6 +428,16 @@ void WBIC::PseudoInverse(const Eigen::MatrixXd& jac, Eigen::MatrixXd& out) {
     return;
   }
   const int m = jac.rows();
+  if (m > kMaxPInvDim) {
+    // Fallback for larger systems: preserve correctness with dynamic temporaries.
+    Eigen::MatrixXd JJt = jac * jac.transpose();
+    JJt.diagonal().array() += kDlsLambdaSq;
+    Eigen::LLT<Eigen::MatrixXd> llt_dyn(JJt);
+    Eigen::MatrixXd JJt_inv = Eigen::MatrixXd::Identity(m, m);
+    llt_dyn.solveInPlace(JJt_inv);
+    out.noalias() = jac.transpose() * JJt_inv;
+    return;
+  }
   assert(m <= kMaxPInvDim && "PseudoInverse: jac.rows() exceeds kMaxPInvDim");
   // J J^T + λ²I  (m×m, always SPD with λ² > 0)
   // PInvSquare uses MaxRows/MaxCols → inline storage, no heap alloc on resize.
@@ -436,6 +460,16 @@ void WBIC::WeightedPseudoInverse(const Eigen::MatrixXd& jac,
     return;
   }
   const int m = jac.rows();
+  if (m > kMaxPInvDim) {
+    // Fallback for larger systems: preserve correctness with dynamic temporaries.
+    Eigen::MatrixXd JWJt = jac * W * jac.transpose();
+    JWJt.diagonal().array() += kDlsLambdaSq;
+    Eigen::LLT<Eigen::MatrixXd> llt_dyn(JWJt);
+    Eigen::MatrixXd JWJt_inv = Eigen::MatrixXd::Identity(m, m);
+    llt_dyn.solveInPlace(JWJt_inv);
+    out.noalias() = W * jac.transpose() * JWJt_inv;
+    return;
+  }
   assert(m <= kMaxPInvDim && "WeightedPseudoInverse: jac.rows() exceeds kMaxPInvDim");
   // J W J^T + λ²I  (m×m, always SPD)
   // PInvSquare uses MaxRows/MaxCols → inline storage, no heap alloc on resize.
@@ -464,20 +498,6 @@ void WBIC::BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
   }
   // Kinematic null-space projection — dispatch on method.
   switch (null_space_method_) {
-    case NullSpaceMethod::SVD_EXACT: {
-      // N = I - V_r * V_r^T (exact, zero leakage)
-      Eigen::JacobiSVD<Eigen::MatrixXd> svd(jac, Eigen::ComputeThinV);
-      const auto& S = svd.singularValues();
-      int rank = 0;
-      for (int i = 0; i < S.size(); ++i) {
-        if (S(i) > kSvdNullThreshold) ++rank;
-      }
-      if (rank > 0) {
-        N.noalias() -= svd.matrixV().leftCols(rank)
-                      * svd.matrixV().leftCols(rank).transpose();
-      }
-      break;
-    }
     case NullSpaceMethod::DLS: {
       // N = I - J#_dls * J (λ=0.05, original DLS damping)
       PseudoInverse(jac, Jbar_scratch_);
@@ -485,15 +505,24 @@ void WBIC::BuildProjectionMatrix(const Eigen::MatrixXd& jac, Eigen::MatrixXd& N,
       break;
     }
     case NullSpaceMethod::DLS_MICRO: {
-      // N = I - J#_micro * J (λ=1e-4, negligible leakage away from singularity)
+      // N = I - J#_micro * J (λ=1e-4, very low leakage away from singularity)
       const int m = jac.rows();
-      JWJt_scratch_.resize(m, m);
-      JWJt_scratch_.noalias() = jac * jac.transpose();
-      JWJt_scratch_.diagonal().array() += kDlsMicroLambdaSq;
-      llt_scratch_.compute(JWJt_scratch_);
-      JWJt_pinv_scratch_.setIdentity(m, m);
-      llt_scratch_.solveInPlace(JWJt_pinv_scratch_);
-      Jbar_scratch_.noalias() = jac.transpose() * JWJt_pinv_scratch_;
+      if (m > kMaxPInvDim) {
+        Eigen::MatrixXd JJt = jac * jac.transpose();
+        JJt.diagonal().array() += kDlsMicroLambdaSq;
+        Eigen::LLT<Eigen::MatrixXd> llt_dyn(JJt);
+        Eigen::MatrixXd JJt_inv = Eigen::MatrixXd::Identity(m, m);
+        llt_dyn.solveInPlace(JJt_inv);
+        Jbar_scratch_.noalias() = jac.transpose() * JJt_inv;
+      } else {
+        JWJt_scratch_.resize(m, m);
+        JWJt_scratch_.noalias() = jac * jac.transpose();
+        JWJt_scratch_.diagonal().array() += kDlsMicroLambdaSq;
+        llt_scratch_.compute(JWJt_scratch_);
+        JWJt_pinv_scratch_.setIdentity(m, m);
+        llt_scratch_.solveInPlace(JWJt_pinv_scratch_);
+        Jbar_scratch_.noalias() = jac.transpose() * JWJt_pinv_scratch_;
+      }
       N.noalias() -= Jbar_scratch_ * jac;
       break;
     }
@@ -602,31 +631,44 @@ void WBIC::GetDesiredReactionForce(
   }
 }
 
-void WBIC::ExtractBoxBounds(const Constraint* c,
-                            const Eigen::VectorXd& wbc_qddot_cmd) {
+void WBIC::ExtractAxisAlignedBoxBounds(
+    const Constraint* c, const Eigen::VectorXd& wbc_qddot_cmd) {
   constexpr double kInf = std::numeric_limits<double>::infinity();
+  constexpr double kCoeffTol = 1e-12;
   l_bnd_.setConstant(-kInf);
   u_bnd_.setConstant(kInf);
 
   const Eigen::MatrixXd& A_kin = c->ConstraintMatrix();
   const Eigen::VectorXd& b_kin = c->ConstraintVector();
 
+  // This extractor is intentionally narrow: each row must represent a single-axis
+  // bound `a_i * delta_qddot_j <= rhs` (one non-zero coefficient).
+  // Generic coupled constraints should stay in dense inequality form.
   for (int r = 0; r < A_kin.rows(); ++r) {
     int idx = -1;
-    double sign = 0.0;
+    double coeff = 0.0;
+    int nonzero_count = 0;
     for (int j = 0; j < A_kin.cols(); ++j) {
-      if (std::abs(A_kin(r, j)) > 0.5) {
-        idx = j;
-        sign = A_kin(r, j);
-        break;
+      const double a = A_kin(r, j);
+      if (std::abs(a) > kCoeffTol) {
+        ++nonzero_count;
+        if (nonzero_count == 1) {
+          idx = j;
+          coeff = a;
+        }
       }
     }
-    if (idx < 0) continue;
+    if (nonzero_count != 1 || idx < 0) {
+      assert(nonzero_count == 1 &&
+             "ExtractAxisAlignedBoxBounds: row is not one-hot axis-aligned.");
+      continue;
+    }
 
-    if (sign > 0.0) {
-      u_bnd_(idx) = std::min(u_bnd_(idx), b_kin(r) - wbc_qddot_cmd(idx));
+    const double rhs = (b_kin(r) - coeff * wbc_qddot_cmd(idx)) / coeff;
+    if (coeff > 0.0) {
+      u_bnd_(idx) = std::min(u_bnd_(idx), rhs);
     } else {
-      l_bnd_(idx) = std::max(l_bnd_(idx), -b_kin(r) - wbc_qddot_cmd(idx));
+      l_bnd_(idx) = std::max(l_bnd_(idx), rhs);
     }
   }
 }
@@ -635,7 +677,7 @@ int WBIC::BuildKinematicLimitConstraint(const Constraint* c, bool is_soft,
                                         bool use_box_solver,
                                         const Eigen::VectorXd& wbc_qddot_cmd,
                                         int row, int& slack_col) {
-  ExtractBoxBounds(c, wbc_qddot_cmd);
+  ExtractAxisAlignedBoxBounds(c, wbc_qddot_cmd);
 
   if (is_soft) {
     for (int i = 0; i < num_active_; ++i) {
@@ -696,7 +738,7 @@ int WBIC::BuildTorqueLimitConstraint(const JointTrqLimitConstraint* c, bool is_s
     }
     return num_active_;
   } else {
-    // Diagonal mass approximation as box bounds.
+    // Fast diagonal-M approximation (not exact full coupled torque dynamics).
     for (int i = 0; i < num_active_; ++i) {
       const int idx = num_floating_ + i;
       const double M_diag = M_(idx, idx);
@@ -718,6 +760,8 @@ int WBIC::BuildFrictionConeConstraint(int row) {
 void WBIC::EnforceBoxFeasibilityGuard(int qp_dim) {
   for (int i = 0; i < qp_dim; ++i) {
     if (l_box_(i) > u_box_(i)) {
+      ++box_conflict_count_;
+      last_box_conflict_index_ = i;
       l_box_(i) = u_box_(i);
     }
   }
@@ -799,6 +843,9 @@ void WBIC::AddContactAccelerationCost(const Eigen::VectorXd& wbc_qddot_cmd) {
 void WBIC::AddReactionForceCost() {
   const auto& w_rf = wbic_data_->qp_params_->W_delta_rf_;
   const auto& w_fd = wbic_data_->qp_params_->W_f_dot_;
+  if (wbic_data_->rf_prev_cmd_.size() != dim_contact_) {
+    wbic_data_->rf_prev_cmd_.setZero(dim_contact_);
+  }
 
   auto rf_diag = H_.diagonal().segment(num_qdot_, dim_contact_);
   if (w_rf.size() == dim_contact_) rf_diag += w_rf;
@@ -840,7 +887,10 @@ void WBIC::SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd) {
       A_.block(0, num_qdot_, num_floating_, dim_contact_).noalias() = -sf_ * Jc_.transpose();
     }
     b_.resize(num_floating_);
-    b_.noalias() = sf_ * (Jc_.transpose() * des_rf_ - M_ * wbc_qddot_cmd - cori_ - grav_);
+    b_.noalias() = -sf_ * (M_ * wbc_qddot_cmd + cori_ + grav_);
+    if (dim_contact_ > 0) {
+      b_.noalias() += sf_ * Jc_.transpose() * des_rf_;
+    }
   } else {
     // Fixed-base: no equality constraints (0 rows)
     b_.resize(0);
@@ -932,13 +982,13 @@ bool WBIC::SolveQP(const Eigen::VectorXd& wbc_qddot_cmd) {
     if (use_box) {
       qp_solver_->init(H_, g_, A_, b_, C_, l_, u_, l_box_, u_box_);
     } else {
-      qp_solver_->init(H_, g_, A_, b_, C_, l_, std::nullopt);
+      qp_solver_->init(H_, g_, A_, b_, C_, l_, u_);
     }
   } else {
     if (use_box) {
       qp_solver_->update(H_, g_, A_, b_, C_, l_, u_, l_box_, u_box_);
     } else {
-      qp_solver_->update(H_, g_, A_, b_, C_, l_, std::nullopt);
+      qp_solver_->update(H_, g_, A_, b_, C_, l_, u_);
     }
   }
 
@@ -964,6 +1014,11 @@ bool WBIC::SolveQP(const Eigen::VectorXd& wbc_qddot_cmd) {
     wbic_data_->rf_prev_cmd_ = wbic_data_->rf_cmd_;
     wbic_data_->Xc_ddot_.noalias() = Jc_ * wbic_data_->corrected_wbc_qddot_cmd_;
     wbic_data_->Xc_ddot_ += JcDotQdot_;
+  } else {
+    wbic_data_->delta_rf_.resize(0);
+    wbic_data_->rf_cmd_.resize(0);
+    wbic_data_->rf_prev_cmd_.resize(0);
+    wbic_data_->Xc_ddot_.resize(0);
   }
 
   // Diagnostic costs — only computed in Debug builds (skipped in Release).

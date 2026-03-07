@@ -17,7 +17,9 @@
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_robot_system/state_provider.hpp"
 #include "wbc_solver/wbic.hpp"
+#include "wbc_util/adaptive_friction_compensator.hpp"
 #include "wbc_util/joint_pid.hpp"
+#include "wbc_util/momentum_observer.hpp"
 #include "wbc_util/ros_path_utils.hpp"
 #include "wbc_util/yaml_parser.hpp"
 
@@ -155,6 +157,68 @@ public:
         if (pid_node["vel_integral_limit"])
           config.joint_pid.vel_integral_limit = parse_gain(pid_node["vel_integral_limit"]);
       }
+
+      // Residual dynamics compensators — parsed from inline or external file.
+      // Priority: controller.residual_dynamics_yaml > controller.friction_compensator/momentum_observer
+      auto parse_residual_dynamics = [&](const YAML::Node& root) {
+        const int n = config.robot->NumActiveDof();
+        auto scalar_or_vec = [&](const YAML::Node& nd, double def) -> Eigen::VectorXd {
+          if (!nd) return Eigen::VectorXd::Constant(n, def);
+          if (nd.IsSequence()) {
+            const auto v = nd.as<std::vector<double>>();
+            return Eigen::Map<const Eigen::VectorXd>(v.data(), v.size());
+          }
+          return Eigen::VectorXd::Constant(n, nd.as<double>());
+        };
+
+        const YAML::Node& fric_node = root["friction_compensator"];
+        if (fric_node) {
+          config.friction_comp.enabled =
+              fric_node["enabled"] && fric_node["enabled"].as<bool>();
+          config.friction_comp.gamma_c = scalar_or_vec(fric_node["gamma_c"], 0.0);
+          config.friction_comp.gamma_v = scalar_or_vec(fric_node["gamma_v"], 0.0);
+          config.friction_comp.max_f_c = scalar_or_vec(fric_node["max_f_c"], 10.0);
+          config.friction_comp.max_f_v = scalar_or_vec(fric_node["max_f_v"], 5.0);
+        }
+
+        const YAML::Node& obs_node = root["momentum_observer"];
+        if (obs_node) {
+          config.momentum_observer.enabled =
+              obs_node["enabled"] && obs_node["enabled"].as<bool>();
+          config.momentum_observer.K_o = scalar_or_vec(obs_node["K_o"], 50.0);
+          config.momentum_observer.max_tau_dist = scalar_or_vec(obs_node["max_tau_dist"], 50.0);
+        }
+      };
+
+      // Check for external residual dynamics file.
+      // Supports two YAML layouts:
+      //   1) controller.residual_compensation.dynamics_yaml: "residual_dynamics.yaml"
+      //   2) controller.residual_dynamics_yaml: "residual_dynamics.yaml"   (shorthand)
+      // Falls back to inline controller.friction_compensator / momentum_observer.
+      const YAML::Node& rc_node = ctrl["residual_compensation"];
+      std::string rd_file;
+      bool rd_enabled = true;
+      if (rc_node && rc_node["dynamics_yaml"]) {
+        rd_file = rc_node["dynamics_yaml"].as<std::string>();
+        if (rc_node["enabled"])
+          rd_enabled = rc_node["enabled"].as<bool>();
+      } else if (ctrl["residual_dynamics_yaml"]) {
+        rd_file = ctrl["residual_dynamics_yaml"].as<std::string>();
+      }
+
+      if (!rd_file.empty() && rd_enabled) {
+        const std::string rd_path = path::ResolveRelativePath(
+            rd_file, definition.yaml_path);
+        const YAML::Node rd_yaml = YAML::LoadFile(rd_path);
+        // Support both "residual_dynamics:" wrapper and flat layout.
+        if (rd_yaml["residual_dynamics"])
+          parse_residual_dynamics(rd_yaml["residual_dynamics"]);
+        else
+          parse_residual_dynamics(rd_yaml);
+      } else if (rd_file.empty()) {
+        // Inline: look for friction_compensator/momentum_observer under controller.
+        parse_residual_dynamics(ctrl);
+      }
     }
 
     return config;
@@ -180,6 +244,10 @@ public:
   bool enable_gravity{true};
   bool enable_coriolis{true};
   bool enable_inertia{true};
+
+  // Adaptive feedforward compensators.
+  FrictionCompensatorConfig friction_comp;
+  MomentumObserverConfig momentum_observer;
 };
 
 }  // namespace wbc

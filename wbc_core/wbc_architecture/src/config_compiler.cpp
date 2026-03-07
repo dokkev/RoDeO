@@ -167,8 +167,18 @@ void ConfigCompiler::LoadYaml(PinocchioRobotSystem* robot,
   }
 
   // task_pool: inline or external file via task_pool_yaml.
+  // Weight ratio guard (weight_min/weight_max) can live alongside task_pool
+  // or under `controller:` in the main config (backward compat via ControlArchitectureConfig).
+  auto parse_weight_bounds = [&cfg](const YAML::Node& node) {
+    if (node["weight_min"])
+      cfg.weight_min_ = node["weight_min"].as<double>();
+    if (node["weight_max"])
+      cfg.weight_max_ = node["weight_max"].as<double>();
+  };
+
   if (root["task_pool"]) {
     ParseTaskPool(root["task_pool"], robot);
+    parse_weight_bounds(root);
   } else if (root["task_pool_yaml"]) {
     const std::string task_pool_path =
         yaml_dir + "/" + root["task_pool_yaml"].as<std::string>();
@@ -179,6 +189,7 @@ void ConfigCompiler::LoadYaml(PinocchioRobotSystem* robot,
           "' does not contain 'task_pool' key.");
     }
     ParseTaskPool(task_root["task_pool"], robot);
+    parse_weight_bounds(task_root);
   }
 
   // state_machine: inline or external file via state_machine_yaml.

@@ -1,0 +1,54 @@
+<mujoco model="optimo">
+  <compiler angle="radian" meshdir="meshes/"/>
+
+  <asset>
+    <mesh name="col0" content_type="model/stl" file="col0.stl"/>
+    <mesh name="col1" content_type="model/stl" file="col1.stl"/>
+    <mesh name="col2" content_type="model/stl" file="col2.stl"/>
+    <mesh name="col3" content_type="model/stl" file="col3.stl"/>
+    <mesh name="col4" content_type="model/stl" file="col4.stl"/>
+    <mesh name="col5" content_type="model/stl" file="col5.stl"/>
+    <mesh name="col6" content_type="model/stl" file="col6.stl"/>
+    <mesh name="col7" content_type="model/stl" file="col7.stl"/>
+  </asset>
+
+  <worldbody>
+    <geom size="0.25 0.25 0.5" pos="0 0 -0.5" type="box" rgba="1 1 1 1"/>
+    <geom pos="0 0 0.27" quat="1 0 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col0"/>
+    <body name="optimo_link1" pos="0 0 0.27">
+      <inertial pos="0 -0.01549 -0.01635" mass="4.152" diaginertia="0.01 0.01 0.006"/>
+      <joint name="optimo_joint1" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-79 79" damping="0.5" frictionloss="0.2"/>
+      <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col1"/>
+      <body name="optimo_link2" quat="0.707107 0.707107 0 0">
+        <inertial pos="0 -0.05677 -0.05063" quat="0.5 0.5 -0.5 0.5" mass="1.72" diaginertia="0.005 0.004 0.003"/>
+        <joint name="optimo_joint2" pos="0 0 0" axis="0 0 1" range="1.0472 3.83972" actuatorfrcrange="-95 95" damping="0.5" frictionloss="0.2"/>
+        <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col2"/>
+        <body name="optimo_link3" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+          <inertial pos="0 0 -0.098" mass="4.31" diaginertia="0.013 0.013 0.003"/>
+          <joint name="optimo_joint3" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-32 32" damping="0.5" frictionloss="0.2"/>
+          <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col3"/>
+          <body name="optimo_link4" quat="0.707107 -0.707107 0 0">
+            <inertial pos="-1e-05 -0.0688 0.048852" quat="0.707107 0.707107 0 0" mass="1.09" diaginertia="0.004 0.004 0.0008"/>
+            <joint name="optimo_joint4" pos="0 0 0" axis="0 0 1" range="-2.53073 2.53073" actuatorfrcrange="-40 40" damping="0.5" frictionloss="0.2"/>
+            <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col4"/>
+            <body name="optimo_link5" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+              <inertial pos="0 0.008 -0.085" mass="2.23" diaginertia="0.005 0.005 0.002"/>
+              <joint name="optimo_joint5" pos="0 0 0" axis="0 0 1" range="-2.61799 2.61799" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+              <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col5"/>
+              <body name="optimo_link6" quat="0.707107 -0.707107 0 0">
+                <inertial pos="0 -0.010855 0" mass="1.138" diaginertia="0.0006 0.0006 0.0005"/>
+                <joint name="optimo_joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+                <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col6"/>
+                <body name="optimo_link7" quat="0.707107 0.707107 0 0">
+                  <inertial pos="0 0 0.1" mass="0.88" diaginertia="0.0007 0.0007 0.0003"/>
+                  <joint name="optimo_joint7" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+                  <geom type="mesh" rgba="1 1 1 1" mesh="col7"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

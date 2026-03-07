@@ -23,6 +23,8 @@ robot_hardware:
   # 변환: mNm -> Nm ( x * 0.001 )
   trq_limit:       [ 95.0,    95.0,    40.0,    40.0,    15.0,    15.0,    15.0  ] # [Nm]
   
+  gear_ratio:      [ 100.0,   100.0,   160.0,   160.0,   120.0,   120.0,   120.0 ] # [-]
+
   # SEA 물리적 강성 (Stiffness)
   # J1~J3 변환: (1 / (Ticks/Nm)) * (65536 / 2*pi) * gear_ratio
   # J4~J7 변환: (mNm/deg * 0.001) * (180 / pi) * gear_ratio

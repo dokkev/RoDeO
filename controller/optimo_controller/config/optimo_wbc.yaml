@@ -34,7 +34,7 @@ robot_model:
   is_floating_base: false   # determine if the robot has a floating base (e.g. humanoid) or a fixed base (e.g. manipulator)
                             # Setting this true will add 6 virtual DOFs for the floating base, making your system underactuated.
   
-  base_frame: "base_link"   # if reference frame in Task Space is not defined, this frame is used as the default reference for all tasks
+  base_frame: "optimo_base_link"   # if reference frame in Task Space is not defined, this frame is used as the default reference for all tasks
 
 
 
@@ -61,14 +61,15 @@ controller:
   # I recommend leaving this disabled and directly passing the q_cmd and qdot_cmd from the WBIC to your motor controller, which will handle the internal control loop inside the motor controller firmware.
   # ik_method: "weighted_qp"   # default. Use "hierarchy" for legacy null-space projection.
 
-  # Weight Ratio Guard: clamp all task weights to [weight_min, weight_max].
-  # Prevents extreme weight ratios that can cause solver numerical instability.
-  weight_min: 1.0e-6
-  weight_max: 1.0e+4
-
   joint_pid:
     enabled: false
     gains_yaml: "joint_pid_gains.yaml"
+
+  # Residual dynamics compensators (friction, disturbance observer).
+  # See residual_dynamics.yaml for configuration and documentation.
+  residual_compensation: 
+    enabled: false
+    dynamics_yaml: "residual_dynamics.yaml"
 
 # 3. QP Regularization weights
 # Regularization terms are used to penalize undesirable solutions and improve numerical stability. 

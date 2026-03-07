@@ -3,28 +3,34 @@
 # =============================================================
 # Scalar values are broadcast to all DOFs automatically.
 # Pool weights serve as the default when a state doesn't override them.
+
+# Weight Ratio Guard: clamp all task weights to [weight_min, weight_max].
+# Prevents extreme weight ratios that can cause solver numerical instability.
+weight_min: 1.0e-6
+weight_max: 1.0e+4
+
 task_pool:
   - name: "jpos_task"
     type: "JointTask"
-    kp: 100.0
-    kd: 20.0
+    kp: 200.0
+    kd: 28.0
     kp_ik: 1.0
     weight: 100.0
 
   - name: "ee_pos_task"
     type: "LinkPosTask"
-    target_frame: "end_effector"
-    reference_frame: "base_link"
-    kp: 1600.0
-    kd: 80.0
+    target_frame: "optimo_end_effector"
+    reference_frame: "optimo_base_link"
+    kp: 6400.0
+    kd: 160.0
     kp_ik: 1.0
     weight: 100.0
 
   - name: "ee_ori_task"
     type: "LinkOriTask"
-    target_frame: "end_effector"
-    reference_frame: "base_link"
-    kp: 1600.0
-    kd: 80.0
+    target_frame: "optimo_end_effector"
+    reference_frame: "optimo_base_link"
+    kp: 6400.0
+    kd: 160.0
     kp_ik: 1.0
     weight: 100.0

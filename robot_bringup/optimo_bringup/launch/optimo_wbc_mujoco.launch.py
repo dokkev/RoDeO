@@ -1,7 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -17,7 +17,6 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     headless = LaunchConfiguration("headless")
     rviz = LaunchConfiguration("rviz")
-    prefix = LaunchConfiguration("prefix")
     robot_index = LaunchConfiguration("robot_index")
     ns = LaunchConfiguration("ns")
     mujoco_model = LaunchConfiguration("mujoco_model")
@@ -31,7 +30,6 @@ def generate_launch_description():
     rviz_config = PathJoinSubstitution(
         [FindPackageShare("optimo_description"), "rviz", "optimo.rviz"]
     )
-    controller_manager_name = PathJoinSubstitution(["/", ns, "controller_manager"])
     robot_description_topic = PathJoinSubstitution(["/", ns, "robot_description"])
     pal_stats_log_level = PythonExpression(
         ["'", ns, ".controller_manager.pal_statistics:=fatal'"]
@@ -43,7 +41,7 @@ def generate_launch_description():
             " ",
             xacro_file,
             " ",
-            "use_sim_hardware:=false",
+            "use_sim_hardware:=true",
             " ",
             "use_mock_hardware:=false",
             " ",
@@ -54,9 +52,6 @@ def generate_launch_description():
             " ",
             "mujoco_model:=",
             mujoco_model,
-            " ",
-            "prefix:=",
-            prefix,
             " ",
             "robot_index:=",
             robot_index,
@@ -80,6 +75,8 @@ def generate_launch_description():
             ("joint_states", "joint_state_broadcaster/joint_states"),
         ],
     )
+
+    controller_manager_name = PathJoinSubstitution(["/", ns, "controller_manager"])
 
     control_node = Node(
         package="mujoco_ros2_control",
@@ -108,6 +105,7 @@ def generate_launch_description():
         arguments=[
             "joint_state_broadcaster",
             "--controller-manager", controller_manager_name,
+            "--controller-manager-timeout", "30",
         ],
         output="both",
     )
@@ -119,8 +117,22 @@ def generate_launch_description():
         arguments=[
             "wbc_controller",
             "--controller-manager", controller_manager_name,
+            "--controller-manager-timeout", "30",
         ],
         output="both",
+    )
+
+    # Delay spawners until hardware has had time to initialize
+    delayed_jsb_spawner = RegisterEventHandler(
+        OnProcessStart(
+            target_action=control_node,
+            on_start=[
+                TimerAction(
+                    period=5.0,
+                    actions=[joint_state_broadcaster_spawner],
+                ),
+            ],
+        )
     )
 
     delayed_wbc_spawner = RegisterEventHandler(
@@ -144,7 +156,6 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("rviz", default_value="true"),
-            DeclareLaunchArgument("prefix", default_value=""),
             DeclareLaunchArgument("robot_index", default_value="0"),
             DeclareLaunchArgument("ns", default_value="optimo"),
             DeclareLaunchArgument(
@@ -155,7 +166,7 @@ def generate_launch_description():
             ),
             robot_state_publisher,
             control_node,
-            joint_state_broadcaster_spawner,
+            delayed_jsb_spawner,
             delayed_wbc_spawner,
             rviz_node,
         ]

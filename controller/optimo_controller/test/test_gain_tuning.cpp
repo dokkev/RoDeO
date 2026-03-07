@@ -32,7 +32,7 @@ constexpr double kDt = 0.001;  // Must match MuJoCo timestep and WBC dt.
 
 // Home position from keyframe.
 const std::array<double, kNJoints> kHomeQpos = {
-  0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0
+  0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0
 };
 
 // Resolve package:// path to absolute filesystem path.
@@ -1955,7 +1955,6 @@ TEST(StateMachine, NullSpaceMethodComparison) {
     wbc::NullSpaceMethod method;
   };
   std::vector<MethodTrial> methods = {
-    {"SVD_EXACT",  wbc::NullSpaceMethod::SVD_EXACT},
     {"DLS(0.05)",  wbc::NullSpaceMethod::DLS},
     {"DLS_MICRO",  wbc::NullSpaceMethod::DLS_MICRO},
   };
@@ -2086,7 +2085,6 @@ TEST(StateMachine, IKMethodComparison) {
   };
   std::vector<IKTrial> trials = {
     {"HIER+DLS_u", wbc::IKMethod::HIERARCHY,   wbc::NullSpaceMethod::DLS_MICRO},
-    {"HIER+SVD",   wbc::IKMethod::HIERARCHY,   wbc::NullSpaceMethod::SVD_EXACT},
     {"WGHT_QP",    wbc::IKMethod::WEIGHTED_QP, wbc::NullSpaceMethod::DLS_MICRO},
   };
 

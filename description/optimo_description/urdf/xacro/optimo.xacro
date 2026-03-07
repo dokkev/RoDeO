@@ -1,10 +1,9 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:macro name="optimo" params="prefix:='' standalone:=true">
+    <xacro:macro name="optimo">
 
-
-        <!-- Default joint limits (upright) -->
+        <!-- Joint limits (from hardware safety config) -->
         <xacro:property name="joint1_lower" value="${DtR*-120}" />
         <xacro:property name="joint1_upper" value="${DtR*120}" />
         <xacro:property name="joint2_lower" value="${DtR*60}" />
@@ -20,282 +19,264 @@
         <xacro:property name="joint7_lower" value="${DtR*-120}" />
         <xacro:property name="joint7_upper" value="${DtR*120}" />
 
-        <!-- Joint limit properties -->
-        <xacro:if value="${prefix == 'left_arm_'}">
-            <!-- Left arm joint limits -->
-            <xacro:property name="joint1_lower" value="${DtR*-120}" />
-            <xacro:property name="joint1_upper" value="${DtR*60}" />
-            <xacro:property name="joint2_lower" value="${DtR*190}" />
-            <xacro:property name="joint2_upper" value="${DtR*280}" />
-            <xacro:property name="joint3_lower" value="${DtR*-210}" />
-            <xacro:property name="joint3_upper" value="${DtR*30}" />
-            <xacro:property name="joint4_lower" value="${DtR*-5}" />
-            <xacro:property name="joint4_upper" value="${DtR*140}" />
-        </xacro:if>
+        <!-- Stand: connects world to optimo_base_link -->
+        <joint name="optimo_world_to_stand" type="fixed">
+            <parent link="world" />
+            <child link="optimo_stand" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
 
-        <!-- If standalone, connect world link and mounting stand to the base of the arm.-->
-        <xacro:if value="${standalone}">
+        <link name="optimo_stand">
+            <visual>
+                <origin xyz="0 0 -0.5" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.5 0.5 1" />
+                </geometry>
+                <material name="white" />
+            </visual>
+            <collision>
+                <origin xyz="0 0 -0.5" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.5 0.5 1" />
+                </geometry>
+            </collision>
+        </link>
 
-            <joint name="${prefix}world_to_stand" type="fixed">
-                <parent link="world" />
-                <child link="${prefix}stand" />
-                <origin xyz="0 0 0" rpy="0 0 0" />
-            </joint>
+        <joint name="optimo_stand_to_base_link" type="fixed">
+            <parent link="optimo_stand" />
+            <child link="optimo_base_link" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
 
-            <link name="${prefix}stand">
-                <visual>
-                    <origin xyz="0 0 -0.5" rpy="0 0 0" />
-                    <geometry>
-                        <box size="0.5 0.5 1" />
-                    </geometry>
-                    <material name="white" />
-                </visual>
-                <collision>
-                    <origin xyz="0 0 -0.5" rpy="0 0 0" />
-                    <geometry>
-                        <box size="0.5 0.5 1" />
-                    </geometry>
-                </collision>
-            </link>
+        <link name="optimo_base_link"/>
 
-            <joint name="${prefix}stand_to_base_link" type="fixed">
-                <parent link="${prefix}stand" />
-                <child link="${prefix}base_link" />
-                <origin xyz="0 0 0" rpy="0 0 0" />
-            </joint>
-
-            <link name="${prefix}base_link"/>
-
-            <joint name="${prefix}base_link_to_link0" type="fixed">
-                <parent link="${prefix}base_link" />
-                <child link="${prefix}link0" />
-                <origin xyz="0 0 .27" rpy="0 0 0" />
-            </joint>
-        </xacro:if>
+        <joint name="optimo_base_link_to_link0" type="fixed">
+            <parent link="optimo_base_link" />
+            <child link="optimo_link0" />
+            <origin xyz="0 0 .27" rpy="0 0 0" />
+        </joint>
 
         <!-- Base Link -->
-        <link name="${prefix}link0">
+        <link name="optimo_link0">
             <visual>
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link0.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link0.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col0.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col0.stl" />
                 </geometry>
             </collision>
-            <inertial>                <!-- Doesn't matter, just placeholder values -->
+            <inertial>
                 <origin xyz="0 0 0" />
                 <mass value="1" />
                 <inertia ixx="0" ixy="0.0" ixz="0.0" iyy="0" iyz="0.0" izz="0" />
             </inertial>
         </link>
 
-
-
-        <joint name="${prefix}joint1" type="revolute">
+        <joint name="optimo_joint1" type="revolute">
             <origin xyz="0 0 0" rpy="0 0 0" />
-            <parent link="${prefix}link0" />
-            <child link="${prefix}link1" />
+            <parent link="optimo_link0" />
+            <child link="optimo_link1" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint1_lower}" upper="${joint1_upper}" effort="95" velocity="${DtR*100}" />
+            <limit lower="${joint1_lower}" upper="${joint1_upper}" effort="79" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link1">
+        <link name="optimo_link1">
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link1.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link1.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col1.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col1.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="0 -0.01635 0.01549" />
-                <mass value="4.14" />
-                <inertia ixx="0.010001" ixy="0.000017" ixz="-0.000010" iyy="0.007494" iyz="0.000213" izz="0.009939" />
+                <origin xyz="0 -0.01549 -0.01635 " />
+                <mass value="4.152" />
+                <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.006" />
             </inertial>
         </link>
-        <joint name="${prefix}joint2" type="revolute">
+        <joint name="optimo_joint2" type="revolute">
             <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
-            <parent link="${prefix}link1" />
-            <child link="${prefix}link2" />
+            <parent link="optimo_link1" />
+            <child link="optimo_link2" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint2_lower}" upper="${joint2_upper}" effort="95" velocity="${DtR*100}" />
+            <limit lower="${joint2_lower}" upper="${joint2_upper}" effort="95" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link2">
+        <link name="optimo_link2">
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link2.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link2.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col2.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col2.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="0 -0.05063 0.05677" />
+                <origin xyz="0 -0.05677 -0.05063 " />
                 <mass value="1.72" />
-                <inertia ixx="0.005694" ixy="0" ixz="0" iyy="0.005902" iyz="0.001353" izz="0.002415" />
+                <inertia ixx="0.004" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.005" />
             </inertial>
         </link>
-        <joint name="${prefix}joint3" type="revolute">
+        <joint name="optimo_joint3" type="revolute">
             <origin xyz="0 -0.4 0" rpy="${PI/2} 0 0" />
-            <parent link="${prefix}link2" />
-            <child link="${prefix}link3" />
+            <parent link="optimo_link2" />
+            <child link="optimo_link3" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint3_lower}" upper="${joint3_upper}" effort="40" velocity="${DtR*150}" />
+            <limit lower="${joint3_lower}" upper="${joint3_upper}" effort="32" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link3">
+        <link name="optimo_link3">
             <visual>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link3.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link3.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col3.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col3.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="-0.000039 0.098 0" />
-                <mass value="4.13" />
-                <inertia ixx="0.012989" ixy="-0.000015" ixz="-0.000003" iyy="0.002584" iyz="0.000632" izz="0.013050" />
+                <origin xyz="0 0 -0.098" />
+                <mass value="4.310" />
+                <inertia ixx="0.013" ixy="0" ixz="0" iyy="0.013" iyz="0" izz="0.003" />
             </inertial>
         </link>
-        <joint name="${prefix}joint4" type="revolute">
+        <joint name="optimo_joint4" type="revolute">
             <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
-            <parent link="${prefix}link3" />
-            <child link="${prefix}link4" />
+            <parent link="optimo_link3" />
+            <child link="optimo_link4" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint4_lower}" upper="${joint4_upper}" effort="40" velocity="${DtR*150}" />
+            <limit lower="${joint4_lower}" upper="${joint4_upper}" effort="40" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link4">
+        <link name="optimo_link4">
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link4.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link4.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col4.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col4.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="-0.000010 0.048852 0.068800" />
+                <origin xyz="-.00001 -0.0688 0.048852" />
                 <mass value="1.09" />
-                <inertia ixx="0.033673" ixy="-0.00046473" ixz="-0.00000072068" iyy="0.00108897820" iyz="0.000095301" izz="0.0338768" />
+                <inertia ixx="0.004" ixy="0" ixz="0" iyy="0.0008" iyz="0" izz="0.004" />
             </inertial>
         </link>
-        <joint name="${prefix}joint5" type="revolute">
+        <joint name="optimo_joint5" type="revolute">
             <origin xyz="0 -0.4 0" rpy="${PI/2} 0 0" />
-            <parent link="${prefix}link4" />
-            <child link="${prefix}link5" />
+            <parent link="optimo_link4" />
+            <child link="optimo_link5" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint5_lower}" upper="${joint5_upper}" effort="15" velocity="${DtR*180}" />
+            <limit lower="${joint5_lower}" upper="${joint5_upper}" effort="15" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link5">
+        <link name="optimo_link5">
             <visual>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link5.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link5.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col5.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col5.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="0.001262 0.085 0.008" />
-                <mass value="1.92" />
-                <inertia ixx="0.00093167" ixy="0.00000007143" ixz="0" iyy="0.00080219" iyz="-0.000030258" izz="0.00073250" />
+                <origin xyz="0 0.008 -.085" />
+                <mass value="2.23" />
+                <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.002" />
             </inertial>
         </link>
-        <joint name="${prefix}joint6" type="revolute">
+        <joint name="optimo_joint6" type="revolute">
             <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
-            <parent link="${prefix}link5" />
-            <child link="${prefix}link6" />
+            <parent link="optimo_link5" />
+            <child link="optimo_link6" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint6_lower}" upper="${joint6_upper}" effort="15" velocity="${DtR*180}" />
+            <limit lower="${joint6_lower}" upper="${joint6_upper}" effort="15" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link6">
+        <link name="optimo_link6">
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link6.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link6.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col6.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col6.stl" />
                 </geometry>
             </collision>
             <inertial>
-                <origin xyz="0 -0.000070 0.010855" />
-                <mass value="1.04" />
-                <inertia ixx="0.00093167" ixy="0.00000007143" ixz="0" iyy="0.00080219" iyz="-0.000030258" izz="0.00073250" />
+                <origin xyz="0  -0.010855 0" />
+                <mass value="1.138" />
+                <inertia ixx="0.0006" ixy="0" ixz="0" iyy="0.0006" iyz="0" izz="0.0005" />
             </inertial>
         </link>
-        <joint name="${prefix}joint7" type="revolute">
+        <joint name="optimo_joint7" type="revolute">
             <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
-            <parent link="${prefix}link6" />
-            <child link="${prefix}link7" />
+            <parent link="optimo_link6" />
+            <child link="optimo_link7" />
             <axis xyz="0 0 1" />
-            <limit lower="${joint7_lower}" upper="${joint7_upper}" effort="15" velocity="${DtR*180}" />
+            <limit lower="${joint7_lower}" upper="${joint7_upper}" effort="15" velocity="10" />
             <dynamics damping=".5" friction=".2" />
         </joint>
-        <link name="${prefix}link7">
+        <link name="optimo_link7">
             <visual>
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/link7.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/link7.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <geometry>
-                    <mesh filename="package://optimo_description/meshes/col7.stl" />
+                    <mesh filename="package://optimo_description/urdf/meshes/col7.stl" />
                 </geometry>
             </collision>
             <inertial>
                 <origin xyz="0 0 0.1" />
-                <mass value="0.88" />
-                <inertia ixx="0.005541" ixy="0.000045" ixz="0.000077" iyy="0.004779" iyz="0.000043" izz="0.001723" />
+                <mass value=".88" />
+                <inertia ixx="0.0007" ixy="0" ixz="0" iyy="0.0007" iyz="0" izz="0.0003" />
             </inertial>
         </link>
 
-        <joint name="${prefix}ee_joint" type="fixed">
+        <joint name="optimo_ee_joint" type="fixed">
             <origin xyz="0 0 0.15" rpy="0 0 0" />
-            <parent link="${prefix}link7" />
-            <child link="${prefix}end_effector" />
+            <parent link="optimo_link7" />
+            <child link="optimo_end_effector" />
         </joint>
-        <link name="${prefix}end_effector"/>
+        <link name="optimo_end_effector"/>
 
     </xacro:macro>
 

@@ -18,6 +18,7 @@
 #include "wbc_logger/wbc_logger.hpp"
 #include "wbc_msgs/msg/wbc_state.hpp"
 #include "wbc_msgs/srv/transition_state.hpp"
+#include "wbc_util/actuator_interface.hpp"
 
 namespace wbc {
 class CartesianTeleop;
@@ -103,6 +104,7 @@ private:
   double control_frequency_hz_{1000.0};
   double control_dt_{0.001};
   std::unique_ptr<wbc::ControlArchitecture> ctrl_arch_;
+  std::unique_ptr<wbc::ActuatorInterface> actuator_;
   wbc::RobotJointState robot_joint_state_;
 
   // Per-topic RT buffers — pre-sized to joint_count_ in on_configure().

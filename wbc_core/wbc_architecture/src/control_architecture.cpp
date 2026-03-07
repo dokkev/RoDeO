@@ -40,12 +40,17 @@ ControlArchitecture::ControlArchitecture(
   }
 
   pid_config_           = arch_config.joint_pid;
+  friction_config_      = arch_config.friction_comp;
+  observer_config_      = arch_config.momentum_observer;
   ik_method_            = arch_config.ik_method;
   enable_gravity_       = arch_config.enable_gravity;
   enable_coriolis_      = arch_config.enable_coriolis;
   enable_inertia_       = arch_config.enable_inertia;
-  weight_scheduler_.SetWeightBounds(arch_config.weight_min,
-                                    arch_config.weight_max);
+  // Weight bounds: prefer task_pool YAML (RuntimeConfig), fall back to
+  // controller section (ControlArchitectureConfig) for backward compat.
+  weight_scheduler_.SetWeightBounds(
+      runtime_config_->WeightMin().value_or(arch_config.weight_min),
+      runtime_config_->WeightMax().value_or(arch_config.weight_max));
   SetControlDt(arch_config.control_dt);
 }
 
@@ -282,8 +287,30 @@ bool ControlArchitecture::SolverUpdate() {
   // WBIC output already includes full inverse dynamics: M*qddot + Ni_dyn^T*(cori+grav).
   const int n_active = robot_->NumActiveDof();
 
-  // Store feedforward (WBIC output) before adding feedback.
-  // Note: WBIC output already includes gravity: M*qddot + Ni_dyn^T*(cori+grav).
+  // --- Adaptive feedforward compensators ---
+  // Applied after WBIC solve, before PID feedback, so they augment the
+  // model-based feedforward with learned friction/disturbance compensation.
+
+  // Friction compensator: tau += f_c*sign(qdot) + f_v*qdot
+  if (friction_comp_enabled_) {
+    friction_comp_.Compute(cmd_.qdot, robot_->GetQdotRef().tail(n_active),
+                           step_dt_, tau_fric_comp_);
+    cmd_.tau += tau_fric_comp_;
+  }
+
+  // Momentum observer: tau -= tau_dist (cancel estimated disturbance)
+  if (momentum_obs_enabled_) {
+    momentum_obs_.Compute(
+        robot_->GetMassMatrixRef().bottomRightCorner(n_active, n_active),
+        robot_->GetCoriolisRef().tail(n_active),
+        robot_->GetGravityRef().tail(n_active),
+        robot_->GetQdotRef().tail(n_active),
+        buffers_.joint_trq_prev,
+        step_dt_, tau_dist_comp_);
+    cmd_.tau -= tau_dist_comp_;
+  }
+
+  // Store feedforward (WBIC output + compensators) before adding feedback.
   cmd_.tau_ff = cmd_.tau;
 
   // Joint PID feedback on q_cmd / qdot_cmd tracking error.
@@ -605,6 +632,34 @@ void ControlArchitecture::EnsureCommandBuffers() {
     pid_.SetPositionIntegralLimit(expand(pid_config_.pos_integral_limit));
     pid_.SetVelocityIntegralLimit(expand(pid_config_.vel_integral_limit));
     pid_enabled_ = true;
+  }
+
+  // Initialize adaptive friction compensator.
+  if (friction_config_.enabled && !friction_comp_enabled_) {
+    auto expand = [num_active](const Eigen::VectorXd& v) -> Eigen::VectorXd {
+      if (v.size() == num_active) return v;
+      return Eigen::VectorXd::Constant(num_active, v[0]);
+    };
+    friction_comp_.Setup(num_active);
+    friction_comp_.SetGains(expand(friction_config_.gamma_c),
+                            expand(friction_config_.gamma_v));
+    friction_comp_.SetLimits(expand(friction_config_.max_f_c),
+                             expand(friction_config_.max_f_v));
+    tau_fric_comp_ = Eigen::VectorXd::Zero(num_active);
+    friction_comp_enabled_ = true;
+  }
+
+  // Initialize momentum observer.
+  if (observer_config_.enabled && !momentum_obs_enabled_) {
+    auto expand = [num_active](const Eigen::VectorXd& v) -> Eigen::VectorXd {
+      if (v.size() == num_active) return v;
+      return Eigen::VectorXd::Constant(num_active, v[0]);
+    };
+    momentum_obs_.Setup(num_active);
+    momentum_obs_.SetGain(expand(observer_config_.K_o));
+    momentum_obs_.SetLimit(expand(observer_config_.max_tau_dist));
+    tau_dist_comp_ = Eigen::VectorXd::Zero(num_active);
+    momentum_obs_enabled_ = true;
   }
 }
 

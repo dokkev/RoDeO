@@ -138,6 +138,23 @@ if(BUILD_TESTING)
   endif()
 
   if(mujoco_vendor_FOUND)
+    ament_add_gtest(test_sea
+      test/test_sea.cpp
+      TIMEOUT 120
+    )
+    if(TARGET test_sea)
+      target_link_libraries(test_sea
+        -Wl,--no-as-needed
+        ${PROJECT_NAME}
+        -Wl,--as-needed
+        mujoco::mujoco
+        Eigen3::Eigen
+      )
+      ament_target_dependencies(test_sea
+        wbc_util
+      )
+    endif()
+
     ament_add_gtest(test_gain_tuning
       test/test_gain_tuning.cpp
       TIMEOUT 300
@@ -170,6 +187,25 @@ if(BUILD_TESTING)
         Eigen3::Eigen
       )
       ament_target_dependencies(test_dummy_teleop
+        wbc_architecture
+        wbc_formulation
+        wbc_robot_system
+      )
+    endif()
+
+    ament_add_gtest(test_domain_randomization
+      test/test_domain_randomization.cpp
+      TIMEOUT 600
+    )
+    if(TARGET test_domain_randomization)
+      target_link_libraries(test_domain_randomization
+        -Wl,--no-as-needed
+        ${PROJECT_NAME}
+        -Wl,--as-needed
+        mujoco::mujoco
+        Eigen3::Eigen
+      )
+      ament_target_dependencies(test_domain_randomization
         wbc_architecture
         wbc_formulation
         wbc_robot_system

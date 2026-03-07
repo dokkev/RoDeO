@@ -97,6 +97,9 @@ public:
   const param::RegularizationParams& Regularization() const { return regularization_; }
   /// @deprecated Use Regularization() instead.
   const param::RegularizationParams& SolverParams() const { return regularization_; }
+
+  std::optional<double> WeightMin() const { return weight_min_; }
+  std::optional<double> WeightMax() const { return weight_max_; }
   const std::unordered_map<StateId, StateConfig>& States() const { return states_; }
 
   const StateConfig& State(StateId state_id) const;
@@ -160,6 +163,10 @@ private:
   int                                  max_contact_dim_{-1};
   std::optional<StateId>              configured_start_state_id_;
   StateId                             first_state_id_{-1};
+
+  // Weight Ratio Guard (parsed from task_pool YAML, if present).
+  std::optional<double> weight_min_;
+  std::optional<double> weight_max_;
   std::unordered_map<StateId, StateConfig> states_;
   std::unordered_map<Task*,      TaskConfig>      default_motion_task_cfg_;
   std::unordered_map<ForceTask*, ForceTaskConfig> default_force_task_cfg_;

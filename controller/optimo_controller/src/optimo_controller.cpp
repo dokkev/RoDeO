@@ -10,9 +10,11 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include "optimo_controller/state_machines/cartesian_teleop.hpp"
 #include "optimo_controller/state_machines/joint_teleop.hpp"
+#include "wbc_util/ros_path_utils.hpp"
 
 namespace optimo_controller
 {
@@ -28,6 +30,9 @@ controller_interface::CallbackReturn OptimoController::on_init()
   auto_declare<std::string>(
     "wbc_yaml_path", "package://optimo_controller/config/optimo_wbc.yaml");
   auto_declare<double>("control_frequency", 1000.0);
+  auto_declare<bool>("is_simulation", false);
+  auto_declare<std::string>(
+    "joint_dynamics_yaml", "package://optimo_description/config/joint_dynamics.yaml");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -126,6 +131,26 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     RCLCPP_ERROR(get_node()->get_logger(),
       "[OptimoController] required state 'cartesian_teleop' not found in WBC config.");
     return controller_interface::CallbackReturn::ERROR;
+  }
+
+  // Build actuator interface (spring for sim, passthrough for real HW).
+  {
+    const bool is_sim = get_node()->get_parameter("is_simulation").as_bool();
+    if (is_sim) {
+      // SEA stiffness [Nm/rad] and damping [Nm·s/rad] per joint (from hardware spec).
+      Eigen::VectorXd stiffness(7);
+      stiffness << 966.4, 947.6, 509.3, 404.1, 484.3, 479.2, 455.6;
+      Eigen::VectorXd damping(7);
+      damping << 10.0, 10.0, 5.0, 5.0, 3.0, 3.0, 3.0;
+
+      actuator_ = std::make_unique<wbc::SpringActuator>(stiffness, damping);
+      RCLCPP_INFO(get_node()->get_logger(),
+        "[OptimoController] Simulation mode: spring actuator enabled");
+    } else {
+      actuator_ = std::make_unique<wbc::DirectActuator>();
+      RCLCPP_INFO(get_node()->get_logger(),
+        "[OptimoController] Hardware mode: direct passthrough");
+    }
   }
 
   // Pre-size joint buffers so readFromRT() in update() never sees an empty vector.
@@ -260,6 +285,16 @@ OptimoController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/
 
   robot_joint_state_.Reset(static_cast<Eigen::Index>(joint_count_));
 
+  // Read initial joint positions and reset actuator state (zero spring deflection).
+  {
+    Eigen::VectorXd q0(joint_count_);
+    for (std::size_t i = 0; i < joint_count_; ++i) {
+      q0[static_cast<Eigen::Index>(i)] =
+        state_interfaces_[InterfaceIndex(kPositionBlock, i, joint_count_)].get_value();
+    }
+    actuator_->Reset(q0);
+  }
+
   for (auto & cmd_if : command_interfaces_)
   {
     (void)cmd_if.set_value(0.0);
@@ -332,7 +367,18 @@ controller_interface::return_type OptimoController::update(
   // - [n .. 2n-1]      : desired joint velocity
   // - [2n .. 3n-1]     : desired joint torque
 
-  WriteJointCommand(ctrl_arch_->GetCommand());
+  auto cmd = ctrl_arch_->GetCommand();
+  {
+    wbc::ActuatorCommand act_cmd;
+    act_cmd.q_des = cmd.q;
+    act_cmd.qdot_des = cmd.qdot;
+    act_cmd.tau_ff = cmd.tau;
+    act_cmd.q_link = robot_joint_state_.q;
+    act_cmd.qdot_link = robot_joint_state_.qdot;
+    act_cmd.dt = control_dt_;
+    cmd.tau = actuator_->ProcessTorque(act_cmd);
+  }
+  WriteJointCommand(cmd);
 
   PublishWbcState(time);
 

@@ -1043,22 +1043,22 @@ TEST_F(RealTaskTest, Optimo7DofEeTracking) {
   yaml << "robot_model:\n"
        << "  urdf_path: \"" << optimo_urdf << "\"\n"
        << R"(  is_floating_base: false
-  base_frame: base_link
+  base_frame: optimo_base_link
 regularization:
   w_qddot: 1.0e-6
   w_tau: 1.0e-3
 task_pool:
   - name: ee_pos
     type: LinkPosTask
-    target_frame: end_effector
-    reference_frame: base_link
+    target_frame: optimo_end_effector
+    reference_frame: optimo_base_link
     kp: [100, 100, 100]
     kd: [10, 10, 10]
     kp_ik: [1, 1, 1]
   - name: ee_ori
     type: LinkOriTask
-    target_frame: end_effector
-    reference_frame: base_link
+    target_frame: optimo_end_effector
+    reference_frame: optimo_base_link
     kp: [100, 100, 100]
     kd: [10, 10, 10]
     kp_ik: [1, 1, 1]
@@ -1101,7 +1101,7 @@ state_machine:
   }
 
   // Record EE position.
-  const int ee_idx = robot->GetFrameIndex("end_effector");
+  const int ee_idx = robot->GetFrameIndex("optimo_end_effector");
   const Eigen::Vector3d ee_init =
       robot->GetLinkIsometry(ee_idx).translation();
 
@@ -1620,7 +1620,7 @@ TEST_F(RealTaskTest, ClosedLoopOptimo7DofJointTracking) {
   yaml << "robot_model:\n"
        << "  urdf_path: \"" << optimo_urdf << "\"\n"
        << R"(  is_floating_base: false
-  base_frame: base_link
+  base_frame: optimo_base_link
 regularization:
   w_qddot: 1.0e-6
   w_tau: 0.0

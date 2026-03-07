@@ -49,6 +49,27 @@ bool UsesMeshesPackageAlias(const std::filesystem::path& urdf_path) {
   return false;
 }
 
+/// @brief Returns true if the URDF has mesh filenames with no package:// prefix
+/// (bare relative paths like "meshes/col0.stl").
+bool UsesRelativeMeshPaths(const std::filesystem::path& urdf_path) {
+  std::ifstream in(urdf_path);
+  if (!in.is_open()) {
+    return false;
+  }
+
+  std::string line;
+  while (std::getline(in, line)) {
+    // Look for filename="<something>" that does NOT start with package://
+    auto pos = line.find("filename=\"");
+    if (pos == std::string::npos) continue;
+    pos += 10; // skip past filename="
+    if (line.substr(pos, 10) != "package://") {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 std::string ResolvePackageUri(const std::string& uri) {
@@ -71,6 +92,12 @@ std::string ResolveUrdfPackageRoot(const std::string& urdf_uri,
   if (urdf_path.empty()) {
     throw std::runtime_error(
         "[ros_path_utils] URDF path is empty while resolving package root.");
+  }
+
+  // If the URDF uses bare relative mesh paths (e.g. "meshes/col0.stl"),
+  // Pinocchio needs the URDF's parent directory as the search root.
+  if (UsesRelativeMeshPaths(urdf_path)) {
+    return urdf_path.parent_path().string();
   }
 
   const bool uses_mesh_alias = UsesMeshesPackageAlias(urdf_path);

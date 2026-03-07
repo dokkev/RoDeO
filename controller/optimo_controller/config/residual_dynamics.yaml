@@ -1,0 +1,62 @@
+# =============================================================
+# Residual Dynamics Compensators
+# =============================================================
+#
+# These modules compensate for unmodeled dynamics that the URDF/Pinocchio
+# model cannot capture: joint friction, damping, cable routing forces,
+# mass/inertia errors, unknown payloads, etc.
+#
+# They add feedforward torque corrections BETWEEN the WBIC solver output
+# and the joint PID feedback:
+#
+#   tau = tau_wbic + tau_friction + tau_disturbance + tau_pid
+#
+# Both modules are RT-safe (no heap allocation after setup).
+
+residual_dynamics:
+
+  # ── Momentum-based Disturbance Observer (De Luca 2003) ──────────
+  #
+  # Estimates total unmodeled disturbance torque from the residual between
+  # expected and actual generalized momentum evolution:
+  #
+  #   p = M(q) * qdot                       (measured momentum)
+  #   tau_dist = K_o * (p - p_hat)           (disturbance estimate)
+  #   p_hat += (tau_cmd + C*qdot - g + tau_dist) * dt
+  #
+  # This is the most effective compensator for model error. It captures
+  # friction, damping, mass mismatch, and unknown payloads all at once.
+  #
+  # Tuning:
+  #   K_o = 50:  recommended default (12x error reduction vs PID-only)
+  #   K_o < 30:  slow convergence, poor transient tracking
+  #   K_o > 200: noise amplification, can degrade performance
+  #   max_tau_dist: safety clamp [Nm] — prevents runaway compensation
+  #
+  # Supports scalar (broadcast to all joints) or per-joint vector.
+  momentum_observer:
+    enabled: false  # Can blow up under extreme model mismatch (>50% mass error + payload)
+    K_o: 50.0
+    max_tau_dist: 20.0
+
+  # ── Adaptive Friction Compensator ───────────────────────────────
+  #
+  # Online estimation of Coulomb + viscous friction via gradient descent:
+  #
+  #   tau_fric = f_c * sign(qdot) + f_v * qdot
+  #   f_c += gamma_c * velocity_error * sign(qdot) * dt
+  #   f_v += gamma_v * velocity_error * qdot * dt
+  #
+  # In practice, the momentum observer dominates for short tasks.
+  # The friction compensator may help on real hardware where friction
+  # varies over time (thermal drift, wear) and you want online adaptation.
+  #
+  # Tuning:
+  #   gamma_c/gamma_v: adaptation learning rates (higher = faster but noisier)
+  #   max_f_c/max_f_v: projection clamps to prevent parameter drift
+  friction_compensator:
+    enabled: false
+    gamma_c: 5.0
+    gamma_v: 2.0
+    max_f_c: 10.0
+    max_f_v: 5.0

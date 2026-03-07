@@ -24,16 +24,15 @@ namespace wbc {
  * The choice affects both accuracy (null-space leakage) and performance.
  */
 enum class NullSpaceMethod {
-  SVD_EXACT,       ///< SVD-based exact projection: N = I - V_r * V_r^T (zero leakage)
-  DLS,             ///< DLS pseudoinverse: N = I - J#_dls * J (λ=0.05, ~20% leakage)
-  DLS_MICRO,       ///< DLS with micro-lambda: N = I - J#_dls * J (λ=1e-4, ~0.01% leakage)
+  DLS,             ///< DLS pseudoinverse: N = I - J#_dls * J (λ=0.05, leakage depends on Jacobian spectrum)
+  DLS_MICRO,       ///< DLS with micro-lambda: N = I - J#_dls * J (λ=1e-4, low but non-zero leakage)
 };
 
 /**
  * @brief IK method for FindConfiguration.
  */
 enum class IKMethod {
-  HIERARCHY,       ///< Classic null-space hierarchy (DLS/SVD projector)
+  HIERARCHY,       ///< Classic null-space hierarchy (DLS projector)
   WEIGHTED_QP,     ///< Weighted least-squares QP (task weights determine priority)
 };
 
@@ -137,7 +136,7 @@ public:
   /// Per-constraint soft/hard toggle and penalty weights.
   /// When soft, the constraint becomes a slack variable with quadratic penalty
   /// in the QP cost, allowing controlled violation. When hard, it becomes a
-  /// box constraint (or diagonal-M box approximation for torque).
+  /// box constraint (or diagonal-M box approximation for torque, not exact coupled dynamics).
   struct SoftLimitParams {
     bool pos{false};   ///< Joint position limit: soft (slack) or hard (box)
     bool vel{false};   ///< Joint velocity limit: soft (slack) or hard (box)
@@ -174,7 +173,8 @@ private:
   void SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd);
   void SetQPInEqualityConstraint(const WbcFormulation& formulation,
                                  const Eigen::VectorXd& wbc_qddot_cmd);
-  void ExtractBoxBounds(const Constraint* c, const Eigen::VectorXd& wbc_qddot_cmd);
+  void ExtractAxisAlignedBoxBounds(const Constraint* c,
+                                   const Eigen::VectorXd& wbc_qddot_cmd);
   int BuildFrictionConeConstraint(int row);
   int BuildKinematicLimitConstraint(const Constraint* c, bool is_soft,
                                     bool use_box_solver,
@@ -188,6 +188,7 @@ private:
   bool SolveQP(const Eigen::VectorXd& wbc_qddot_cmd);
   void GetSolution(const Eigen::VectorXd& wbc_qddot_cmd,
                    Eigen::VectorXd& jtrq_cmd);
+  void EnsureIkQPSolverInitialized();
 
 
   // NOTE: Ni_dyn_ (internal/passive-joint nullspace) is not implemented.
@@ -249,8 +250,8 @@ private:
   Eigen::MatrixXd JtPre_;      // task jacobian projected into null space (dim x N)
   Eigen::MatrixXd JtPre_pinv_; // pseudo-inverse of JtPre_
   // Scratch buffers for LLT-based damped pseudo-inverse.
-  // MaxRows/MaxCols = 36 ensures inline storage (no heap alloc) for all
-  // practical pseudo-inverse calls: tasks (≤6), contacts (≤24), UNi (≤num_active).
+  // MaxRows/MaxCols = 36 keeps common paths inline. Larger rows fall back to
+  // dynamic temporaries to preserve correctness when systems scale up.
   static constexpr int kMaxPInvDim = 36;
   using PInvSquare = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
                                    Eigen::ColMajor, kMaxPInvDim, kMaxPInvDim>;
@@ -276,7 +277,7 @@ private:
   // Pre-allocated LU factorization for fully-actuated torque recovery.
   Eigen::PartialPivLU<Eigen::MatrixXd> lu_scratch_;
 
-  // Pre-allocated zero vector for ExtractBoxBounds (avoids per-tick heap alloc).
+  // Pre-allocated zero vector for ExtractAxisAlignedBoxBounds (avoids per-tick heap alloc).
   Eigen::VectorXd zero_qddot_scratch_;
 
   // Maximum QP dimensions (set by ReserveCapacity, used to pre-allocate).
@@ -299,6 +300,10 @@ private:
   Eigen::VectorXd l_box_ik_;
   Eigen::VectorXd u_box_ik_;
   std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_ik_solver_;
+
+  // Diagnostics for invalid box bounds (l > u) generated upstream.
+  int box_conflict_count_{0};
+  int last_box_conflict_index_{-1};
 };
 
 } // namespace wbc
