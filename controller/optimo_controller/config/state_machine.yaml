@@ -14,7 +14,7 @@ state_machine:
       wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3
-      # target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
+      target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0
@@ -31,7 +31,7 @@ state_machine:
       wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3
-      # target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
+      target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0
@@ -62,8 +62,9 @@ state_machine:
       linear_vel_max: 0.1
       angular_vel_max: 0.5
       manipulability:
-        step_size: 0.5
-        w_threshold: 0.01
+        sigma_threshold: 0.08
+        gain: 0.15
+        max_bias_qdot: 0.2
     task_hierarchy:
       - name: "ee_pos_task"
         weight: 100.0

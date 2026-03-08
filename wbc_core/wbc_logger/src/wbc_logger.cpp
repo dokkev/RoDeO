@@ -62,6 +62,16 @@ static void EigenToStd(const Eigen::VectorXd& src, std::vector<double>& dst) {
   for (int i = 0; i < copy_n; ++i) dst[i] = src[i];
 }
 
+template <typename Fn>
+void ForEachMotionTask(const WbcFormulation& formulation, Fn&& fn) {
+  for (const Task* task : formulation.operational_tasks) {
+    fn(task);
+  }
+  for (const Task* task : formulation.posture_tasks) {
+    fn(task);
+  }
+}
+
 void WbcLogger::UpdateStateData(
     int state_id,
     const Eigen::VectorXd& q_cmd,
@@ -118,20 +128,25 @@ void WbcLogger::UpdateStateData(
   state_data_.tau_fb_norm = tau_fb.norm();
 
   // Extract q_des/qdot_des from JointTask (dim == n_active).
-  for (const Task* task : formulation.motion_tasks) {
-    if (task != nullptr && task->Dim() == n_active_) {
+  bool found_joint_task = false;
+  ForEachMotionTask(formulation, [&](const Task* task) {
+    if (found_joint_task || task == nullptr) {
+      return;
+    }
+    if (task->Dim() == n_active_) {
       EigenToStd(task->DesiredPos(), state_data_.q_des);
       EigenToStd(task->DesiredVel(), state_data_.qdot_des);
-      break;
+      found_joint_task = true;
     }
-  }
+  });
 
   // Per-task snapshots — reuse allocated TaskStateData entries.
-  const auto& tasks = formulation.motion_tasks;
-  state_data_.tasks.resize(tasks.size());
-  for (std::size_t i = 0; i < tasks.size(); ++i) {
-    const Task* task = tasks[i];
-    if (task == nullptr) continue;
+  const std::size_t num_tasks =
+      formulation.operational_tasks.size() + formulation.posture_tasks.size();
+  state_data_.tasks.resize(num_tasks);
+  std::size_t i = 0;
+  ForEachMotionTask(formulation, [&](const Task* task) {
+    if (task == nullptr) return;
     auto& td = state_data_.tasks[i];
     td.name = LookupTaskName(task);
     td.dim = task->Dim();
@@ -157,7 +172,9 @@ void WbcLogger::UpdateStateData(
     EigenToStd(task->Kd(),         td.kd);
     EigenToStd(task->Weight(),     td.weight);
     td.x_err_norm = task->PosError().norm();
-  }
+    ++i;
+  });
+  state_data_.tasks.resize(i);
 }
 
 // Eigen vector -> compact string: [v0, v1, v2, ...]
@@ -190,13 +207,17 @@ void WbcLogger::PrintToConsole(
             << " state=" << state_id << "] ==========\n";
 
   // Task references from JointTask
-  for (const Task* task : formulation.motion_tasks) {
-    if (task != nullptr && task->Dim() == n_active_) {
+  bool found_joint_task = false;
+  ForEachMotionTask(formulation, [&](const Task* task) {
+    if (found_joint_task || task == nullptr) {
+      return;
+    }
+    if (task->Dim() == n_active_) {
       std::cout << "  q_des:      " << VecStr(task->DesiredPos()) << "\n";
       std::cout << "  qdot_des:   " << VecStr(task->DesiredVel()) << "\n";
-      break;
+      found_joint_task = true;
     }
-  }
+  });
 
   std::cout << "  q_curr:     " << VecStr(q_curr) << "\n";
   std::cout << "  qdot_curr:  " << VecStr(qdot_curr) << "\n";
@@ -208,8 +229,8 @@ void WbcLogger::PrintToConsole(
   std::cout << "  tau:        " << VecStr(tau) << "\n";
   std::cout << "  gravity:    " << VecStr(gravity) << "\n";
 
-  for (const Task* task : formulation.motion_tasks) {
-    if (task == nullptr) continue;
+  ForEachMotionTask(formulation, [&](const Task* task) {
+    if (task == nullptr) return;
     const std::string& name = LookupTaskName(task);
     std::cout << "  --- task: " << name << " (dim=" << task->Dim() << ") ---\n";
     std::cout << "    x_des:    " << VecStr(task->DesiredPos()) << "\n";
@@ -217,7 +238,7 @@ void WbcLogger::PrintToConsole(
     std::cout << "    x_err:    " << VecStr(task->PosError()) << "\n";
     std::cout << "    xdot_des: " << VecStr(task->DesiredVel()) << "\n";
     std::cout << "    op_cmd:   " << VecStr(task->OpCommand()) << "\n";
-  }
+  });
 
   std::cout << std::flush;
 }

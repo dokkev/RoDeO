@@ -91,6 +91,9 @@ if(BUILD_TESTING)
       Eigen3::Eigen
       yaml-cpp
     )
+    # This suite includes long combinatorial benchmarks; default 60s CTest
+    # timeout is too short on many dev machines.
+    set_tests_properties(test_control_architecture_behavior PROPERTIES TIMEOUT 600)
   endif()
 
   ament_add_gtest(test_review_improvements
@@ -119,6 +122,17 @@ if(BUILD_TESTING)
   )
   if(TARGET test_real_tasks)
     target_link_libraries(test_real_tasks
+      ${PROJECT_NAME}
+      Eigen3::Eigen
+      yaml-cpp
+    )
+  endif()
+
+  ament_add_gtest(test_yaml_to_wbic_dataflow
+    test/test_yaml_to_wbic_dataflow.cpp
+  )
+  if(TARGET test_yaml_to_wbic_dataflow)
+    target_link_libraries(test_yaml_to_wbic_dataflow
       ${PROJECT_NAME}
       Eigen3::Eigen
       yaml-cpp

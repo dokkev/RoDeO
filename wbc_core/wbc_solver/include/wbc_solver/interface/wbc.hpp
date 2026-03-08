@@ -22,7 +22,6 @@ public:
         num_floating_(0),
         dim_contact_(0),
         is_floating_base_(false),
-        has_contact_(false),
         settings_updated_(false) {
     if (act_qdot_list.empty()) {
       return;
@@ -91,7 +90,7 @@ public:
    * @brief Compute joint torque command from current formulation and desired qddot.
    */
   virtual bool MakeTorque(const WbcFormulation& formulation,
-                          const Eigen::VectorXd& wbc_qddot_cmd,
+                          const Eigen::VectorXd& qddot_ref,
                           Eigen::VectorXd& jtrq_cmd) = 0;
 
   virtual void SetParameters() {}
@@ -102,7 +101,6 @@ protected:
   int num_floating_;
   int dim_contact_;
   bool is_floating_base_;
-  bool has_contact_;
 
   Eigen::MatrixXd sf_;
   Eigen::MatrixXd sa_;

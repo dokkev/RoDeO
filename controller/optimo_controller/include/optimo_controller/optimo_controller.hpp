@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -121,6 +122,13 @@ private:
     return block * joint_count + joint_idx;
   }
 
+  // Index of the model_safety_error command interface.
+  // Layout: [pos×n][vel×n][effort×n][model_safety_error]
+  std::size_t ModelSafetyErrorCmdIndex() const noexcept
+  {
+    return joint_count_ * kInterfacesPerJoint;
+  }
+
   const wbc::RobotJointState & ReadJointState();
   void WriteJointCommand(const wbc::RobotCommand & cmd);
 
@@ -159,15 +167,22 @@ private:
   int64_t last_residual_update_ts_{0};
 
   // Tuned scalar maps keyed by task name. Reapplied on each state transition.
+  // Pre-populated with NaN sentinel at configure time so runtime updates never
+  // insert new keys (which would heap-allocate in the RT loop).
   std::unordered_map<std::string, double> tuned_task_kp_;
   std::unordered_map<std::string, double> tuned_task_kd_;
   std::unordered_map<std::string, double> tuned_task_weight_;
   wbc::StateId last_tuned_state_id_{-1};
+  // Pre-allocated scratch for ReapplyTunedTaskParams (avoids VectorXd::Constant alloc).
+  Eigen::VectorXd reapply_scratch_;
 
   // Typed state pointers — cached at configure time, valid for controller lifetime.
   // Allows RT-safe direct dispatch without dynamic_cast in the hot path.
   wbc::JointTeleop* joint_teleop_state_{nullptr};
   wbc::CartesianTeleop* cartesian_teleop_state_{nullptr};
+  // State id for the safe_command FSM state. When the active state matches this,
+  // model_safety_error command interface is set to 1.0 to trigger hardware disable.
+  std::optional<int> safe_command_state_id_;
 
   // Active state id — refreshed after each ctrl_arch_->Update() so the FSM's
   // latest state (including auto-transitions) is observed before the next tick's dispatch.

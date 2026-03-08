@@ -46,7 +46,7 @@ OptimoController::command_interface_configuration() const
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  config.names.reserve(joint_count_ * kInterfacesPerJoint);
+  config.names.reserve(joint_count_ * kInterfacesPerJoint + 1);
   for (const auto & joint : joints_)
   {
     config.names.push_back(joint + "/" + hardware_interface::HW_IF_POSITION);
@@ -60,6 +60,9 @@ OptimoController::command_interface_configuration() const
     config.names.push_back(joint + "/" + hardware_interface::HW_IF_EFFORT);
   }
 
+  // IMPORTANT: exact name must match `ros2 control list_hardware_interfaces`
+  config.names.push_back("/model_safety_error");
+
   return config;
 }
 
@@ -68,7 +71,18 @@ OptimoController::command_interface_configuration() const
 controller_interface::InterfaceConfiguration
 OptimoController::state_interface_configuration() const
 {
-  return command_interface_configuration();
+  // Explicitly list state interfaces — decoupled from command_interface_configuration()
+  // so future command-only additions (e.g. model_safety_error) don't silently bleed here.
+  controller_interface::InterfaceConfiguration config;
+  config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+  config.names.reserve(joint_count_ * kInterfacesPerJoint);
+  for (const auto & joint : joints_)
+    config.names.push_back(joint + "/" + hardware_interface::HW_IF_POSITION);
+  for (const auto & joint : joints_)
+    config.names.push_back(joint + "/" + hardware_interface::HW_IF_VELOCITY);
+  for (const auto & joint : joints_)
+    config.names.push_back(joint + "/" + hardware_interface::HW_IF_EFFORT);
+  return config;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -114,6 +128,9 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     if (const auto id = fsm->FindStateIdByName("cartesian_teleop")) {
       cartesian_teleop_state_ = dynamic_cast<wbc::CartesianTeleop *>(fsm->FindStateById(*id));
     }
+    if (const auto id = fsm->FindStateIdByName("safe_command")) {
+      safe_command_state_id_ = *id;
+    }
   }
   catch (const std::exception & e)
   {
@@ -132,6 +149,11 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
   if (cartesian_teleop_state_ == nullptr) {
     RCLCPP_ERROR(get_node()->get_logger(),
       "[OptimoController] required state 'cartesian_teleop' not found in WBC config.");
+    return controller_interface::CallbackReturn::ERROR;
+  }
+  if (!safe_command_state_id_.has_value()) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+      "[OptimoController] required state 'safe_command' not found in WBC config.");
     return controller_interface::CallbackReturn::ERROR;
   }
 
@@ -155,13 +177,18 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     }
   }
 
-  // Pre-size joint buffers so readFromRT() in update() never sees an empty vector.
+  // Pre-size / pre-initialize all command buffers.
   // (non-RT configure phase — heap alloc acceptable here.)
   {
     const std::vector<double> zeros(joint_count_, 0.0);
     qdot_des_buf_.writeFromNonRT(JointVelRef{zeros, 0});
     q_des_buf_.writeFromNonRT(JointPosRef{zeros, 0});
   }
+  // Cartesian buffers: zero linear/angular, identity quaternion.
+  // Must be explicit — Eigen::Quaterniond default constructor leaves coeffs uninitialized.
+  xdot_des_buf_.writeFromNonRT(EEVelRef{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0});
+  x_des_buf_.writeFromNonRT(
+      EEPoseRef{{0.0, 0.0, 0.0}, Eigen::Quaterniond::Identity(), 0});
 
   // Joint velocity subscriber — Float64MultiArray: [qdot_0 .. qdot_n] [rad/s]
   joint_vel_sub_ =
@@ -380,6 +407,49 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     msg.gravity.resize(joint_count_, 0.0);
   }
 
+  // Pre-populate tuned maps and msg.tasks using task registry (non-RT configure phase).
+  // Goals:
+  //   1. Maps get all valid task keys inserted now → runtime updates are guaranteed
+  //      lookups (no new key insertion, no heap alloc in RT loop).
+  //   2. msg.tasks inner vectors are pre-allocated to max_dim → PublishWbcState's
+  //      copy() lambda never allocates (dst capacity ≥ actual task dim always).
+  //   3. reapply_scratch_ is pre-sized to max task dim → ReapplyTunedTaskParams
+  //      avoids per-call VectorXd::Constant heap allocation.
+  {
+    auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+    if (reg) {
+      int max_dim = 0;
+      for (const auto& [name, task] : reg->GetMotionTasks()) {
+        // NaN sentinel: "not yet set by user". ReapplyTunedTaskParams skips NaN entries.
+        tuned_task_kp_[name]     = std::nan("");
+        tuned_task_kd_[name]     = std::nan("");
+        tuned_task_weight_[name] = std::nan("");
+        max_dim = std::max(max_dim, task->Dim());
+      }
+      reapply_scratch_.resize(max_dim);
+
+      if (rt_wbc_pub_) {
+        // Pre-allocate msg.tasks inner vectors to max_dim (not per-task dim) because
+        // the logger fills tasks in WbcFormulation iteration order (operational_tasks
+        // then posture_tasks), which differs from unordered_map iteration order here.
+        // Using max_dim guarantees copy() in PublishWbcState never truncates regardless
+        // of which task lands at which slot. Subscribers must use td.dim for valid count.
+        auto& tasks_msg = rt_wbc_pub_->msg_.tasks;
+        tasks_msg.resize(reg->GetMotionTasks().size());
+        for (auto& td : tasks_msg) {
+          td.x_des.resize(max_dim, 0.0);
+          td.xdot_des.resize(max_dim, 0.0);
+          td.x_curr.resize(max_dim, 0.0);
+          td.x_err.resize(max_dim, 0.0);
+          td.op_cmd.resize(max_dim, 0.0);
+          td.kp.resize(max_dim, 0.0);
+          td.kd.resize(max_dim, 0.0);
+          td.weight.resize(max_dim, 0.0);
+        }
+      }
+    }
+  }
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -388,14 +458,16 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
 controller_interface::CallbackReturn
 OptimoController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  const std::size_t expected_interfaces = joint_count_ * kInterfacesPerJoint;
-  if (state_interfaces_.size() < expected_interfaces ||
-    command_interfaces_.size() < expected_interfaces)
+  const std::size_t expected_state_interfaces  = joint_count_ * kInterfacesPerJoint;
+  const std::size_t expected_command_interfaces = joint_count_ * kInterfacesPerJoint + 1; // +1 for model_safety_error
+  if (state_interfaces_.size() < expected_state_interfaces ||
+    command_interfaces_.size() < expected_command_interfaces)
   {
     RCLCPP_ERROR(
       get_node()->get_logger(),
-      "[OptimoController] missing interfaces. expected>=%zu (state=%zu, command=%zu)",
-      expected_interfaces, state_interfaces_.size(), command_interfaces_.size());
+      "[OptimoController] missing interfaces. expected state>=%zu command>=%zu (got state=%zu command=%zu)",
+      expected_state_interfaces, expected_command_interfaces,
+      state_interfaces_.size(), command_interfaces_.size());
     return controller_interface::CallbackReturn::ERROR;
   }
 
@@ -411,10 +483,23 @@ OptimoController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/
     actuator_->Reset(q0);
   }
 
-  for (auto & cmd_if : command_interfaces_)
-  {
-    (void)cmd_if.set_value(0.0);
+  // Position: hold current hardware positions (not zero — that could swing joints).
+  // Velocity and effort: zero. model_safety_error: 0 (not in safe state on activate).
+  // Layout: [0, n) = position, [n, 2n) = velocity, [2n, 3n) = effort, [3n] = safety.
+  for (std::size_t i = 0; i < joint_count_; ++i) {
+    (void)command_interfaces_[i].set_value(state_interfaces_[i].get_value());
   }
+  for (std::size_t i = joint_count_; i < command_interfaces_.size(); ++i) {
+    (void)command_interfaces_[i].set_value(0.0);
+  }
+  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(0.0);
+
+  // Sync active_state_id_ before the first update() tick.
+  // Without this, the first tick dispatches against the header-default (-1),
+  // which mismatches joint_teleop/cartesian_teleop IDs and causes a missed dispatch.
+  active_state_id_ = ctrl_arch_->GetCurrentStateId();
+  last_tuned_state_id_ = active_state_id_;
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -423,10 +508,12 @@ OptimoController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/
 controller_interface::CallbackReturn
 OptimoController::on_deactivate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  for (auto & cmd_if : command_interfaces_)
-  {
-    (void)cmd_if.set_value(0.0);
+  // Keep last position command (do not zero — position=0 rad can swing joints).
+  // Zero velocity, effort, and safety error signal.
+  for (std::size_t i = joint_count_; i < command_interfaces_.size(); ++i) {
+    (void)command_interfaces_[i].set_value(0.0);
   }
+  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(0.0);
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -479,12 +566,13 @@ controller_interface::return_type OptimoController::update(
   active_state_id_ = ctrl_arch_->GetCurrentStateId();
 
   // Write command to hardware interfaces.
-  // Layout: [pos x n] [vel x n] [effort x n]
+  // Layout: [pos x n] [vel x n] [effort x n] [model_safety_error]
   //
   // Command ordering matches command_interface_configuration():
   // - [0 .. n-1]       : desired joint position
   // - [n .. 2n-1]      : desired joint velocity
   // - [2n .. 3n-1]     : desired joint torque
+  // - [3n]             : model_safety_error (written below, after WriteJointCommand)
 
   auto cmd = ctrl_arch_->GetCommand();
   {
@@ -498,6 +586,12 @@ controller_interface::return_type OptimoController::update(
     cmd.tau = actuator_->ProcessTorque(act_cmd);
   }
   WriteJointCommand(cmd);
+
+  // Signal hardware to disable if the FSM entered the safe_command state.
+  const double model_safety_error =
+    (safe_command_state_id_.has_value() &&
+     active_state_id_ == *safe_command_state_id_) ? 1.0 : 0.0;
+  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(model_safety_error);
 
   PublishWbcState(time);
 
@@ -553,22 +647,27 @@ void OptimoController::PublishWbcState(const rclcpp::Time& time)
     msg.qp_setup_time_us = src.qp_setup_time_us;
     msg.qp_solve_time_us = src.qp_solve_time_us;
 
-    msg.tasks.resize(src.tasks.size());
-    for (std::size_t t = 0; t < src.tasks.size(); ++t) {
+    // msg.tasks inner vectors are pre-allocated to max_dim at configure time.
+    // name/dim/priority must be copied from src (not pre-populated) because the logger
+    // fills tasks in WbcFormulation order, which differs from unordered_map order used
+    // during configure. Task names are short (<16 chars) — SSO, no heap alloc on assign.
+    const std::size_t n_tasks = std::min(msg.tasks.size(), src.tasks.size());
+    for (std::size_t t = 0; t < n_tasks; ++t) {
       const auto& ts = src.tasks[t];
       auto& td = msg.tasks[t];
-      td.name     = ts.name;
-      td.dim      = ts.dim;
-      td.priority = ts.priority;
-      td.x_des    = ts.x_des;
-      td.xdot_des = ts.xdot_des;
-      td.x_curr   = ts.x_curr;
-      td.x_err    = ts.x_err;
-      td.op_cmd   = ts.op_cmd;
-      td.kp       = ts.kp;
-      td.kd       = ts.kd;
-      td.weight   = ts.weight;
+      td.name       = ts.name;  // needed: configure order ≠ formulation order
+      td.dim        = ts.dim;
+      td.priority   = ts.priority;
       td.x_err_norm = ts.x_err_norm;
+      // Vectors: element-wise copy only (no resize, no realloc if sizes match).
+      copy(td.x_des,    ts.x_des,    ts.x_des.size());
+      copy(td.xdot_des, ts.xdot_des, ts.xdot_des.size());
+      copy(td.x_curr,   ts.x_curr,   ts.x_curr.size());
+      copy(td.x_err,    ts.x_err,    ts.x_err.size());
+      copy(td.op_cmd,   ts.op_cmd,   ts.op_cmd.size());
+      copy(td.kp,       ts.kp,       ts.kp.size());
+      copy(td.kd,       ts.kd,       ts.kd.size());
+      copy(td.weight,   ts.weight,   ts.weight.size());
     }
 
     rt_wbc_pub_->unlockAndPublish();
@@ -624,17 +723,12 @@ void OptimoController::ApplyPendingRuntimeUpdates()
     wbc::MomentumObserverConfig obs;
     obs.enabled = upd->observer_enabled;
     obs.K_o = to_eigen(upd->k_o, 50.0);
-    obs.max_tau_dist = to_eigen(upd->max_tau_dist, 50.0);
+    obs.max_tau_uncertainty = to_eigen(upd->max_tau_dist, 50.0);
 
-    std::string err;
-    if (!ctrl_arch_->SetResidualDynamicsConfig(fric, obs, &err)) {
-      RCLCPP_WARN(get_node()->get_logger(),
-        "[OptimoController] residual dynamics update rejected: %s", err.c_str());
-    } else {
-      RCLCPP_INFO(get_node()->get_logger(),
-        "[OptimoController] residual dynamics updated (friction=%s, observer=%s)",
-        fric.enabled ? "on" : "off", obs.enabled ? "on" : "off");
-    }
+    // SetResidualDynamicsConfig is called from the RT thread.
+    // Service callback already validates sizes, so failure here is a programming error.
+    // std::string err omitted — string construction is not RT-safe. Pass nullptr.
+    (void)ctrl_arch_->SetResidualDynamicsConfig(fric, obs, nullptr);
   }
 
   // Reapply tuned task params when a new request arrives, or when state changed.
@@ -651,20 +745,31 @@ void OptimoController::ReapplyTunedTaskParams()
     return;
   }
 
+  // NaN sentinel: key pre-inserted at configure time but not yet set by user — skip.
+  // reapply_scratch_ is pre-sized to max task dim; resize() is a no-op if dim unchanged.
   for (const auto& [name, kp] : tuned_task_kp_) {
+    if (std::isnan(kp)) continue;
     auto* task = reg->GetMotionTask(name);
     if (task == nullptr) continue;
-    task->SetKp(Eigen::VectorXd::Constant(task->Dim(), kp));
+    reapply_scratch_.resize(task->Dim());
+    reapply_scratch_.setConstant(kp);
+    task->SetKp(reapply_scratch_);
   }
   for (const auto& [name, kd] : tuned_task_kd_) {
+    if (std::isnan(kd)) continue;
     auto* task = reg->GetMotionTask(name);
     if (task == nullptr) continue;
-    task->SetKd(Eigen::VectorXd::Constant(task->Dim(), kd));
+    reapply_scratch_.resize(task->Dim());
+    reapply_scratch_.setConstant(kd);
+    task->SetKd(reapply_scratch_);
   }
   for (const auto& [name, w] : tuned_task_weight_) {
+    if (std::isnan(w)) continue;
     auto* task = reg->GetMotionTask(name);
     if (task == nullptr) continue;
-    task->SetWeight(Eigen::VectorXd::Constant(task->Dim(), w));
+    reapply_scratch_.resize(task->Dim());
+    reapply_scratch_.setConstant(w);
+    task->SetWeight(reapply_scratch_);
   }
 }
 

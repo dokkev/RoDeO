@@ -12,6 +12,8 @@ weight_max: 1.0e+4
 task_pool:
   - name: "jpos_task"
     type: "JointTask"
+    # role: posture_task -> IK/posture bias only (not ID-QP operational tracking)
+    role: "posture_task"
     kp: 200.0
     kd: 28.0
     kp_ik: 1.0
@@ -19,18 +21,22 @@ task_pool:
 
   - name: "ee_pos_task"
     type: "LinkPosTask"
+    # role: operational_task -> tracked directly by ID-QP task-space cost
+    role: "operational_task"
     target_frame: "optimo_end_effector"
     reference_frame: "optimo_base_link"
     kp: 6400.0
-    kd: 160.0
+    kd: 180.0
     kp_ik: 1.0
     weight: 100.0
 
   - name: "ee_ori_task"
     type: "LinkOriTask"
+    # role: operational_task -> tracked directly by ID-QP task-space cost
+    role: "operational_task"
     target_frame: "optimo_end_effector"
     reference_frame: "optimo_base_link"
     kp: 6400.0
-    kd: 160.0
+    kd: 180.0
     kp_ik: 1.0
     weight: 100.0

@@ -16,7 +16,6 @@
 #include "wbc_fsm/fsm_handler.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 #include "wbc_robot_system/state_provider.hpp"
-#include "wbc_solver/wbic.hpp"
 #include "residual_compensator/adaptive_friction_compensator.hpp"
 #include "residual_compensator/momentum_observer.hpp"
 #include "wbc_util/joint_pid.hpp"
@@ -70,23 +69,22 @@ public:
       if (ctrl["enable_inertia_compensation"])
         config.enable_inertia = ctrl["enable_inertia_compensation"].as<bool>();
 
-      if (ctrl["ik_method"]) {
-        const std::string method = ctrl["ik_method"].as<std::string>();
-        if (method == "weighted_qp" || method == "hierarchy") {
-          // WBIC hierarchy/null-space path was removed. Keep "hierarchy"
-          // accepted for backward-compatible YAML parsing.
-          config.ik_method = IKMethod::WEIGHTED_QP;
-        } else {
-          throw std::runtime_error(
-              "[ControlArchitectureConfig] Unknown ik_method: '" + method +
-              "'. Use 'weighted_qp'.");
-        }
-      }
-
       if (ctrl["weight_min"])
         config.weight_min = ctrl["weight_min"].as<double>();
       if (ctrl["weight_max"])
         config.weight_max = ctrl["weight_max"].as<double>();
+      auto parse_scalar_or_vector = [](const YAML::Node& n) -> Eigen::VectorXd {
+        if (!n) return Eigen::VectorXd::Zero(1);
+        if (n.IsSequence()) {
+          const auto v = n.as<std::vector<double>>();
+          return Eigen::Map<const Eigen::VectorXd>(v.data(), v.size());
+        }
+        return Eigen::VectorXd::Constant(1, n.as<double>());
+      };
+      if (ctrl["kp_acc"])
+        config.kp_acc = parse_scalar_or_vector(ctrl["kp_acc"]);
+      if (ctrl["kd_acc"])
+        config.kd_acc = parse_scalar_or_vector(ctrl["kd_acc"]);
 
       // joint_pid: optional joint-level feedback controller.
       const YAML::Node& pid_node = ctrl["joint_pid"];
@@ -186,8 +184,15 @@ public:
         if (obs_node) {
           config.momentum_observer.enabled =
               obs_node["enabled"] && obs_node["enabled"].as<bool>();
-          config.momentum_observer.K_o = scalar_or_vec(obs_node["K_o"], 50.0);
-          config.momentum_observer.max_tau_dist = scalar_or_vec(obs_node["max_tau_dist"], 50.0);
+          config.momentum_observer.K_o = scalar_or_vec(obs_node["K_o"], 30.0);
+          config.momentum_observer.max_tau_uncertainty =
+              scalar_or_vec(obs_node["max_tau_uncertainty"], 50.0);
+          if (obs_node["momentum_lpf_hz"])
+            config.momentum_observer.momentum_lpf_hz =
+                obs_node["momentum_lpf_hz"].as<double>();
+          if (obs_node["bias_lpf_hz"])
+            config.momentum_observer.bias_lpf_hz =
+                obs_node["bias_lpf_hz"].as<double>();
         }
       };
 
@@ -233,12 +238,13 @@ public:
   double control_dt{0.001};
   JointPIDConfig joint_pid;
 
-  // IK solver method: HIERARCHY (null-space projection) or WEIGHTED_QP (weight-based).
-  IKMethod ik_method{IKMethod::WEIGHTED_QP};
-
   // Weight Ratio Guard: clamp all task weights to [weight_min, weight_max].
   double weight_min{1e-6};
   double weight_max{1e4};
+
+  // Joint-space acceleration-reference gains (controller.kp_acc/kd_acc).
+  Eigen::VectorXd kp_acc{Eigen::VectorXd::Constant(1, 120.0)};
+  Eigen::VectorXd kd_acc{Eigen::VectorXd::Constant(1, 20.0)};
 
   // Physics compensation toggles (all true by default — full inverse dynamics).
   // When disabled, the corresponding term is zeroed before passing to the solver.

@@ -38,10 +38,11 @@ regularization:
   w_f_dot: 1.0e-3              # reaction force rate smoothing
 
 # 4. Global constraints
-# Each constraint can be toggled between hard (boxq constraint) and soft (slack variable + penalty).
+# Each constraint can be toggled between hard (box constraint) and soft (slack variable + penalty).
 #   is_soft: false (default) -> hard QP box constraint (strict enforcement)
 #   is_soft: true            -> slack variable with quadratic penalty (controlled violation)
 #   soft_weight: 1.0e+5      -> penalty weight when is_soft=true (higher = stricter)
+global_constraints:
   JointPosLimitConstraint:
     enabled: true
     scale: 1.0        # fraction of URDF position range
@@ -57,7 +58,7 @@ regularization:
   JointTrqLimitConstraint:
     enabled: true
     scale: 1.0        # fraction of URDF torque limits
-    is_soft: false      # soft -> full coupled dynamics (Sa*M) in C matrix
+    is_soft: false
     soft_weight: 1.0e+5
 
 # 5. Task pool

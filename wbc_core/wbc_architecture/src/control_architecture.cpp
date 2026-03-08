@@ -42,10 +42,11 @@ ControlArchitecture::ControlArchitecture(
   pid_config_           = arch_config.joint_pid;
   friction_config_      = arch_config.friction_comp;
   observer_config_      = arch_config.momentum_observer;
-  ik_method_            = arch_config.ik_method;
   enable_gravity_       = arch_config.enable_gravity;
   enable_coriolis_      = arch_config.enable_coriolis;
   enable_inertia_       = arch_config.enable_inertia;
+  kp_acc_               = arch_config.kp_acc;
+  kd_acc_               = arch_config.kd_acc;
   // Weight bounds: prefer task_pool YAML (RuntimeConfig), fall back to
   // controller section (ControlArchitectureConfig) for backward compat.
   weight_scheduler_.SetWeightBounds(
@@ -61,11 +62,9 @@ void ControlArchitecture::Initialize() {
   InitializeSolver();
   ReserveFormulationCapacity();
 
-  // For weight-based QP: build the formulation once with ALL tasks,
-  // register tasks with the scheduler, and set initial weights.
-  if (ik_method_ == IKMethod::WEIGHTED_QP) {
-    BuildFixedFormulation();
-  }
+  // Build formulation once with all tasks.
+  // Runtime state changes update task weights; the formulation topology is fixed.
+  BuildFixedFormulation();
 
   EnsureCommandBuffers();
 
@@ -191,52 +190,32 @@ void ControlArchitecture::FsmUpdate() {
 const StateConfig* ControlArchitecture::SyncActiveState() {
   const StateId state_id = fsm_handler_->GetCurrentStateId();
 
-  if (ik_method_ == IKMethod::WEIGHTED_QP) {
-    // Weight-based QP: formulation is fixed (built once at init).
-    // On state change, schedule weight ramps instead of rebuilding.
-    if (state_id != applied_state_id_) {
-      cached_state_ = runtime_config_->FindState(state_id);
-      if (cached_state_ != nullptr) {
-        const StateConfig& state = *cached_state_;
-        runtime_config_->ApplyStateOverrides(state, WbcType::WBIC);
-
-        // Per-state ramp duration (negative = use scheduler default).
-        const double ramp_dur = (state.weight_ramp_duration >= 0.0)
-            ? state.weight_ramp_duration
-            : weight_scheduler_.GetRampDuration();
-
-        // Zero-allocation: pass state arrays + default configs directly.
-        weight_scheduler_.ScheduleTransition(
-            state.motion, state.motion_cfg,
-            runtime_config_->DefaultMotionTaskConfigs(),
-            current_time_, ramp_dur);
-        applied_state_id_ = state_id;
-      } else {
-        applied_state_id_ = -1;
-      }
-    }
-
-    // Tick the scheduler every cycle to advance ramps.
-    weight_scheduler_.Tick(current_time_);
-
-    if (cached_state_ == nullptr) {
-      applied_state_id_ = -1;
-    }
-    return cached_state_;
-  }
-
-  // Hierarchy mode: rebuild formulation on state change.
+  // Formulation is fixed. On state change, schedule weight ramps.
   if (state_id != applied_state_id_) {
     cached_state_ = runtime_config_->FindState(state_id);
     if (cached_state_ != nullptr) {
       const StateConfig& state = *cached_state_;
-      runtime_config_->ApplyStateOverrides(state, WbcType::WBIC);
-      runtime_config_->BuildFormulation(state, formulation_);
+      runtime_config_->ApplyStateOverrides(state);
+
+      // Per-state ramp duration (negative = use scheduler default).
+      const double ramp_dur = (state.weight_ramp_duration >= 0.0)
+          ? state.weight_ramp_duration
+          : weight_scheduler_.GetRampDuration();
+
+      // Zero-allocation: pass state arrays + default configs directly.
+      weight_scheduler_.ScheduleTransition(
+          state.motion, state.motion_cfg,
+          runtime_config_->DefaultMotionTaskConfigs(),
+          current_time_, ramp_dur);
       applied_state_id_ = state_id;
     } else {
       applied_state_id_ = -1;
     }
   }
+
+  // Tick the scheduler every cycle to advance ramps.
+  weight_scheduler_.Tick(current_time_);
+
   if (cached_state_ == nullptr) {
     applied_state_id_ = -1;
   }
@@ -257,17 +236,26 @@ bool ControlArchitecture::SolverUpdate() {
                          cori, grav);
   const auto t1 = timing ? Clock::now() : Clock::time_point{};
 
-  // --- FindConfiguration (null-space hierarchy + LLT) ---
-  const bool found_cfg =
-      solver_->FindConfiguration(formulation_, robot_->GetJointPos(), cmd_.q,
-                                 cmd_.qdot, buffers_.wbc_qddot_cmd);
-  if (!found_cfg) {
+  const int n_active = robot_->NumActiveDof();
+
+  // --- IK/reference solve ---
+  KinematicReference kin_ref;
+  if (!solver_->ComputeKinematicReference(formulation_, robot_->GetJointPos(),
+                                          kin_ref)) {
+    return false;
+  }
+  cmd_.q = kin_ref.jpos_ref;
+  cmd_.qdot = kin_ref.jvel_ref;
+
+  if (!solver_->BuildPostureAccelReference(
+          kin_ref, robot_->GetJointPos(), robot_->GetQdotRef().tail(n_active),
+          buffers_.qddot_posture_ref)) {
     return false;
   }
   const auto t2 = timing ? Clock::now() : Clock::time_point{};
 
-  // --- MakeTorque (QP setup + ProxQP solve + torque recovery) ---
-  if (!solver_->MakeTorque(formulation_, buffers_.wbc_qddot_cmd, cmd_.tau)) {
+  // --- Inverse dynamics solve (QP setup + ProxQP + torque recovery) ---
+  if (!solver_->SolveInverseDynamics(formulation_, buffers_.qddot_posture_ref, cmd_.tau)) {
     return false;
   }
 
@@ -275,17 +263,16 @@ bool ControlArchitecture::SolverUpdate() {
   // The QP needs M for its constraints/cost, so we can't zero it beforehand.
   // Instead, subtract the M*qddot contribution from the actuated torque.
   if (!enable_inertia_) {
-    const int n_act = robot_->NumActiveDof();
+    const int n_act = n_active;
     // For fixed-base fully-actuated: tau = M*qddot + cori + grav - Jc^T*rf
     // Subtract M_act * qddot (actuated block of mass matrix times full qddot).
     cmd_.tau.noalias() -= robot_->GetMassMatrixRef().bottomRows(n_act)
-                          * solver_->GetWbicData()->corrected_wbc_qddot_cmd_;
+                          * solver_->GetWbicData()->qddot_sol_;
   }
   const auto t3 = timing ? Clock::now() : Clock::time_point{};
 
   // --- Feedback: PID + clamping ---
   // WBIC output already includes full inverse dynamics: M*qddot + Ni_dyn^T*(cori+grav).
-  const int n_active = robot_->NumActiveDof();
 
   // --- Adaptive feedforward compensators ---
   // Applied after WBIC solve, before PID feedback, so they augment the
@@ -298,15 +285,16 @@ bool ControlArchitecture::SolverUpdate() {
     cmd_.tau += tau_fric_comp_;
   }
 
-  // Momentum observer: tau -= tau_dist (cancel estimated disturbance)
+  // Momentum observer: tau -= uncertainty estimate (cancel lumped model error)
   if (momentum_obs_enabled_) {
-    momentum_obs_.Compute(
-        robot_->GetMassMatrixRef().bottomRightCorner(n_active, n_active),
-        robot_->GetCoriolisRef().tail(n_active),
-        robot_->GetGravityRef().tail(n_active),
-        robot_->GetQdotRef().tail(n_active),
-        buffers_.joint_trq_prev,
-        step_dt_, tau_dist_comp_);
+    // Pre-allocated scratch: p_nom = M_active * qdot_active, beta_nom = C*qdot - g
+    obs_p_nom_.noalias() =
+        robot_->GetMassMatrixRef().bottomRightCorner(n_active, n_active) *
+        robot_->GetQdotRef().tail(n_active);
+    obs_beta_nom_  = robot_->GetCoriolisRef().tail(n_active);
+    obs_beta_nom_ -= robot_->GetGravityRef().tail(n_active);
+    momentum_obs_.Compute(obs_p_nom_, obs_beta_nom_, buffers_.joint_trq_prev,
+                          step_dt_, tau_dist_comp_);
     cmd_.tau -= tau_dist_comp_;
   }
 
@@ -354,7 +342,7 @@ bool ControlArchitecture::SolverUpdate() {
     }
 
     logger_.LogTick(current_time_, applied_state_id_,
-                    cmd_.q, cmd_.qdot, buffers_.wbc_qddot_cmd,
+                    cmd_.q, cmd_.qdot, buffers_.qddot_posture_ref,
                     cmd_.tau_ff, cmd_.tau_fb, cmd_.tau,
                     robot_->GetQRef().tail(n_active),
                     robot_->GetQdotRef().tail(n_active),
@@ -425,7 +413,7 @@ bool ControlArchitecture::SetResidualDynamicsConfig(
     }
     return false;
   }
-  if (!valid_size(observer.K_o) || !valid_size(observer.max_tau_dist)) {
+  if (!valid_size(observer.K_o) || !valid_size(observer.max_tau_uncertainty)) {
     if (error_msg != nullptr) {
       *error_msg = "observer vectors must be size 1 or num_active";
     }
@@ -458,8 +446,16 @@ bool ControlArchitecture::SetResidualDynamicsConfig(
   if (tau_dist_comp_.size() != num_active) {
     tau_dist_comp_.setZero(num_active);
   }
+  if (obs_p_nom_.size() != num_active) {
+    obs_p_nom_.setZero(num_active);
+  }
+  if (obs_beta_nom_.size() != num_active) {
+    obs_beta_nom_.setZero(num_active);
+  }
   momentum_obs_.SetGain(expand(observer_config_.K_o));
-  momentum_obs_.SetLimit(expand(observer_config_.max_tau_dist));
+  momentum_obs_.SetLimit(expand(observer_config_.max_tau_uncertainty));
+  momentum_obs_.SetMomentumLpfHz(observer_config_.momentum_lpf_hz);
+  momentum_obs_.SetBiasLpfHz(observer_config_.bias_lpf_hz);
   if (observer_config_.enabled) {
     momentum_obs_.Reset();
   } else {
@@ -477,7 +473,13 @@ void ControlArchitecture::UpdateKinematics(
     world_R_local = sp_->base_state_.rot_world_local;
   }
 
-  for (Task* task : formulation.motion_tasks) {
+  for (Task* task : formulation.operational_tasks) {
+    assert(task != nullptr);
+    task->UpdateJacobian();
+    task->UpdateJacobianDotQdot();
+    task->UpdateOpCommand(world_R_local);
+  }
+  for (Task* task : formulation.posture_tasks) {
     assert(task != nullptr);
     task->UpdateJacobian();
     task->UpdateJacobianDotQdot();
@@ -574,7 +576,24 @@ void ControlArchitecture::InitializeSolver() {
   qp_params_->W_tau_.setConstant(reg.w_tau);
   qp_params_->W_tau_dot_.setConstant(reg.w_tau_dot);
   solver_ = std::make_unique<WBIC>(act_qdot_list, qp_params_.get());
-  solver_->SetIKMethod(ik_method_);
+
+  auto expand_gain = [&](const Eigen::VectorXd& gain) -> Eigen::VectorXd {
+    if (gain.size() == robot_->NumActiveDof()) {
+      return gain;
+    }
+    if (gain.size() == 1) {
+      return Eigen::VectorXd::Constant(robot_->NumActiveDof(), gain[0]);
+    }
+    throw std::runtime_error(
+        "[ControlArchitecture] controller.kp_acc/controller.kd_acc must be "
+        "scalar or size num_active.");
+  };
+  if (!solver_->SetJointAccelReferenceGains(expand_gain(kp_acc_),
+                                             expand_gain(kd_acc_))) {
+    throw std::runtime_error(
+        "[ControlArchitecture] invalid controller.kp_acc or controller.kd_acc "
+        "(must be finite, non-negative, scalar, or size num_active).");
+  }
 
   // Pre-allocate solver buffers to avoid first-tick heap allocations.
   {
@@ -597,19 +616,30 @@ void ControlArchitecture::InitializeSolver() {
 }
 
 void ControlArchitecture::ReserveFormulationCapacity() {
-  std::size_t max_motion = 0;
+  std::size_t max_operational = 0;
+  std::size_t max_posture = 0;
   std::size_t max_contact = 0;
   std::size_t max_force = 0;
   std::size_t max_kin = runtime_config_->GlobalConstraints().size();
   for (const auto& [state_id, state] : runtime_config_->States()) {
     (void)state_id;
-    max_motion = std::max(max_motion, state.motion.size());
+    std::size_t state_operational = 0;
+    std::size_t state_posture = 0;
+    for (Task* task : state.motion) {
+      if (runtime_config_->MotionRole(task) == MotionTaskRole::kPostureTask) {
+        ++state_posture;
+      } else {
+        ++state_operational;
+      }
+    }
+    max_operational = std::max(max_operational, state_operational);
+    max_posture = std::max(max_posture, state_posture);
     max_contact = std::max(max_contact, state.contacts.size());
     max_force = std::max(max_force, state.forces.size());
     max_kin = std::max(max_kin,
                        runtime_config_->GlobalConstraints().size() + state.kin.size());
   }
-  formulation_.Reserve(max_motion, max_contact, max_force, max_kin);
+  formulation_.Reserve(max_operational, max_posture, max_contact, max_force, max_kin);
 }
 
 void ControlArchitecture::BuildFixedFormulation() {
@@ -619,9 +649,14 @@ void ControlArchitecture::BuildFixedFormulation() {
 
   const auto* reg = runtime_config_->taskRegistry();
   for (const auto& [name, task_ptr] : reg->GetMotionTasks()) {
-    formulation_.motion_tasks.push_back(task_ptr.get());
+    Task* task = task_ptr.get();
+    if (runtime_config_->MotionRole(task) == MotionTaskRole::kPostureTask) {
+      formulation_.posture_tasks.push_back(task);
+    } else {
+      formulation_.operational_tasks.push_back(task);
+    }
     // Register each task with the weight scheduler.
-    weight_scheduler_.RegisterTask(task_ptr.get());
+    weight_scheduler_.RegisterTask(task);
   }
 
   // Global constraints (always active).
@@ -659,7 +694,11 @@ void ControlArchitecture::BuildFixedFormulation() {
 
   // Set all task weights to kMinWeight initially.
   // The first SyncActiveState will schedule the correct weights.
-  for (Task* task : formulation_.motion_tasks) {
+  for (Task* task : formulation_.operational_tasks) {
+    task->SetWeight(Eigen::VectorXd::Constant(
+        task->Dim(), TaskWeightScheduler::kMinWeight));
+  }
+  for (Task* task : formulation_.posture_tasks) {
     task->SetWeight(Eigen::VectorXd::Constant(
         task->Dim(), TaskWeightScheduler::kMinWeight));
   }
@@ -691,8 +730,8 @@ void ControlArchitecture::EnsureCommandBuffers() {
   if (buffers_.joint_trq_prev.size() != num_active) {
     buffers_.joint_trq_prev = Eigen::VectorXd::Zero(num_active);
   }
-  if (buffers_.wbc_qddot_cmd.size() != num_qdot) {
-    buffers_.wbc_qddot_cmd = Eigen::VectorXd::Zero(num_qdot);
+  if (buffers_.qddot_posture_ref.size() != num_qdot) {
+    buffers_.qddot_posture_ref = Eigen::VectorXd::Zero(num_qdot);
   }
   if (buffers_.zero_qdot.size() != num_qdot) {
     buffers_.zero_qdot = Eigen::VectorXd::Zero(num_qdot);
@@ -743,7 +782,9 @@ void ControlArchitecture::EnsureCommandBuffers() {
     };
     momentum_obs_.Setup(num_active);
     momentum_obs_.SetGain(expand(observer_config_.K_o));
-    momentum_obs_.SetLimit(expand(observer_config_.max_tau_dist));
+    momentum_obs_.SetLimit(expand(observer_config_.max_tau_uncertainty));
+    momentum_obs_.SetMomentumLpfHz(observer_config_.momentum_lpf_hz);
+    momentum_obs_.SetBiasLpfHz(observer_config_.bias_lpf_hz);
     tau_dist_comp_ = Eigen::VectorXd::Zero(num_active);
     momentum_obs_enabled_ = true;
   }

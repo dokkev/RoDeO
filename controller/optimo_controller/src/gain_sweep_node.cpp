@@ -101,6 +101,8 @@ struct CandidateResult {
 
   bool success{false};
   std::string fail_reason;
+  int stable_seed_count{0};
+  int total_seed_count{1};
 
   double cart_pos_rms_mm{0.0};
   double cart_pos_hold_mm{0.0};
@@ -154,6 +156,22 @@ bool FindTaskErrorNorm(const wbc_msgs::msg::WbcState& msg,
     }
   }
   return false;
+}
+
+double Percentile(std::vector<double> values, double percentile) {
+  if (values.empty()) {
+    return std::numeric_limits<double>::infinity();
+  }
+  std::sort(values.begin(), values.end());
+  const double p = std::clamp(percentile, 0.0, 100.0) / 100.0;
+  const double idx = p * static_cast<double>(values.size() - 1);
+  const auto lo = static_cast<std::size_t>(std::floor(idx));
+  const auto hi = static_cast<std::size_t>(std::ceil(idx));
+  if (lo == hi) {
+    return values[lo];
+  }
+  const double t = idx - static_cast<double>(lo);
+  return (1.0 - t) * values[lo] + t * values[hi];
 }
 
 template <typename T>
@@ -243,8 +261,10 @@ public:
     }
 
     RCLCPP_INFO(get_logger(),
-                "Starting sweep: %zu candidates, %zu joint profiles, %zu cartesian profiles",
-                candidates_.size(), joint_profiles_.size(), cartesian_profiles_.size());
+                "Starting sweep: %zu candidates, %zu joint profiles, %zu cartesian profiles, "
+                "robust seeds=%d, percentile=%.1f, min stable ratio=%.2f",
+                candidates_.size(), joint_profiles_.size(), cartesian_profiles_.size(),
+                robust_num_seeds_, robust_percentile_, robust_min_stable_ratio_);
 
     std::vector<CandidateResult> results;
     results.reserve(candidates_.size());
@@ -259,9 +279,11 @@ public:
 
       if (result.success) {
         RCLCPP_INFO(get_logger(),
-                    "  score=%.3f, cart_rms=%.3fmm, cart_hold=%.3fmm, cart_ori=%.3fdeg, "
-                    "joint_rms=%.3fmrad, joint_hold=%.3fmrad, tau_ratio=%.3f",
+                    "  score=%.3f, seeds=%d/%d, cart_rms=%.3fmm, cart_hold=%.3fmm, "
+                    "cart_ori=%.3fdeg, joint_rms=%.3fmrad, joint_hold=%.3fmrad, tau_ratio=%.3f",
                     result.score,
+                    result.stable_seed_count,
+                    result.total_seed_count,
                     result.cart_pos_rms_mm,
                     result.cart_pos_hold_mm,
                     result.cart_ori_rms_deg,
@@ -300,11 +322,13 @@ public:
     for (std::size_t i = 0; i < report_n; ++i) {
       const auto* r = successful[i];
       RCLCPP_INFO(get_logger(),
-                  "  #%zu: %s | score=%.3f | cart_rms=%.3fmm hold=%.3fmm ori=%.3fdeg | "
-                  "joint_rms=%.3fmrad hold=%.3fmrad | tau_ratio=%.3f",
+                  "  #%zu: %s | score=%.3f | seeds=%d/%d | cart_rms=%.3fmm hold=%.3fmm "
+                  "ori=%.3fdeg | joint_rms=%.3fmrad hold=%.3fmrad | tau_ratio=%.3f",
                   i + 1,
                   r->candidate.label.c_str(),
                   r->score,
+                  r->stable_seed_count,
+                  r->total_seed_count,
                   r->cart_pos_rms_mm,
                   r->cart_pos_hold_mm,
                   r->cart_ori_rms_deg,
@@ -380,6 +404,10 @@ private:
 
     declare_parameter<int>("top_k_report", 5);
     declare_parameter<int>("seed", 12345);
+    declare_parameter<int>("robust_num_seeds", 1);
+    declare_parameter<int>("robust_seed_stride", 1009);
+    declare_parameter<double>("robust_percentile", 90.0);
+    declare_parameter<double>("robust_min_stable_ratio", 1.0);
 
     declare_parameter<int>("joint_random_profiles", 4);
     declare_parameter<int>("cartesian_random_profiles", 4);
@@ -456,6 +484,13 @@ private:
     top_k_report_ = static_cast<std::size_t>(
         std::max<int64_t>(1, get_parameter("top_k_report").as_int()));
     seed_ = static_cast<unsigned int>(get_parameter("seed").as_int());
+    robust_num_seeds_ =
+        static_cast<int>(std::max<int64_t>(1, get_parameter("robust_num_seeds").as_int()));
+    robust_seed_stride_ =
+        static_cast<int>(std::max<int64_t>(1, get_parameter("robust_seed_stride").as_int()));
+    robust_percentile_ = std::clamp(get_parameter("robust_percentile").as_double(), 0.0, 100.0);
+    robust_min_stable_ratio_ =
+        std::clamp(get_parameter("robust_min_stable_ratio").as_double(), 0.0, 1.0);
 
     joint_random_profiles_ =
         static_cast<int>(std::max<int64_t>(0, get_parameter("joint_random_profiles").as_int()));
@@ -804,8 +839,102 @@ private:
   }
 
   CandidateResult EvaluateCandidate(const Candidate& candidate) {
+    if (robust_num_seeds_ <= 1) {
+      auto single = EvaluateCandidateSingle(candidate);
+      single.total_seed_count = 1;
+      single.stable_seed_count = single.success ? 1 : 0;
+      return single;
+    }
+
     CandidateResult result;
     result.candidate = candidate;
+    result.total_seed_count = robust_num_seeds_;
+
+    std::vector<double> cart_rms_samples;
+    std::vector<double> cart_hold_samples;
+    std::vector<double> cart_ori_samples;
+    std::vector<double> joint_rms_samples;
+    std::vector<double> joint_hold_samples;
+    std::vector<double> tau_ratio_samples;
+    cart_rms_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+    cart_hold_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+    cart_ori_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+    joint_rms_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+    joint_hold_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+    tau_ratio_samples.reserve(static_cast<std::size_t>(robust_num_seeds_));
+
+    std::string first_fail_reason;
+    int stable_seeds = 0;
+
+    for (int seed_idx = 0; seed_idx < robust_num_seeds_; ++seed_idx) {
+      const unsigned int eval_seed =
+          seed_ + static_cast<unsigned int>(seed_idx * robust_seed_stride_);
+      rng_.seed(eval_seed);
+      BuildTrajectoryProfiles();
+
+      const CandidateResult seed_result = EvaluateCandidateSingle(candidate);
+      if (!seed_result.success) {
+        if (first_fail_reason.empty()) {
+          std::ostringstream os;
+          os << "seed " << seed_idx << " failed: " << seed_result.fail_reason;
+          first_fail_reason = os.str();
+        }
+        continue;
+      }
+
+      ++stable_seeds;
+      cart_rms_samples.push_back(seed_result.cart_pos_rms_mm);
+      cart_hold_samples.push_back(seed_result.cart_pos_hold_mm);
+      cart_ori_samples.push_back(seed_result.cart_ori_rms_deg);
+      joint_rms_samples.push_back(seed_result.joint_rms_mrad);
+      joint_hold_samples.push_back(seed_result.joint_hold_mrad);
+      tau_ratio_samples.push_back(seed_result.max_tau_ratio);
+    }
+
+    result.stable_seed_count = stable_seeds;
+    if (stable_seeds == 0) {
+      result.fail_reason =
+          first_fail_reason.empty() ? "all seeds failed" : first_fail_reason;
+      return result;
+    }
+
+    const double stable_ratio =
+        static_cast<double>(stable_seeds) / static_cast<double>(robust_num_seeds_);
+    if (stable_ratio + 1e-12 < robust_min_stable_ratio_) {
+      std::ostringstream os;
+      os << "stable seed ratio " << std::fixed << std::setprecision(3)
+         << stable_ratio << " below threshold " << robust_min_stable_ratio_;
+      if (!first_fail_reason.empty()) {
+        os << " (" << first_fail_reason << ")";
+      }
+      result.fail_reason = os.str();
+      return result;
+    }
+
+    result.cart_pos_rms_mm = Percentile(cart_rms_samples, robust_percentile_);
+    result.cart_pos_hold_mm = Percentile(cart_hold_samples, robust_percentile_);
+    result.cart_ori_rms_deg = Percentile(cart_ori_samples, robust_percentile_);
+    result.joint_rms_mrad = Percentile(joint_rms_samples, robust_percentile_);
+    result.joint_hold_mrad = Percentile(joint_hold_samples, robust_percentile_);
+    result.max_tau_ratio = Percentile(tau_ratio_samples, robust_percentile_);
+
+    const double tau_penalty = std::max(0.0, result.max_tau_ratio - 1.0);
+    result.score =
+        score_w_cart_rms_ * result.cart_pos_rms_mm +
+        score_w_cart_hold_ * result.cart_pos_hold_mm +
+        score_w_cart_ori_ * result.cart_ori_rms_deg +
+        score_w_joint_rms_ * result.joint_rms_mrad +
+        score_w_joint_hold_ * result.joint_hold_mrad +
+        score_w_tau_ratio_ * tau_penalty;
+
+    result.success = true;
+    return result;
+  }
+
+  CandidateResult EvaluateCandidateSingle(const Candidate& candidate) {
+    CandidateResult result;
+    result.candidate = candidate;
+    result.total_seed_count = 1;
 
     if (!ApplyCandidateServices(candidate)) {
       result.fail_reason = "service apply failed";
@@ -908,6 +1037,7 @@ private:
         score_w_tau_ratio_ * tau_penalty;
 
     result.success = true;
+    result.stable_seed_count = 1;
     return result;
   }
 
@@ -1198,7 +1328,7 @@ private:
       return false;
     }
 
-    ofs << "success,score,label,"
+    ofs << "success,score,label,stable_seed_count,total_seed_count,"
         << "jpos_kp,jpos_kd,ee_kp,ee_kd,cart_jpos_weight,cart_ee_weight,"
         << "friction_enabled,gamma_c,gamma_v,max_f_c,max_f_v,"
         << "observer_enabled,observer_k,max_tau_dist,"
@@ -1209,6 +1339,8 @@ private:
       ofs << (r.success ? 1 : 0) << ','
           << r.score << ','
           << '"' << EscapeCsv(r.candidate.label) << '"' << ','
+          << r.stable_seed_count << ','
+          << r.total_seed_count << ','
           << r.candidate.jpos_kp << ','
           << r.candidate.jpos_kd << ','
           << r.candidate.ee_kp << ','
@@ -1313,6 +1445,10 @@ private:
 
   std::size_t top_k_report_{5};
   unsigned int seed_{12345};
+  int robust_num_seeds_{1};
+  int robust_seed_stride_{1009};
+  double robust_percentile_{90.0};
+  double robust_min_stable_ratio_{1.0};
 
   int joint_random_profiles_{4};
   int cart_random_profiles_{4};

@@ -26,8 +26,12 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
 
   if (params["manipulability"]) {
     const auto& m = params["manipulability"];
-    if (m["step_size"])     manip_config_.step_size     = m["step_size"].as<double>();
-    if (m["w_threshold"])   manip_config_.w_threshold   = m["w_threshold"].as<double>();
+    if (m["sigma_threshold"])      manip_config_.sigma_threshold      = m["sigma_threshold"].as<double>();
+    if (m["gain"])                 manip_config_.gain                 = m["gain"].as<double>();
+    if (m["max_bias_qdot"])        manip_config_.max_bias_qdot        = m["max_bias_qdot"].as<double>();
+    if (m["fd_eps"])               manip_config_.fd_eps               = m["fd_eps"].as<double>();
+    if (m["use_full_jacobian"])    manip_config_.use_full_jacobian    = m["use_full_jacobian"].as<bool>();
+    if (m["characteristic_length"]) manip_config_.characteristic_length = m["characteristic_length"].as<double>();
   }
 }
 

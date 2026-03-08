@@ -403,10 +403,6 @@ void PseudoInverse(
   for (int ii(0); ii < nrows; ++ii) {
     if (svd.singularValues().coeff(ii) > sigmaThreshold) {
       invS.coeffRef(ii, ii) = 1.0 / svd.singularValues().coeff(ii);
-    } else {
-      // invS.coeffRef(ii, ii) = 1.0/ sigmaThreshold;
-      // printf("sigular value is too small: %f\n",
-      // svd.singularValues().coeff(ii));
     }
   }
   invMatrix = svd.matrixV() * invS * svd.matrixU().transpose();

@@ -15,29 +15,34 @@
 
 residual_dynamics:
 
-  # ── Momentum-based Disturbance Observer (De Luca 2003) ──────────
+  # ── Momentum-based Lumped Uncertainty Observer (De Luca 2003) ──────────
   #
-  # Estimates total unmodeled disturbance torque from the residual between
-  # expected and actual generalized momentum evolution:
+  # Estimates lumped unmodeled dynamics from the generalized momentum residual:
   #
-  #   p = M(q) * qdot                       (measured momentum)
-  #   tau_dist = K_o * (p - p_hat)           (disturbance estimate)
-  #   p_hat += (tau_cmd + C*qdot - g + tau_dist) * dt
+  #   p    = M(q)*qdot                        (nominal momentum, caller-computed)
+  #   beta = C(q,qdot)*qdot - g(q)            (nominal momentum rate bias)
+  #   ŵ   = K_o * (p - z)                    (lumped uncertainty estimate)
+  #   z   += (tau + beta + ŵ) * dt            (observer state)
   #
-  # This is the most effective compensator for model error. It captures
-  # friction, damping, mass mismatch, and unknown payloads all at once.
+  # Captures friction, damping, mass mismatch, and unknown payloads.
+  # For compensation, prefer injecting only tau_bias (slow model error),
+  # not the full ŵ which also includes contact transients.
   #
   # Tuning:
-  #   K_o = 50:  recommended default (12x error reduction vs PID-only)
-  #   K_o < 30:  slow convergence, poor transient tracking
-  #   K_o > 200: noise amplification, can degrade performance
-  #   max_tau_dist: safety clamp [Nm] — prevents runaway compensation
+  #   K_o = 30:           recommended default
+  #   K_o < 20:           slow convergence
+  #   K_o > 100:          noise amplification risk
+  #   max_tau_uncertainty: safety clamp [Nm] — prevents runaway compensation
+  #   momentum_lpf_hz:    optional low-pass on p_nom to reduce velocity noise
+  #   bias_lpf_hz:        optional slow/fast residual splitter
   #
   # Supports scalar (broadcast to all joints) or per-joint vector.
   momentum_observer:
     enabled: false  # Can blow up under extreme model mismatch (>50% mass error + payload)
-    K_o: 50.0
-    max_tau_dist: 20.0
+    K_o: 30.0
+    max_tau_uncertainty: 20.0
+    # momentum_lpf_hz: 10.0   # optional: low-pass nominal momentum
+    # bias_lpf_hz: 0.5        # optional: extract slow model-bias component
 
   # ── Adaptive Friction Compensator ───────────────────────────────
   #

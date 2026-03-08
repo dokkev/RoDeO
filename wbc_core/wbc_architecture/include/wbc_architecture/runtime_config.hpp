@@ -112,7 +112,7 @@ public:
    * Called once on state entry (not every tick). Writes task gains using
    * pre-parsed config pointers, so no YAML parsing occurs at runtime.
    */
-  void ApplyStateOverrides(const StateConfig& state, WbcType wbc_type) const;
+  void ApplyStateOverrides(const StateConfig& state) const;
 
   /**
    * @brief Build a WbcFormulation for the given state.
@@ -124,6 +124,13 @@ public:
    */
   void BuildFormulation(StateId state_id, WbcFormulation& out) const;
   void BuildFormulation(const StateConfig& state, WbcFormulation& out) const;
+
+  MotionTaskRole MotionRole(const Task* task) const {
+    const auto it = motion_task_roles_.find(task);
+    return (it != motion_task_roles_.end())
+               ? it->second
+               : MotionTaskRole::kOperationalTask;
+  }
 
   TaskRegistry*       taskRegistry()       const { return task_registry_.get(); }
   ConstraintRegistry* constraintRegistry() const { return constraint_registry_.get(); }
@@ -170,6 +177,7 @@ private:
   std::unordered_map<StateId, StateConfig> states_;
   std::unordered_map<Task*,      TaskConfig>      default_motion_task_cfg_;
   std::unordered_map<ForceTask*, ForceTaskConfig> default_force_task_cfg_;
+  std::unordered_map<const Task*, MotionTaskRole> motion_task_roles_;
 
   std::vector<Constraint*> global_constraints_;
   std::unordered_map<std::string, SoftConstraintConfig> soft_constraint_cfg_;

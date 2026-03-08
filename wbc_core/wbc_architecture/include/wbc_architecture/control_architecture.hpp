@@ -34,8 +34,8 @@ struct ArchTimingStats {
   double robot_model_us{0};   ///< UpdateRobotModel (Pinocchio FK/Jacobians)
   double kinematics_us{0};    ///< UpdateKinematics (task/contact/constraint updates)
   double dynamics_us{0};      ///< UpdateSetting (lazy M, Minv, g, h)
-  double find_config_us{0};   ///< WBIC::FindConfiguration (null-space hierarchy)
-  double make_torque_us{0};   ///< WBIC::MakeTorque (QP setup + solve + recovery)
+  double find_config_us{0};   ///< WBIC::ComputeKinematicReference
+  double make_torque_us{0};   ///< WBIC::SolveInverseDynamics (QP setup + solve + recovery)
   double feedback_us{0};      ///< Physics compensations + PID + clamping
 };
 
@@ -247,9 +247,6 @@ private:
   std::atomic<bool> initialized_{false};
   double nominal_dt_{0.001};
 
-  // IK method (parsed from YAML controller section).
-  IKMethod ik_method_{IKMethod::WEIGHTED_QP};
-
   // Weight-based QP: scheduler for smooth task weight transitions.
   TaskWeightScheduler weight_scheduler_;
 
@@ -257,6 +254,10 @@ private:
   bool enable_gravity_{true};
   bool enable_coriolis_{true};
   bool enable_inertia_{true};
+
+  // Joint-space acceleration-reference gains (parsed from controller.kp_acc/kd_acc).
+  Eigen::VectorXd kp_acc_{Eigen::VectorXd::Constant(1, 120.0)};
+  Eigen::VectorXd kd_acc_{Eigen::VectorXd::Constant(1, 20.0)};
 
   // Feedforward compensators (adaptive, RT-safe after Setup).
   FrictionCompensatorConfig friction_config_;
@@ -270,6 +271,9 @@ private:
   // Pre-allocated scratch for compensator outputs.
   Eigen::VectorXd tau_fric_comp_;
   Eigen::VectorXd tau_dist_comp_;
+  // Scratch for momentum observer inputs (avoid per-tick heap alloc).
+  Eigen::VectorXd obs_p_nom_;    ///< M_active * qdot_active
+  Eigen::VectorXd obs_beta_nom_; ///< C_active*qdot_active - g_active
 };
 
 } // namespace wbc

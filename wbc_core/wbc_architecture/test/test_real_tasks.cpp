@@ -1019,7 +1019,7 @@ TEST_F(RealTaskTest, TaskConfigRoundTrip) {
   cfg.ki = Eigen::VectorXd::Constant(2, 0.1);
   cfg.weight = Eigen::VectorXd::Constant(2, 3.0);
   cfg.kp_ik = Eigen::VectorXd::Constant(2, 0.5);
-  task.SetParameters(cfg, WbcType::WBIC);
+  task.SetParameters(cfg);
 
   TaskConfig recovered = TaskConfig::FromTask(task);
   EXPECT_TRUE(recovered.kp.isApprox(cfg.kp));

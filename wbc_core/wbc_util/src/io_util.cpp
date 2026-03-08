@@ -122,7 +122,6 @@ void PrettyConstructor(const int & _num_tab, const std::string & _name)
     color = color::kBoldRed;
   }
   space_to_go = 78 - content.length();
-  // std::cout << space_to_go << std::endl;
   for (int i = 0; i < space_to_go; ++i) {
     content += " ";
   }

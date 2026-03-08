@@ -37,8 +37,16 @@ void RuntimeConfig::BuildFormulation(const StateConfig& state,
   // (copy-assignment may reallocate even when capacity is sufficient).
   out.Clear();
 
-  out.motion_tasks.insert(out.motion_tasks.end(),
-                          state.motion.begin(), state.motion.end());
+  for (Task* task : state.motion) {
+    if (task == nullptr) {
+      continue;
+    }
+    if (MotionRole(task) == MotionTaskRole::kPostureTask) {
+      out.posture_tasks.push_back(task);
+    } else {
+      out.operational_tasks.push_back(task);
+    }
+  }
   out.contact_constraints.insert(out.contact_constraints.end(),
                                  state.contacts.begin(), state.contacts.end());
   out.force_tasks.insert(out.force_tasks.end(),
@@ -140,8 +148,7 @@ void RuntimeConfig::ValidateRobotDimensions() const {
   }
 }
 
-void RuntimeConfig::ApplyStateOverrides(const StateConfig& state,
-                                         WbcType wbc_type) const {
+void RuntimeConfig::ApplyStateOverrides(const StateConfig& state) const {
   for (std::size_t i = 0; i < state.motion.size(); ++i) {
     Task* task = state.motion[i];
     if (task == nullptr) continue;
@@ -156,7 +163,7 @@ void RuntimeConfig::ApplyStateOverrides(const StateConfig& state,
       }
     }
     if (cfg != nullptr) {
-      task->SetParameters(*cfg, wbc_type);
+      task->SetParameters(*cfg);
     }
   }
 

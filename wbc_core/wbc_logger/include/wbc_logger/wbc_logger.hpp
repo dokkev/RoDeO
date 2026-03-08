@@ -60,9 +60,10 @@ struct WbcStateData {
   std::vector<double> q_curr;
   std::vector<double> qdot_curr;
 
-  // IK output (_cmd) from FindConfiguration
+  // Kinematic reference output (_cmd) from ComputeKinematicReference
   std::vector<double> q_cmd;
   std::vector<double> qdot_cmd;
+  // Nominal posture acceleration used as ID-QP nominal.
   std::vector<double> qddot_cmd;
 
   // Dynamics output from MakeTorque

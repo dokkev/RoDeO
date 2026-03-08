@@ -8,6 +8,8 @@
 #include <Eigen/Dense>
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <proxsuite/proxqp/dense/dense.hpp>
@@ -18,30 +20,20 @@
 namespace wbc {
 
 /**
- * @brief Deprecated compatibility enum.
- *
- * Hierarchical null-space projection path has been removed from WBIC.
- * Values are kept only to avoid downstream build breakage.
- */
-enum class NullSpaceMethod {
-  DLS,
-  DLS_MICRO,
-};
-
-/**
- * @brief IK method for FindConfiguration.
- */
-enum class IKMethod {
-  HIERARCHY,       ///< Deprecated: retained for source compatibility (falls back to WEIGHTED_QP)
-  WEIGHTED_QP,     ///< Weighted least-squares QP (task weights determine priority)
-};
-
-/**
  * @brief Hard torque-limit handling mode in WBIC correction QP.
  */
 enum class HardTorqueLimitMode {
-  DIAGONAL_M_BOX,  ///< Fast box approximation using only diag(M) for hard torque limits
+  DIAGONAL_M_BOX,  ///< Fast approximate box using only diag(M); not an exact hard torque limit
   EXACT_DENSE,     ///< Exact coupled hard torque limits in dense inequality rows
+};
+
+/**
+ * @brief Contact handling mode for ID-QP motion consistency terms.
+ */
+enum class ContactMode {
+  kNone,           ///< no contact acceleration term
+  kSoftTracking,   ///< soft contact-acceleration tracking in the QP cost
+  kRigidEquality,  ///< reserved for future hard contact-equality mode
 };
 
 /**
@@ -75,9 +67,9 @@ struct WBICData {
         delta_qddot_cost_(0.0),
         delta_rf_cost_(0.0),
         Xc_ddot_cost_(0.0),
-        corrected_wbc_qddot_cmd_(Eigen::VectorXd::Zero(num_qdot)),
-        rf_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
-        rf_prev_cmd_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
+        qddot_sol_(Eigen::VectorXd::Zero(num_qdot)),
+        rf_sol_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
+        rf_prev_sol_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         Xc_ddot_(Eigen::VectorXd::Zero(qp_params->W_delta_rf_.size())),
         tau_prev_(Eigen::VectorXd::Zero(num_qdot)),
         qp_solved_(false),
@@ -87,7 +79,10 @@ struct WBICData {
         qp_dua_res_(0.0),
         qp_obj_(0.0),
         qp_setup_time_us_(0.0),
-        qp_solve_time_us_(0.0) {}
+        qp_solve_time_us_(0.0),
+        box_conflict_count_(0),
+        box_last_conflict_index_(-1),
+        box_conflict_active_(false) {}
 
   QPParams* qp_params_;
   Eigen::VectorXd delta_qddot_;
@@ -95,9 +90,9 @@ struct WBICData {
   double delta_qddot_cost_;
   double delta_rf_cost_;
   double Xc_ddot_cost_;
-  Eigen::VectorXd corrected_wbc_qddot_cmd_;
-  Eigen::VectorXd rf_cmd_;
-  Eigen::VectorXd rf_prev_cmd_;
+  Eigen::VectorXd qddot_sol_;
+  Eigen::VectorXd rf_sol_;
+  Eigen::VectorXd rf_prev_sol_;
   Eigen::VectorXd Xc_ddot_;
   Eigen::VectorXd tau_prev_;
 
@@ -110,10 +105,52 @@ struct WBICData {
   double qp_obj_;
   double qp_setup_time_us_;
   double qp_solve_time_us_;
+  int box_conflict_count_;
+  int box_last_conflict_index_;
+  bool box_conflict_active_;
+};
+
+/**
+ * @brief Kinematic-stage reference bundle.
+ *
+ * This is the structured output of IK/reference generation. It intentionally
+ * carries references only (not feasible dynamics solutions).
+ */
+struct KinematicReference {
+  Eigen::VectorXd jpos_ref;
+  Eigen::VectorXd jvel_ref;
+};
+
+/**
+ * @brief Inverse-dynamics QP solution bundle.
+ *
+ * This groups the feasible solution solved by ID-QP.
+ */
+struct InverseDynamicsSolution {
+  Eigen::VectorXd qddot_sol;
+  Eigen::VectorXd rf_sol;
+  Eigen::VectorXd tau_gen_sol;
+  Eigen::VectorXd tau_cmd;
+};
+
+/**
+ * @brief Optional final command bundle for downstream command builders.
+ *
+ * This is introduced for interface clarity and is not yet the primary command
+ * path in ControlArchitecture.
+ */
+struct WbcCommand {
+  std::optional<Eigen::VectorXd> q_cmd;
+  std::optional<Eigen::VectorXd> qdot_cmd;
+  std::optional<Eigen::VectorXd> tau_cmd;
 };
 
 /**
  * @brief Whole-Body Impulse Control (WBIC) solver implementation.
+ *
+ * @note Joint position/velocity limit constraints are interpreted in
+ * actuated-joint space only (`num_active_` columns, `EffectiveLimits` sized
+ * to actuated joints).
  */
 class WBIC : public WBC {
 public:
@@ -121,26 +158,72 @@ public:
   ~WBIC() override = default;
 
   /**
-   * @brief Compute joint-space configuration command (q, qdot, qddot).
+   * @brief IK/reference stage.
    */
-  bool FindConfiguration(const WbcFormulation& formulation,
-                         const Eigen::VectorXd& curr_jpos,
-                         Eigen::VectorXd& jpos_cmd, Eigen::VectorXd& jvel_cmd,
-                         Eigen::VectorXd& wbc_qddot_cmd);
+  bool ComputeKinematicReference(const WbcFormulation& formulation,
+                                 const Eigen::VectorXd& curr_jpos,
+                                 Eigen::VectorXd& jpos_ref,
+                                 Eigen::VectorXd& jvel_ref);
 
+  /**
+   * @brief Structured-output overload of ComputeKinematicReference.
+   */
+  bool ComputeKinematicReference(const WbcFormulation& formulation,
+                                 const Eigen::VectorXd& curr_jpos,
+                                 KinematicReference& out_ref);
+
+  /**
+   * @brief Build joint acceleration reference from kinematic references and measurements.
+   *
+   * @details
+   * This stage is the owner of `qddot_posture_ref` authority. IK computes only
+   * `jpos_ref/jvel_ref`; posture acceleration reference is built here using
+   * joint-space feedback on measured state.
+   */
+  bool BuildPostureAccelReference(const KinematicReference& kin_ref,
+                                  const Eigen::VectorXd& jpos_meas,
+                                  const Eigen::VectorXd& jvel_meas,
+                                  Eigen::VectorXd& qddot_posture_ref) const;
+
+  /**
+   * @brief Set joint-space acceleration-reference gains.
+   *
+   * @param kp_acc Position error gain (must be finite and non-negative).
+   * @param kd_acc Velocity error gain (must be finite and non-negative).
+   * @return true on successful update.
+   */
+  bool SetJointAccelReferenceGains(double kp_acc, double kd_acc);
+  bool SetJointAccelReferenceGains(const Eigen::VectorXd& kp_acc,
+                                   const Eigen::VectorXd& kd_acc);
+  void SetIndependentVelocityReference(bool enabled) {
+    independent_velocity_ref_ = enabled;
+  }
+  bool GetIndependentVelocityReference() const {
+    return independent_velocity_ref_;
+  }
+
+  // WBC base-interface entry point. For direct WBIC usage, prefer
+  // SolveInverseDynamics for clearer stage semantics.
   bool MakeTorque(const WbcFormulation& formulation,
-                  const Eigen::VectorXd& wbc_qddot_cmd,
+                  const Eigen::VectorXd& qddot_ref,
                   Eigen::VectorXd& jtrq_cmd) override;
+
+  /**
+   * @brief Inverse-dynamics stage.
+   */
+  bool SolveInverseDynamics(const WbcFormulation& formulation,
+                            const Eigen::VectorXd& qddot_ref,
+                            Eigen::VectorXd& jtrq_cmd);
+
+  /**
+   * @brief Structured-output overload of SolveInverseDynamics.
+   */
+  bool SolveInverseDynamics(const WbcFormulation& formulation,
+                            const Eigen::VectorXd& qddot_ref,
+                            InverseDynamicsSolution& out_sol);
 
   void SetParameters() override {}
   WBICData* GetWbicData() { return wbic_data_.get(); }
-
-  // Deprecated API shim: null-space hierarchy path was removed.
-  void SetNullSpaceMethod(NullSpaceMethod /*unused*/) {}
-  NullSpaceMethod GetNullSpaceMethod() const { return NullSpaceMethod::DLS_MICRO; }
-
-  void SetIKMethod(IKMethod m) { ik_method_ = m; }
-  IKMethod GetIKMethod() const { return ik_method_; }
 
   void SetHardTorqueLimitMode(HardTorqueLimitMode m) {
     hard_torque_limit_mode_ = m;
@@ -149,10 +232,13 @@ public:
     return hard_torque_limit_mode_;
   }
 
+  void SetContactMode(ContactMode mode) { contact_mode_ = mode; }
+  ContactMode GetContactMode() const { return contact_mode_; }
+
   /**
    * @brief Pre-allocate solver buffers for the worst-case dimensions.
    *
-   * Call once after construction (before the first MakeTorque) to avoid
+   * Call once after construction (before the first SolveInverseDynamics) to avoid
    * first-tick heap allocations in the RT loop.
    */
   void ReserveCapacity(int max_contact_dim, int max_uf_rows);
@@ -182,63 +268,109 @@ public:
   } soft_params_;
 
 private:
-  void WeightedPseudoInverse(const Eigen::MatrixXd& jac, const Eigen::MatrixXd& W,
+  bool WeightedPseudoInverse(const Eigen::MatrixXd& jac, const Eigen::MatrixXd& W,
                              Eigen::MatrixXd& jac_bar);
-  bool FindConfigurationWeightedQP(const WbcFormulation& formulation,
-                                    const Eigen::VectorXd& curr_jpos,
-                                    Eigen::VectorXd& jpos_cmd,
-                                    Eigen::VectorXd& jvel_cmd,
-                                    Eigen::VectorXd& wbc_qddot_cmd);
-  void BuildContactMtxVect(const std::vector<Contact*>& contacts);
-  void GetDesiredReactionForce(const std::vector<ForceTask*>& force_task_vector);
-  void CacheConstraintPointers(const std::vector<Constraint*>& constraints);
+  bool SolveKinematicReferenceQP(const WbcFormulation& formulation,
+                                 const Eigen::VectorXd& curr_jpos,
+                                 Eigen::VectorXd& jpos_ref,
+                                 Eigen::VectorXd& jvel_ref);
+  bool PrepareContactContext(const WbcFormulation& formulation);
+  bool BuildContactMtxVect(const std::vector<Contact*>& contacts);
+  bool GetDesiredReactionForce(
+      const std::vector<ForceTask*>& force_task_vector);
+  void ClearContactContext();
+  bool CacheConstraintPointers(const std::vector<Constraint*>& constraints);
+  // Joint pos/vel limit contract in WBIC:
+  // - ConstraintMatrix columns must be actuated-joint space (num_active_)
+  // - EffectiveLimits must be [num_active_ x >=2] and finite
+  bool HasSupportedJointLimitShape(const JointPosLimitConstraint* c) const;
+  bool HasSupportedJointLimitShape(const JointVelLimitConstraint* c) const;
+  void ComputeSlackDimensions(const Eigen::VectorXd& qddot_ref);
+  bool ValidateOperationalTasks(
+      const std::vector<Task*>& operational_tasks) const;
+  bool ValidatePostureTasks(
+      const std::vector<Task*>& posture_tasks) const;
+  bool ValidateIKContacts(
+      const std::vector<Contact*>& contact_constraints) const;
+  bool ValidateIKRuntimeConfig() const;
+  bool ValidateIDRuntimeConfig() const;
+  void ProjectKinematicReferenceToJointBounds(const Eigen::VectorXd& curr_jpos,
+                                              Eigen::VectorXd& jpos_ref,
+                                              Eigen::VectorXd& jvel_ref) const;
+  struct InequalityMode {
+    bool use_box_solver{false};
+    bool force_dense{false};
+    bool pos_axis_aligned{false};
+    bool vel_axis_aligned{false};
+    int n_friction{0};
+    int n_ineq{0};
+  };
+
   // QP cost assembly
-  void SetQPCost(const Eigen::VectorXd& wbc_qddot_cmd);
-  void AddQddotTrackingCost();
-  void AddTorqueMinimizationCost(const Eigen::VectorXd& wbc_qddot_cmd);
-  void AddContactAccelerationCost(const Eigen::VectorXd& wbc_qddot_cmd);
+  void SetQPCost(const WbcFormulation& formulation,
+                 const Eigen::VectorXd& qddot_posture_ref);
+  void AddOperationalTaskCosts(const std::vector<Task*>& operational_tasks,
+                               const Eigen::VectorXd& qddot_nominal);
+  void AddNominalAccelTrackingCost(bool force_contact_mode);
+  void AddExactTorqueRegularization(const Eigen::VectorXd& qddot_nominal);
+  void AddContactAccelerationCost(const Eigen::VectorXd& qddot_nominal);
   void AddReactionForceCost();
   void AddSlackVariablePenalties();
 
   // QP equality/inequality assembly
-  void SetQPEqualityConstraint(const Eigen::VectorXd& wbc_qddot_cmd);
-  void SetQPInEqualityConstraint(const WbcFormulation& formulation,
-                                 const Eigen::VectorXd& wbc_qddot_cmd);
-  void ExtractAxisAlignedBoxBounds(const Constraint* c,
-                                   const Eigen::VectorXd& wbc_qddot_cmd);
+  void SetQPEqualityConstraint(const Eigen::VectorXd& qddot_ref);
+  void SetQPInEqualityConstraint(const Eigen::VectorXd& qddot_ref);
+  InequalityMode BuildInequalityMode() const;
+  void ResizeInequalityStorage(const InequalityMode& mode, int qp_dim);
+  void AssembleInequalityRows(const InequalityMode& mode,
+                              const Eigen::VectorXd& qddot_ref);
+  bool ExtractAxisAlignedBoxBounds(const Constraint* c,
+                                   const Eigen::VectorXd& qddot_ref);
+  bool IsAxisAlignedConstraint(const Constraint* c) const;
   int BuildFrictionConeConstraint(int row);
   int BuildKinematicLimitConstraint(const Constraint* c, bool is_soft,
                                     bool use_box_solver,
-                                    const Eigen::VectorXd& wbc_qddot_cmd,
+                                    const Eigen::VectorXd& qddot_ref,
                                     int row, int& slack_col);
+  int BuildAxisAlignedKinematicLimitConstraint(const Constraint* c, bool is_soft,
+                                               bool use_box_solver, int row,
+                                               int& slack_col);
+  int BuildDenseKinematicLimitConstraint(const Constraint* c, bool is_soft,
+                                         const Eigen::VectorXd& qddot_ref,
+                                         int row, int& slack_col);
   int BuildTorqueLimitConstraint(const JointTrqLimitConstraint* c, bool is_soft,
                                   bool use_box_solver,
                                   int row, int& slack_col);
   void EnforceBoxFeasibilityGuard(int qp_dim);
 
-  bool SolveQP(const Eigen::VectorXd& wbc_qddot_cmd);
-  void GetSolution(const Eigen::VectorXd& wbc_qddot_cmd,
-                   Eigen::VectorXd& jtrq_cmd);
-  void EnsureIkQPSolverInitialized();
+  bool SolveQP(const Eigen::VectorXd& qddot_ref);
+  bool GetSolution(Eigen::VectorXd& jtrq_cmd);
 
 
   // NOTE: Ni_dyn_ (internal/passive-joint nullspace) is not implemented.
   // All supported robots are fully actuated with no passive joints.
   // When passive joint support is added, restore Ni_dyn_ and multiply through
-  // in tau_0_, UNi_, and GetSolution. Until then, all Ni_dyn_ terms are identity.
+  // in tau_0_ and GetSolution. Until then, all Ni_dyn_ terms are identity.
 
-  Eigen::VectorXd qddot_cmd_;
-  Eigen::VectorXd delta_q_cmd_;
-  Eigen::VectorXd qdot_cmd_;
-  Eigen::VectorXd trq_;
-  Eigen::MatrixXd UNi_;
-  Eigen::MatrixXd UNi_bar_;
+  Eigen::VectorXd delta_q_ref_;
+  Eigen::VectorXd qdot_ref_;
+  Eigen::VectorXd tau_gen_sol_;
+  Eigen::VectorXd tau_cost_scratch_;
+  // Joint-space posture-acceleration gains (actuated-joint sized).
+  Eigen::VectorXd kp_acc_;
+  Eigen::VectorXd kd_acc_;
+  Eigen::MatrixXd sa_pinv_scratch_;
 
   Eigen::MatrixXd Jc_;
   Eigen::VectorXd JcDotQdot_;
   Eigen::MatrixXd Uf_mat_;
   Eigen::VectorXd Uf_vec_;
   Eigen::VectorXd des_rf_;
+  struct ContactStackBlock {
+    int rf_offset{0};
+    int dim{0};
+  };
+  std::unordered_map<const Contact*, ContactStackBlock> contact_rf_blocks_;
   std::unique_ptr<WBICData> wbic_data_;
 
   // QP matrices (Eigen — passed directly to ProxQP)
@@ -264,6 +396,9 @@ private:
   // Scratch buffers for per-DOF bound extraction
   Eigen::VectorXd l_bnd_;
   Eigen::VectorXd u_bnd_;
+  // Actuated-joint indices that have at least one finite axis-aligned bound.
+  std::vector<int> pos_bounded_active_indices_;
+  std::vector<int> vel_bounded_active_indices_;
 
   // Scratch buffers for LLT-based damped pseudo-inverse.
   // MaxRows/MaxCols = 36 keeps common paths inline. Larger rows fall back to
@@ -275,7 +410,7 @@ private:
   PInvSquare JWJt_scratch_;
   PInvSquare JWJt_pinv_scratch_;
 
-  // Cached kinematic constraint pointers (set once per MakeTorque call,
+  // Cached kinematic constraint pointers (set once per SolveInverseDynamics call,
   // avoids repeated dynamic_cast in SetQPInEqualityConstraint).
   const JointPosLimitConstraint* cached_pos_c_{nullptr};
   const JointVelLimitConstraint* cached_vel_c_{nullptr};
@@ -289,22 +424,10 @@ private:
   Eigen::MatrixXd wJc_scratch_;      // dim_contact × num_qdot: diag(w_xc) * Jc
   Eigen::VectorXd xc_res_scratch_;   // dim_contact: Jc * qddot + JcDotQdot
 
-  // Pre-allocated LU factorization for fully-actuated torque recovery.
-  Eigen::PartialPivLU<Eigen::MatrixXd> lu_scratch_;
-
-  // Pre-allocated zero vector for ExtractAxisAlignedBoxBounds (avoids per-tick heap alloc).
-  Eigen::VectorXd zero_qddot_scratch_;
-
-  // Maximum QP dimensions (set by ReserveCapacity, used to pre-allocate).
-  int max_qp_dim_{0};
-  int max_n_eq_{0};
-  int max_n_ineq_{0};
-
   // ProxQP dense solver (lazy-initialized on first SolveQP call)
   std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_solver_;
 
-  // IK method and weighted-QP buffers
-  IKMethod ik_method_{IKMethod::WEIGHTED_QP};
+  // Weighted-QP configuration
   HardTorqueLimitMode hard_torque_limit_mode_{
       HardTorqueLimitMode::EXACT_DENSE};
 
@@ -312,14 +435,21 @@ private:
   Eigen::MatrixXd H_ik_;
   Eigen::VectorXd g_ik_pos_;
   Eigen::VectorXd g_ik_vel_;
-  Eigen::VectorXd g_ik_acc_;
-  Eigen::VectorXd l_box_ik_;
-  Eigen::VectorXd u_box_ik_;
-  std::unique_ptr<proxsuite::proxqp::dense::QP<double>> qp_ik_solver_;
 
-  // Diagnostics for invalid box bounds (l > u) generated upstream.
-  int box_conflict_count_{0};
-  int last_box_conflict_index_{-1};
+  // Contact handling mode for motion-consistency terms.
+  ContactMode contact_mode_{ContactMode::kSoftTracking};
+  // IK-stage contact penalty (soft near-rigid shaping, not a hard equality).
+  // This only prevents posture IK from becoming contact-blind.
+  // Final contact consistency/feasibility is solved by ID-QP.
+  double ik_contact_penalty_weight_{1e6};
+  // One-step horizon for position-aware velocity-reference clamping.
+  double ik_velocity_clamp_dt_{1e-3};
+  // Global safety cap on IK velocity reference (rad/s).
+  double ik_velocity_ref_abs_max_{5.0};
+  // true: solve qdot_ref from IK LS; false: derive qdot_ref from delta_q_ref/dt.
+  bool independent_velocity_ref_{true};
+  double posture_bias_contact_scale_{0.2};
+
 };
 
 } // namespace wbc

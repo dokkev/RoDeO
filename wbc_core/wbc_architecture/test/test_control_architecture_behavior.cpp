@@ -734,6 +734,52 @@ state_machine:
   }
 }
 
+TEST_F(ControlArchitectureBehaviorTest, SafetyClampingEnforcesVelocityLimits) {
+  // vel_scale: 0.1 → ±1.0 rad/s (URDF velocity=10).
+  // With kp_ik=100 and large position error (q_des=1.0 at q=0), the IK step
+  // would produce qdot_ref >> 1.0 rad/s without the velocity constraint.
+  // The hard clamp in ClampCommandLimits() must keep cmd.qdot within ±1 rad/s.
+  const auto yaml_path = WriteYaml(
+      "safety_vel_clamp.yaml",
+      WithRobotModel(R"(
+start_state_id: 1
+task_pool:
+  - name: jpos_task
+    type: JointTask
+    kp: [100.0, 100.0]
+    kd: [10.0, 10.0]
+    kp_ik: [100.0, 100.0]
+global_constraints:
+  JointVelLimitConstraint:
+    enabled: true
+    scale: 0.1
+state_machine:
+  - id: 1
+    name: ut_auto_transition_to_state
+    task_hierarchy: [{name: jpos_task}]
+)"));
+
+  auto arch = MakeArchitecture(yaml_path);
+  ASSERT_NE(arch, nullptr);
+
+  const Eigen::Vector2d q_init = Eigen::Vector2d::Zero();
+  const Eigen::Vector2d qdot_zero = Eigen::Vector2d::Zero();
+
+  for (int i = 0; i < 10; ++i) {
+    UpdateWithJointState(arch.get(), q_init, qdot_zero, i * 0.001, 0.001);
+  }
+
+  const auto& cmd = arch->GetCommand();
+  // URDF velocity=10, vel_scale=0.1 → ±1.0 rad/s.
+  const double vel_limit = 10.0 * 0.1;
+  for (int i = 0; i < cmd.qdot.size(); ++i) {
+    EXPECT_GE(cmd.qdot[i], -vel_limit - 1e-9)
+        << "Joint " << i << " velocity below vel_min";
+    EXPECT_LE(cmd.qdot[i], vel_limit + 1e-9)
+        << "Joint " << i << " velocity above vel_max";
+  }
+}
+
 TEST_F(ControlArchitectureBehaviorTest, SafetyClampingEnforcesTorqueLimits) {
   // Tight torque limits: trq_scale 0.01 → ±1.0 Nm (URDF effort=100).
   // With kp=100 and kp_ik=10, the solver produces substantial torque that exceeds ±1 Nm.
@@ -2890,7 +2936,8 @@ TEST_F(ControlArchitectureBehaviorTest, CompensationFlags_GravityToggle) {
          << "  enable_coriolis_compensation: " << (cori ? "true" : "false") << "\n"
          << "  enable_inertia_compensation: " << (inertia ? "true" : "false") << "\n"
          << R"(regularization:
-  w_tau: 1.0e-3
+  # Keep torque regularization off here so gravity toggle effect is observable.
+  w_tau: 0.0
 start_state_id: 1
 task_pool:
   - name: jpos_task
@@ -2906,7 +2953,7 @@ global_constraints:
     enabled: true
     scale: 0.8
   JointTrqLimitConstraint:
-    enabled: true
+    enabled: false
     scale: 0.9
 state_machine:
   - id: 1

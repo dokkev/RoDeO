@@ -60,7 +60,7 @@ EE_VEL_TOPIC = f"/{NS}/{CTRL}/ee_vel_cmd"
 WBC_STATE_TOPIC = f"/{NS}/{CTRL}/wbc_state"
 JOINT_STATE_TOPIC = f"/{NS}/joint_state_broadcaster/joint_states"
 
-JOINT_NAMES = [f"joint{i}" for i in range(1, 8)]
+JOINT_NAMES = [f"optimo_joint{i}" for i in range(1, 8)]
 
 # Home position from state_machine.yaml
 HOME_QPOS = [0.0, math.pi, 0.0, -math.pi / 2, 0.0, -math.pi / 2, 0.0]

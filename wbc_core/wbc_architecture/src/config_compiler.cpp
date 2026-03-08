@@ -410,6 +410,20 @@ void ConfigCompiler::ParseGlobalConstraints(const YAML::Node& node,
 void ConfigCompiler::ParseTaskPool(const YAML::Node& node,
                                     PinocchioRobotSystem* robot) {
   RuntimeConfig& cfg = *runtime_config_;
+  auto parse_task_role = [](const std::string& role_text,
+                            const std::string& task_name) -> MotionTaskRole {
+    if (role_text == "operational_task") {
+      return MotionTaskRole::kOperationalTask;
+    }
+    if (role_text == "posture_task") {
+      return MotionTaskRole::kPostureTask;
+    }
+    throw std::runtime_error(
+        "[ConfigCompiler] Unsupported motion-task role '" + role_text +
+        "' for task '" + task_name +
+        "'. Use 'operational_task' or 'posture_task'.");
+  };
+
   for (const auto& item : node) {
     if (!item["name"] || !item["type"]) {
       throw std::runtime_error(
@@ -522,8 +536,15 @@ void ConfigCompiler::ParseTaskPool(const YAML::Node& node,
     }
 
     Task* task_ptr = task.get();
+    // Safe default keeps legacy behavior unless role is explicitly provided.
+    MotionTaskRole task_role = MotionTaskRole::kPostureTask;
+    if (item["role"]) {
+      task_role = parse_task_role(item["role"].as<std::string>(), name);
+    }
+
     cfg.task_registry_->AddMotionTask(name, std::move(task));
     cfg.default_motion_task_cfg_[task_ptr] = base_cfg;
+    cfg.motion_task_roles_[task_ptr] = task_role;
   }
 }
 

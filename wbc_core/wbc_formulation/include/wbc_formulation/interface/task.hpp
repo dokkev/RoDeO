@@ -13,11 +13,6 @@ class PinocchioRobotSystem;
 class Task;
 
 /**
- * @brief WBC backend type for task-parameter interpretation.
- */
-enum class WbcType { IHWBC, WBIC };
-
-/**
  * @brief Typed task parameters (YAML-free).
  */
 struct TaskConfig {
@@ -61,7 +56,7 @@ public:
   virtual void UpdateJacobian() = 0;
   virtual void UpdateJacobianDotQdot() = 0;
 
-  virtual void SetParameters(const TaskConfig& config, WbcType wbc_type);
+  virtual void SetParameters(const TaskConfig& config);
 
   void ModifyJacobian(const std::vector<int>& joint_idx, int num_float = 0);
 

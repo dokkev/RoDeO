@@ -53,15 +53,25 @@ controller:
                                         # which requires impedance-controlled motor firmware.
                                         # For slow, quasi-static tasks with impedance control, this can be left off.
 
-  # Along with qddot_cmd (Feedforward WBC Torque), WBIC computes q_cmd and qdot_cmd via task-priority IK.
-  # Enabling joint_pid adds a PID feedback term on (q_cmd - q_actual) and (qdot_cmd - qdot_actual),
-  # producing tau_fb that is added to the feedforward torque: tau = tau_ff + tau_fb (obtained from GetCommand() in the control architecture)
-  # consider enabling this if your motor controller only accepts desired torque (current) commands.
-  # if your motor controller accepts desired position and velocity along with torque (a.k.a impedance control)
-  # I recommend leaving this disabled and directly passing the q_cmd and qdot_cmd from the WBIC to your motor controller, which will handle the internal control loop inside the motor controller firmware.
-  # Soft singularity-avoidance mode: keep weighted_qp so secondary posture terms
-  # act as soft biases instead of strict hard-priority null-space constraints.
+  # Two-stage WBIC pipeline:
+  #   Stage 1 (IK): Weighted QP over posture_tasks → jpos_ref, jvel_ref
+  #   Stage 2 (accel ref): qddot_posture_ref = kp_acc*(jpos_ref-jpos) + kd_acc*(jvel_ref-jvel)
+  #   Stage 3 (ID-QP): operational_tasks tracked directly in task-space cost;
+  #                     qddot_posture_ref is the nominal; delta_qddot corrects to track EE tasks.
+  #
+  # kp_acc / kd_acc: PD gains converting IK joint reference → joint acceleration command.
+  #   These are the PRIMARY joint-space feedback gains (used in joint_teleop and as posture
+  #   bias in cartesian_teleop). Critically-damped: kd = 2*sqrt(kp).
+  #   kp=120, kd=22 → ωn≈11 rad/s, ζ=1.0, settling ~0.5s at 1kHz.
+  #
+  # Operational task kp/kd (in task_list.yaml): drive ID-QP Cartesian tracking directly.
+  #   These are independent of kp_acc/kd_acc. Higher values = stiffer EE tracking.
+  #
+  # jpos_task (role: posture_task) kp/kd: used only in UpdateOpCommand (not ID-QP cost).
+  #   Effective joint tracking in all states is governed by kp_acc/kd_acc above.
   ik_method: "weighted_qp"
+  kp_acc: 120.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
+  kd_acc: 22.0   # joint accel-reference velocity gain: critically damped at kp=120
 
   joint_pid:
     enabled: false
@@ -76,7 +86,9 @@ controller:
 # 3. QP Regularization weights
 # Regularization terms are used to penalize undesirable solutions and improve numerical stability. 
 regularization:
-  w_qddot: 1.0e-6              # delta_qddot tracking (IK solution 보존)
+  w_qddot: 0.01                 # posture regularization: suppresses low-weight operational tasks
+                                # 0.01 → λ=100 for init/home (w_ee=1e-6, 0.0025% gain, completely suppressed)
+                                #       → λ=0.03 for cartesian_teleop (w_ee=10, 99.6% gain, near-perfect tracking)
   w_tau: 0.0                    # torque minimization
   w_tau_dot: 0.0               # torque rate of change smoothing
   w_rf: 1.0e-4                 # delta_rf tracking (contact only)
@@ -92,7 +104,7 @@ regularization:
 global_constraints:
   JointPosLimitConstraint:
     enabled: true
-    scale: 1.0      # 90% of URDF position range (safety margin)
+    scale: 1.0      # 100% of URDF position range (safety margin)
     is_soft: true   # soft slack variable (controlled violation near limits)
     soft_weight: 1.0e+5
 

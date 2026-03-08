@@ -69,18 +69,13 @@ void Task::UpdateDesired(const Eigen::VectorXd& des_pos,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-void Task::SetParameters(const TaskConfig& config, WbcType wbc_type) {
+void Task::SetParameters(const TaskConfig& config) {
   kp_ = config.kp;
   kd_ = config.kd;
   if (config.ki.size() == dim_) {
     ki_ = config.ki;
   }
-
-  if (wbc_type == WbcType::IHWBC) {
-    weight_ = config.weight;
-  } else if (wbc_type == WbcType::WBIC) {
-    kp_ik_ = config.kp_ik;
-  }
+  kp_ik_ = config.kp_ik;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
