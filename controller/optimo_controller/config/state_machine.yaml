@@ -12,7 +12,8 @@ state_machine:
     params:
       duration: 2.0
       wait_time: 0.0
-      stay_here: true
+      stay_here: false
+      next_state_id: 1
       weight_ramp_duration: 0.3
       # target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
     task_hierarchy:
@@ -27,7 +28,7 @@ state_machine:
     name: "home"
     type: "initialize"
     params:
-      duration: 2.0
+      duration: 3.0
       wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3

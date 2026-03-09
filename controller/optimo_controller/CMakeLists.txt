@@ -13,16 +13,31 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(controller_interface REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(wbc_architecture REQUIRED)
+find_package(wbc_formulation REQUIRED)
+find_package(wbc_fsm REQUIRED)
+find_package(wbc_handlers REQUIRED)
+find_package(wbc_msgs REQUIRED)
 find_package(wbc_robot_system REQUIRED)
+find_package(wbc_solver REQUIRED)
+find_package(wbc_trajectory REQUIRED)
 find_package(wbc_util REQUIRED)
 find_package(pinocchio REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/optimo_controller.cpp
+  src/state_machines/cartesian_teleop.cpp
+  src/state_machines/initialize.cpp
+  src/state_machines/joint_teleop.cpp
+  src/state_machines/sys_id.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -31,14 +46,25 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 ament_target_dependencies(${PROJECT_NAME}
   ament_index_cpp
   controller_interface
+  geometry_msgs
   hardware_interface
   pinocchio
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  realtime_tools
+  std_msgs
+  wbc_architecture
+  wbc_formulation
+  wbc_fsm
+  wbc_handlers
+  wbc_msgs
   wbc_robot_system
+  wbc_solver
+  wbc_trajectory
   wbc_util
 )
+target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
 pluginlib_export_plugin_description_file(
   controller_interface
@@ -82,12 +108,22 @@ ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   ament_index_cpp
   controller_interface
+  geometry_msgs
   hardware_interface
   pinocchio
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  realtime_tools
+  std_msgs
+  wbc_architecture
+  wbc_formulation
+  wbc_fsm
+  wbc_handlers
+  wbc_msgs
   wbc_robot_system
+  wbc_solver
+  wbc_trajectory
   wbc_util
 )
 

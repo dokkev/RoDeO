@@ -12,7 +12,9 @@
 
 /optimo/wbc_controller:
   ros__parameters:
-    urdf_path: "package://optimo_description/urdf/optimo.urdf"
+    wbc_yaml_path: "package://optimo_controller/config/optimo_wbc.yaml"
+    control_frequency: 1000.0
+    is_simulation: false
     joints:
       - optimo_joint1
       - optimo_joint2

@@ -70,18 +70,13 @@ controller:
   # jpos_task (role: posture_task) kp/kd: used only in UpdateOpCommand (not ID-QP cost).
   #   Effective joint tracking in all states is governed by kp_acc/kd_acc above.
   ik_method: "weighted_qp"
-  kp_acc: 120.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
-  kd_acc: 22.0   # joint accel-reference velocity gain: critically damped at kp=120
+  kp_acc: 10.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
+  kd_acc: 1.0   # joint accel-reference velocity gain: critically damped at kp=120
 
   joint_pid:
-    enabled: true
+    enabled: false
     gains_yaml: "joint_pid_gains.yaml"
 
-  # Residual dynamics compensators (friction, disturbance observer).
-  # See residual_dynamics.yaml for configuration and documentation.
-  residual_compensation: 
-    enabled: false
-    dynamics_yaml: "residual_dynamics.yaml"
 
 # 3. QP Regularization weights
 # Regularization terms are used to penalize undesirable solutions and improve numerical stability. 
@@ -117,7 +112,7 @@ global_constraints:
   JointTrqLimitConstraint:
     enabled: true   # enable if running torque-only control (no motor PD)
     scale: 1.0      # fraction of URDF torque limits
-    is_soft: true   # soft → penalty-based
+    is_soft: false   # soft → penalty-based
     soft_weight: 1.0e+5
 
 
