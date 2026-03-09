@@ -15,17 +15,12 @@
 namespace wbc {
 
 /**
- * @brief Instantaneous velocity-servo Cartesian teleop with singularity avoidance.
+ * @brief Cartesian velocity teleop with bounded reference integrator.
  *
- * Desired pose is recomputed each tick as (current_measured + cmd * preview_time),
- * so tracking debt never accumulates and there is no goal backlog to unwind.
- *
- * YAML params (under `params:`):
- *   - `preview_time`:  look-ahead horizon [s]  (default: 0.02)
- *
- * External input:
- *   - UpdateCommand(): velocity command + watchdog timestamp.
- *     Called once per control tick before ctrl_arch_->Update() invokes OneStep().
+ * Integrates velocity into a goal pose, bounded by anti-windup:
+ * - Conditional integration slows when tracking error grows.
+ * - Hard clamp prevents goal from running ahead of robot.
+ * - HOLD mode: fixed goal with kp stiffness when command is zero.
  *
  * Registration key: "cartesian_teleop"
  */
@@ -61,7 +56,7 @@ private:
   CartesianVelocityTeleopHandler ee_handler_;
   ManipulabilityHandler     manip_handler_;
   ManipulabilityHandler::Config manip_config_;
-  double preview_time_{0.02};
+  CartesianVelocityTeleopHandler::Config handler_cfg_;
   Watchdog watchdog_{0.2};  // starts expired; Reset() on new message, Update() in OneStep()
   int64_t  prev_vel_ts_ns_{0};
 };

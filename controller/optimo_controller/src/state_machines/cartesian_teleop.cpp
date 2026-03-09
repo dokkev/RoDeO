@@ -20,7 +20,24 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
   SetMotionTask("jpos_task",   jpos_task_);
 
   const YAML::Node params = param::ResolveParamsNode(node);
-  if (params["preview_time"]) preview_time_ = params["preview_time"].as<double>();
+
+  // Bounded reference integrator config
+  if (params["hold_hysteresis"]) {
+    const auto& h = params["hold_hysteresis"];
+    if (h["lin_enter_threshold"]) handler_cfg_.lin_enter_hold_thresh = h["lin_enter_threshold"].as<double>();
+    if (h["lin_exit_threshold"])  handler_cfg_.lin_exit_hold_thresh  = h["lin_exit_threshold"].as<double>();
+    if (h["ang_enter_threshold"]) handler_cfg_.ang_enter_hold_thresh = h["ang_enter_threshold"].as<double>();
+    if (h["ang_exit_threshold"])  handler_cfg_.ang_exit_hold_thresh  = h["ang_exit_threshold"].as<double>();
+  }
+  if (params["anti_windup"]) {
+    const auto& a = params["anti_windup"];
+    if (a["pos_e_soft"])  handler_cfg_.pos_e_soft  = a["pos_e_soft"].as<double>();
+    if (a["pos_e_hard"])  handler_cfg_.pos_e_hard  = a["pos_e_hard"].as<double>();
+    if (a["pos_e_max"])   handler_cfg_.pos_e_max   = a["pos_e_max"].as<double>();
+    if (a["ori_e_soft"])  handler_cfg_.ori_e_soft  = a["ori_e_soft"].as<double>();
+    if (a["ori_e_hard"])  handler_cfg_.ori_e_hard  = a["ori_e_hard"].as<double>();
+    if (a["ori_e_max"])   handler_cfg_.ori_e_max   = a["ori_e_max"].as<double>();
+  }
 
   if (params["manipulability"]) {
     const auto& m = params["manipulability"];
@@ -34,7 +51,7 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
 }
 
 void CartesianTeleop::FirstVisit() {
-  ee_handler_.Init(preview_time_);
+  ee_handler_.Init(handler_cfg_);
   ee_handler_.ResetCommand();
 
   manip_handler_.Init(robot_, ee_pos_task_->TargetIdx(), manip_config_);
@@ -58,14 +75,17 @@ void CartesianTeleop::OneStep() {
   const double dt = sp_->servo_dt_;
 
   // --- Task 1: Cartesian teleop (EE position + orientation) ---
+  const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
+
   watchdog_.Update(dt);
   if (watchdog_.IsTimeout()) {
-    ee_handler_.ResetCommand();
+    // Comms lost: freeze goal to current measured pose (safe stop)
+    ee_handler_.FreezeToMeasured(
+        ee_iso.translation(), Eigen::Quaterniond(ee_iso.rotation()));
   }
 
-  const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
-  ee_handler_.UpdatePos(ee_iso.translation(), ee_pos_task_);
-  ee_handler_.UpdateOri(Eigen::Quaterniond(ee_iso.rotation()), ee_ori_task_);
+  ee_handler_.Update(ee_iso.translation(), Eigen::Quaterniond(ee_iso.rotation()),
+                     dt, ee_pos_task_, ee_ori_task_);
 
   // --- Task 2: Soft posture bias (manipulability singularity avoidance) ---
   manip_handler_.Update(dt);
