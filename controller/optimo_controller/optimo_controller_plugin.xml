@@ -2,10 +2,10 @@
 <library path="optimo_controller">
   <class
     name="optimo_controller/OptimoController"
-    type="optimo_ros::OptimoEffortController"
+    type="optimo_controller::OptimoController"
     base_class_type="controller_interface::ControllerInterface">
     <description>
-      Optimo effort controller with Roboligent SDK gravity compensation.
+      Optimo effort controller with Pinocchio gravity compensation.
     </description>
   </class>
 </library>

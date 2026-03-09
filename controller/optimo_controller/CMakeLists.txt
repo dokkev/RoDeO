@@ -11,40 +11,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-
-# Roboligent SDK cmake modules (FindEtherCAT, FindYaml) must be on
-# CMAKE_MODULE_PATH before find_package(optimo_api), because optimo_api
-# transitively pulls in roboligent-config.cmake which needs them.
-set(UNREL_OPTIMO_API_CMAKE
-    "${CMAKE_INSTALL_PREFIX}/../optimo_api/share/optimo_api/cmake")
-get_filename_component(OPTIMO_API_CMAKE "${UNREL_OPTIMO_API_CMAKE}" ABSOLUTE)
-list(APPEND CMAKE_MODULE_PATH ${OPTIMO_API_CMAKE})
-
 find_package(ament_index_cpp REQUIRED)
 find_package(controller_interface REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(hardware_interface REQUIRED)
-find_package(optimo_api REQUIRED)
-find_package(optimo_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
-find_package(realtime_tools REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(std_srvs REQUIRED)
-find_package(tf2 REQUIRED)
-find_package(tf2_ros REQUIRED)
-
-# Roboligent SDK include path override — roboligent-config.cmake bakes in
-# CMAKE_INSTALL_PREFIX which resolves to the colcon workspace, not /usr/local.
-find_package(Roboligent 1.0.5 QUIET)
-if(Roboligent_FOUND OR ROBOLIGENT_SDK_LIBRARIES)
-  set(ROBOLIGENT_FOUND TRUE)
-  message(STATUS "Roboligent SDK found")
-else()
-  set(ROBOLIGENT_FOUND FALSE)
-  message(STATUS "Roboligent SDK not found")
-endif()
+find_package(wbc_robot_system REQUIRED)
+find_package(wbc_util REQUIRED)
+find_package(pinocchio REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/optimo_controller.cpp
@@ -56,27 +31,14 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 ament_target_dependencies(${PROJECT_NAME}
   ament_index_cpp
   controller_interface
-  geometry_msgs
   hardware_interface
-  optimo_api
-  optimo_msgs
+  pinocchio
   pluginlib
   rclcpp
   rclcpp_lifecycle
-  realtime_tools
-  std_msgs
-  std_srvs
-  tf2
-  tf2_ros
+  wbc_robot_system
+  wbc_util
 )
-
-if(ROBOLIGENT_FOUND)
-  set(ROBOLIGENT_INCLUDE_DIR "/usr/local/include/roboligent-1.0.5")
-  target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE
-    ${ROBOLIGENT_INCLUDE_DIR})
-  target_link_libraries(${PROJECT_NAME}
-    ${ROBOLIGENT_SDK_LIBRARIES})
-endif()
 
 pluginlib_export_plugin_description_file(
   controller_interface
@@ -120,18 +82,13 @@ ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   ament_index_cpp
   controller_interface
-  geometry_msgs
   hardware_interface
-  optimo_api
-  optimo_msgs
+  pinocchio
   pluginlib
   rclcpp
   rclcpp_lifecycle
-  realtime_tools
-  std_msgs
-  std_srvs
-  tf2
-  tf2_ros
+  wbc_robot_system
+  wbc_util
 )
 
 ament_package()
