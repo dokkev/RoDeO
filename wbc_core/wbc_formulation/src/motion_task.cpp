@@ -3,8 +3,9 @@
  * @brief Doxygen documentation for motion_task module.
  */
 #include "wbc_formulation/motion_task.hpp"
+#include "wbc_formulation/se3_math.hpp"
 
-#include <pinocchio/spatial/explog.hpp>
+#include <cassert>
 #include <stdexcept>
 
 namespace wbc {
@@ -75,7 +76,12 @@ void Task::SetParameters(const TaskConfig& config) {
   if (config.ki.size() == dim_) {
     ki_ = config.ki;
   }
-  kp_ik_ = config.kp_ik;
+  if (config.weight.size() == dim_) {
+    weight_ = config.weight;
+  }
+  if (config.kp_ik.size() == dim_) {
+    kp_ik_ = config.kp_ik;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -159,45 +165,59 @@ LinkPosTask::LinkPosTask(PinocchioRobotSystem* robot, int target_idx)
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkPosTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
-  pos_ = robot_->GetLinkIsometry(target_idx_).translation();
+  const Eigen::Isometry3d& T_target = robot_->GetLinkIsometry(target_idx_);
+  pos_ = T_target.translation();
   vel_ = robot_->GetLinkSpatialVel(target_idx_).tail(dim_);
 
-  // Determine local-frame rotation R and position offset.
-  // With ref_frame: R = R_ref, des values are in reference frame.
-  // Without: R = world_R_local, des values are in world frame (legacy).
   const bool has_ref = (ref_frame_idx_ >= 0);
   Eigen::Matrix3d R;
-  Eigen::Vector3d pos_in_local;
 
   if (has_ref) {
     const Eigen::Isometry3d& T_ref = robot_->GetLinkIsometry(ref_frame_idx_);
-    R = T_ref.linear();
-    pos_in_local = R.transpose() * (pos_ - T_ref.translation());
-  } else {
-    R = world_R_local;
-    pos_in_local = R.transpose() * pos_;
-  }
+    const Eigen::Matrix<double, 6, 1> V_ref =
+        robot_->GetLinkSpatialVel(ref_frame_idx_);
+    const Eigen::Vector3d w_ref_world = V_ref.head<3>();
+    const Eigen::Vector3d v_ref_world = V_ref.tail<3>();
 
-  if (has_ref) {
+    R = T_ref.linear();
+
+    local_pos_ = se3::RelativePositionInFrame(T_ref, pos_);
+    local_vel_ = se3::RelativeLinearVelocityInFrame(
+        T_ref, v_ref_world, w_ref_world, pos_, vel_);
+
     local_des_pos_ = des_pos_;
     local_des_vel_ = des_vel_;
     local_des_acc_ = des_acc_;
   } else {
+    R = world_R_local;
+
+    local_pos_.noalias()     = R.transpose() * pos_;
+    local_vel_.noalias()     = R.transpose() * vel_;
     local_des_pos_.noalias() = R.transpose() * des_pos_;
     local_des_vel_.noalias() = R.transpose() * des_vel_;
     local_des_acc_.noalias() = R.transpose() * des_acc_;
   }
 
-  local_pos_ = pos_in_local;
-  local_vel_.noalias() = R.transpose() * vel_;
   local_pos_err_ = local_des_pos_ - local_pos_;
   local_vel_err_ = local_des_vel_ - local_vel_;
 
   pos_err_.noalias() = R * local_pos_err_;
   vel_err_.noalias() = R * local_vel_err_;
 
-  op_cmd_.noalias() = R * (local_des_acc_ + kp_.cwiseProduct(local_pos_err_) +
-                           kd_.cwiseProduct(local_vel_err_));
+  op_cmd_.noalias() =
+      R * (local_des_acc_ +
+           kp_.cwiseProduct(local_pos_err_) +
+           kd_.cwiseProduct(local_vel_err_));
+
+  assert(pos_.allFinite()           && "LinkPosTask: pos_ is not finite");
+  assert(vel_.allFinite()           && "LinkPosTask: vel_ is not finite");
+  assert(local_pos_.allFinite()     && "LinkPosTask: local_pos_ is not finite");
+  assert(local_vel_.allFinite()     && "LinkPosTask: local_vel_ is not finite");
+  assert(pos_err_.allFinite()       && "LinkPosTask: pos_err_ is not finite");
+  assert(vel_err_.allFinite()       && "LinkPosTask: vel_err_ is not finite");
+  assert(local_pos_err_.allFinite() && "LinkPosTask: local_pos_err_ is not finite");
+  assert(local_vel_err_.allFinite() && "LinkPosTask: local_vel_err_ is not finite");
+  assert(op_cmd_.allFinite()        && "LinkPosTask: op_cmd_ is not finite");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -216,21 +236,17 @@ LinkOriTask::LinkOriTask(PinocchioRobotSystem* robot, int target_idx)
     : Task(robot, 3),
       full_jac_scratch_(Eigen::MatrixXd::Zero(6, robot->NumQdot())) {
   target_idx_ = target_idx;
-  des_pos_.resize(4);
-  des_pos_.setZero();
-  pos_.resize(4);
-  pos_.setZero();
-  local_des_pos_.resize(4);
-  local_des_pos_.setZero();
-  local_pos_.resize(4);
-  local_pos_.setZero();
+  des_pos_.resize(4);       des_pos_       = se3::QuatIdentityXyzw();
+  pos_.resize(4);           pos_           = se3::QuatIdentityXyzw();
+  local_des_pos_.resize(4); local_des_pos_ = se3::QuatIdentityXyzw();
+  local_pos_.resize(4);     local_pos_     = se3::QuatIdentityXyzw();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 void LinkOriTask::UpdateDesired(const Eigen::VectorXd& des_pos,
                                 const Eigen::VectorXd& des_vel,
                                 const Eigen::VectorXd& des_acc) {
-  if (des_pos.size() != 4) {
+  if (des_pos.size() != 4 || des_vel.size() != 3 || des_acc.size() != 3) {
     // Silently reject: throwing in the RT loop would crash the controller.
     return;
   }
@@ -243,49 +259,68 @@ void LinkOriTask::UpdateOpCommand(const Eigen::Matrix3d& world_R_local) {
       robot_->GetLinkIsometry(target_idx_).linear();
   local_R_world_ = R_cur_world.transpose();
 
-  const bool has_ref = (ref_frame_idx_ >= 0);
-  const Eigen::Matrix3d R =
-      has_ref ? robot_->GetLinkIsometry(ref_frame_idx_).linear()
-              : world_R_local;
+  const Eigen::Vector3d w_target_world =
+      robot_->GetLinkSpatialVel(target_idx_).head<3>();
 
-  // des_pos_ stores quaternion [x,y,z,w].
+  const bool has_ref = (ref_frame_idx_ >= 0);
+  Eigen::Matrix3d R_ref_world;
+  if (has_ref) {
+    R_ref_world = robot_->GetLinkIsometry(ref_frame_idx_).linear();
+  } else {
+    R_ref_world = world_R_local;
+  }
+
+  // des_pos_ stores quaternion as [x, y, z, w].
   // With ref frame: quaternion is relative to reference frame.
   // Without: quaternion is in world frame.
-  const Eigen::Quaterniond des_quat(des_pos_[3], des_pos_[0], des_pos_[1],
-                                    des_pos_[2]);
+  const Eigen::Quaterniond des_quat = se3::QuatFromXyzw(des_pos_.head<4>());
   const Eigen::Matrix3d R_des_world =
-      has_ref ? (R * des_quat.toRotationMatrix()) : des_quat.toRotationMatrix();
+      has_ref ? (R_ref_world * des_quat.toRotationMatrix())
+              : des_quat.toRotationMatrix();
 
-  // Store current quaternion for logging/compatibility.
-  const Eigen::Quaterniond cur_quat_world(R_cur_world);
-  pos_ << cur_quat_world.normalized().coeffs();
-  const Eigen::Quaterniond cur_quat_local(R.transpose() * R_cur_world);
-  local_pos_ << cur_quat_local.normalized().coeffs();
-  const Eigen::Quaterniond des_quat_local(R.transpose() * R_des_world);
-  local_des_pos_ << des_quat_local.normalized().coeffs();
+  // Logging / compatibility: current and desired quaternions.
+  pos_ = se3::QuatToXyzw(Eigen::Quaterniond(R_cur_world));
+  local_pos_ = se3::QuatToXyzw(
+      Eigen::Quaterniond(se3::RelativeOrientationInFrame(R_ref_world, R_cur_world)));
+  local_des_pos_ = se3::QuatToXyzw(
+      Eigen::Quaterniond(se3::RelativeOrientationInFrame(R_ref_world, R_des_world)));
 
-  // Orientation error via Lie group log map: geometrically shortest rotation
-  // vector on SO(3), free of gimbal lock and quaternion unwinding artifacts.
-  const Eigen::Vector3d ori_err_local =
-      pinocchio::log3(R_cur_world.transpose() * R_des_world);
-  pos_err_.noalias() = R_cur_world * ori_err_local;
-  local_pos_err_.noalias() = R.transpose() * pos_err_;
+  // Orientation error via SO(3) log map in world frame.
+  pos_err_       = se3::RotationErrorWorld(R_cur_world, R_des_world);
+  local_pos_err_.noalias() = R_ref_world.transpose() * pos_err_;
 
-  vel_ = robot_->GetLinkSpatialVel(target_idx_).head(dim_);
-  local_vel_.noalias() = R.transpose() * vel_;
+  vel_ = w_target_world;
 
   if (has_ref) {
+    const Eigen::Vector3d w_ref_world =
+        robot_->GetLinkSpatialVel(ref_frame_idx_).head<3>();
+    local_vel_ = se3::RelativeAngularVelocityInFrame(
+        R_ref_world, w_ref_world, w_target_world);
     local_des_vel_ = des_vel_;
     local_des_acc_ = des_acc_;
   } else {
-    local_des_vel_.noalias() = R.transpose() * des_vel_;
-    local_des_acc_.noalias() = R.transpose() * des_acc_;
+    local_vel_.noalias()     = R_ref_world.transpose() * vel_;
+    local_des_vel_.noalias() = R_ref_world.transpose() * des_vel_;
+    local_des_acc_.noalias() = R_ref_world.transpose() * des_acc_;
   }
-  local_vel_err_ = local_des_vel_ - local_vel_;
-  vel_err_.noalias() = R * local_vel_err_;
 
-  op_cmd_.noalias() = R * (local_des_acc_ + kp_.cwiseProduct(local_pos_err_) +
-                           kd_.cwiseProduct(local_vel_err_));
+  local_vel_err_ = local_des_vel_ - local_vel_;
+  vel_err_.noalias() = R_ref_world * local_vel_err_;
+
+  op_cmd_.noalias() =
+      R_ref_world * (local_des_acc_ +
+                     kp_.cwiseProduct(local_pos_err_) +
+                     kd_.cwiseProduct(local_vel_err_));
+
+  assert(pos_.allFinite()           && "LinkOriTask: pos_ is not finite");
+  assert(vel_.allFinite()           && "LinkOriTask: vel_ is not finite");
+  assert(local_pos_.allFinite()     && "LinkOriTask: local_pos_ is not finite");
+  assert(local_vel_.allFinite()     && "LinkOriTask: local_vel_ is not finite");
+  assert(pos_err_.allFinite()       && "LinkOriTask: pos_err_ is not finite");
+  assert(vel_err_.allFinite()       && "LinkOriTask: vel_err_ is not finite");
+  assert(local_pos_err_.allFinite() && "LinkOriTask: local_pos_err_ is not finite");
+  assert(local_vel_err_.allFinite() && "LinkOriTask: local_vel_err_ is not finite");
+  assert(op_cmd_.allFinite()        && "LinkOriTask: op_cmd_ is not finite");
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -11,7 +11,6 @@
 #include <vector>
 
 #include <controller_interface/controller_interface.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
@@ -86,11 +85,6 @@ private:
     Eigen::Vector3d wdot{Eigen::Vector3d::Zero()};   // angular vel [rad/s], world frame
     int64_t         ts_ns{0};        // from msg->header.stamp [ns]
   };
-  struct EEPoseRef {
-    Eigen::Vector3d    x{Eigen::Vector3d::Zero()};         // position    [m],     world frame
-    Eigen::Quaterniond w{Eigen::Quaterniond::Identity()};  // orientation,          world frame
-    int64_t            ts_ns{0};     // from msg->header.stamp [ns]
-  };
   struct TaskGainUpdate {
     std::vector<std::string> task_names;
     std::vector<double> kp;
@@ -149,13 +143,11 @@ private:
   realtime_tools::RealtimeBuffer<JointVelRef> qdot_des_buf_;
   realtime_tools::RealtimeBuffer<JointPosRef> q_des_buf_;
   realtime_tools::RealtimeBuffer<EEVelRef>    xdot_des_buf_;
-  realtime_tools::RealtimeBuffer<EEPoseRef>   x_des_buf_;
 
   // ROS subscribers (non-RT)
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_vel_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr ee_vel_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_pos_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr  ee_pos_sub_;
   rclcpp::Service<wbc_msgs::srv::TransitionState>::SharedPtr         set_state_srv_;
   rclcpp::Service<wbc_msgs::srv::TaskGainService>::SharedPtr         task_gain_srv_;
   rclcpp::Service<wbc_msgs::srv::TaskWeightService>::SharedPtr       task_weight_srv_;

@@ -20,9 +20,7 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
   SetMotionTask("jpos_task",   jpos_task_);
 
   const YAML::Node params = param::ResolveParamsNode(node);
-  if (params["linear_vel_max"])  linear_vel_max_  = params["linear_vel_max"].as<double>();
-  if (params["angular_vel_max"]) angular_vel_max_ = params["angular_vel_max"].as<double>();
-  if (params["max_lookahead"])   max_lookahead_   = params["max_lookahead"].as<double>();
+  if (params["preview_time"]) preview_time_ = params["preview_time"].as<double>();
 
   if (params["manipulability"]) {
     const auto& m = params["manipulability"];
@@ -36,35 +34,23 @@ void CartesianTeleop::SetParameters(const YAML::Node& node) {
 }
 
 void CartesianTeleop::FirstVisit() {
-  const Eigen::Isometry3d iso  = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
-  const Eigen::Quaterniond quat(iso.rotation());
-  ee_handler_.Init(iso.translation(), quat, linear_vel_max_, angular_vel_max_);
+  ee_handler_.Init(preview_time_);
+  ee_handler_.ResetCommand();
 
   manip_handler_.Init(robot_, ee_pos_task_->TargetIdx(), manip_config_);
 
-  current_xdot_.setZero();
-  current_wdot_.setZero();
   watchdog_ = Watchdog{watchdog_.GetTimeout()};  // re-initialize to expired state
-  prev_vel_ts_ns_  = 0;
-  prev_pose_ts_ns_ = 0;
+  prev_vel_ts_ns_ = 0;
 }
 
 void CartesianTeleop::UpdateCommand(const Eigen::Vector3d& xdot,
                               const Eigen::Vector3d& wdot,
-                              int64_t vel_ts_ns,
-                              const Eigen::Vector3d& x_des,
-                              const Eigen::Quaterniond& w_des,
-                              int64_t pose_ts_ns) {
+                              int64_t vel_ts_ns) {
   if (vel_ts_ns > 0 && vel_ts_ns != prev_vel_ts_ns_) {
     prev_vel_ts_ns_ = vel_ts_ns;
     watchdog_.Reset();
-    current_xdot_ = xdot;
-    current_wdot_ = wdot;
-  }
-  if (pose_ts_ns > 0 && pose_ts_ns != prev_pose_ts_ns_) {
-    prev_pose_ts_ns_ = pose_ts_ns;
-    ee_handler_.SetPosition(x_des);
-    ee_handler_.SetOrientation(w_des);
+    ee_handler_.SetLinearVelocity(xdot);
+    ee_handler_.SetAngularVelocity(wdot);
   }
 }
 
@@ -74,26 +60,12 @@ void CartesianTeleop::OneStep() {
   // --- Task 1: Cartesian teleop (EE position + orientation) ---
   watchdog_.Update(dt);
   if (watchdog_.IsTimeout()) {
-    current_xdot_.setZero();
-    current_wdot_.setZero();
+    ee_handler_.ResetCommand();
   }
 
-  ee_handler_.SetLinearVelocity(current_xdot_, dt);
-  ee_handler_.SetAngularVelocity(current_wdot_, dt);
-
-  // Anti-windup: keep pos_goal within max_lookahead of actual EE position.
-  const Eigen::Vector3d actual_ee_pos =
-      robot_->GetLinkIsometry(ee_pos_task_->TargetIdx()).translation();
-  {
-    const Eigen::Vector3d diff = ee_handler_.PosGoal() - actual_ee_pos;
-    const double dist = diff.norm();
-    if (max_lookahead_ > 0.0 && dist > max_lookahead_) {
-      ee_handler_.SetPosGoal(actual_ee_pos + diff * (max_lookahead_ / dist));
-    }
-  }
-
-  ee_handler_.UpdatePos(ee_pos_task_, dt);
-  ee_handler_.UpdateOri(ee_ori_task_, dt);
+  const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
+  ee_handler_.UpdatePos(ee_iso.translation(), ee_pos_task_);
+  ee_handler_.UpdateOri(Eigen::Quaterniond(ee_iso.rotation()), ee_ori_task_);
 
   // --- Task 2: Soft posture bias (manipulability singularity avoidance) ---
   manip_handler_.Update(dt);

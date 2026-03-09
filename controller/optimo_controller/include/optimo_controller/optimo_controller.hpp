@@ -20,7 +20,6 @@
 #include <vector>
 
 #include <controller_interface/controller_interface.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -79,12 +78,6 @@ private:
     Eigen::Vector3d wdot{Eigen::Vector3d::Zero()};
     int64_t         ts_ns{0};
   };
-  struct EEPoseRef {
-    Eigen::Vector3d    x{Eigen::Vector3d::Zero()};
-    Eigen::Quaterniond w{Eigen::Quaterniond::Identity()};
-    int64_t            ts_ns{0};
-  };
-
   static constexpr std::size_t kInterfacesPerJoint = 3U;
   static constexpr std::size_t kPositionBlock = 0U;
   static constexpr std::size_t kVelocityBlock = 1U;
@@ -112,13 +105,11 @@ private:
   realtime_tools::RealtimeBuffer<JointVelRef> qdot_des_buf_;
   realtime_tools::RealtimeBuffer<JointPosRef> q_des_buf_;
   realtime_tools::RealtimeBuffer<EEVelRef>    xdot_des_buf_;
-  realtime_tools::RealtimeBuffer<EEPoseRef>   x_des_buf_;
 
   // ROS subscribers
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_vel_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr ee_vel_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr joint_pos_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr  ee_pos_sub_;
 
   // State transition service
   rclcpp::Service<wbc_msgs::srv::TransitionState>::SharedPtr set_state_srv_;

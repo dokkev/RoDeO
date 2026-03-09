@@ -227,11 +227,8 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     qdot_des_buf_.writeFromNonRT(JointVelRef{zeros, 0});
     q_des_buf_.writeFromNonRT(JointPosRef{zeros, 0});
   }
-  // Cartesian buffers: zero linear/angular, identity quaternion.
-  // Must be explicit — Eigen::Quaterniond default constructor leaves coeffs uninitialized.
+  // Cartesian velocity buffer: zero linear/angular.
   xdot_des_buf_.writeFromNonRT(EEVelRef{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0});
-  x_des_buf_.writeFromNonRT(
-      EEPoseRef{{0.0, 0.0, 0.0}, Eigen::Quaterniond::Identity(), 0});
 
   // Joint velocity subscriber — Float64MultiArray: [qdot_0 .. qdot_n] [rad/s]
   joint_vel_sub_ =
@@ -263,22 +260,6 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
       [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr msg) {
         if (msg->data.size() != joint_count_) { return; }
         q_des_buf_.writeFromNonRT(JointPosRef{msg->data, get_node()->now().nanoseconds()});
-      });
-
-  // EE pose subscriber — PoseStamped: position [m] + orientation [quat], world frame
-  ee_pos_sub_ =
-    get_node()->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "~/ee_pose_cmd",
-      rclcpp::SensorDataQoS(),
-      [this](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
-        x_des_buf_.writeFromNonRT(EEPoseRef{
-          {msg->pose.position.x, msg->pose.position.y, msg->pose.position.z},
-          Eigen::Quaterniond(
-            msg->pose.orientation.w,
-            msg->pose.orientation.x,
-            msg->pose.orientation.y,
-            msg->pose.orientation.z),
-          rclcpp::Time(msg->header.stamp).nanoseconds()});
       });
 
   // State transition service — call with state_name or state_id.
@@ -598,10 +579,8 @@ controller_interface::return_type OptimoController::update(
 
   if (active_state_id_ == cartesian_teleop_state_->id()) {
     const auto* xdot_des = xdot_des_buf_.readFromRT();
-    const auto* x_des = x_des_buf_.readFromRT();
     cartesian_teleop_state_->UpdateCommand(
-      xdot_des->xdot, xdot_des->wdot, xdot_des->ts_ns,
-      x_des->x, x_des->w, x_des->ts_ns);
+      xdot_des->xdot, xdot_des->wdot, xdot_des->ts_ns);
   }
 
   ctrl_arch_->Update(ReadJointState(), time.seconds(), control_dt_);

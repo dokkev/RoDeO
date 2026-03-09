@@ -9,6 +9,8 @@
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 
+#include "wbc_formulation/se3_math.hpp"
+
 namespace wbc {
 
 /**
@@ -17,7 +19,7 @@ namespace wbc {
  *
  * Two internal buffer pairs:
  *   pos_goal_ / pos_des_smooth_    — 3-D position (world frame)
- *   quat_goal_ / quat_des_smooth_  — orientation (world frame, xyzw storage)
+ *   quat_goal_ / quat_des_smooth_  — orientation (world frame, Eigen::Quaterniond)
  *
  * SetLinearVelocity() / SetAngularVelocity(): integrate into goal only.
  * SetPosition() / SetOrientation(): update goal only.
@@ -32,6 +34,8 @@ namespace wbc {
  * Usage (per control tick, e.g. 1 kHz):
  *   handler.UpdatePos(ee_pos_task_, dt_ctrl);
  *   handler.UpdateOri(ee_ori_task_, dt_ctrl);
+ *
+ * Must call Init() before any other method.
  */
 class CartesianTeleopHandler {
 public:
@@ -40,7 +44,7 @@ public:
   /**
    * @brief Initialize from current EE transform and speed limits.
    *
-   * @param pos_curr        Current EE position in world frame (3).
+   * @param pos_curr        Current EE position in world frame.
    * @param quat_curr       Current EE orientation in world frame.
    * @param linear_vel_max  Translational speed limit [m/s].
    * @param angular_vel_max Rotational rate limit [rad/s].
@@ -53,10 +57,10 @@ public:
     pos_des_smooth_  = pos_curr;
     quat_goal_       = quat_curr.normalized();
     quat_des_smooth_ = quat_goal_;
-    linear_vel_max_  = linear_vel_max;
-    angular_vel_max_ = angular_vel_max;
-    zeros3_.setZero(3);
-    vel3_.setZero(3);
+    linear_vel_max_  = std::max(0.0, linear_vel_max);
+    angular_vel_max_ = std::max(0.0, angular_vel_max);
+    zeros3_.setZero();
+    vel3_.setZero();
     initialized_ = true;
   }
 
@@ -64,11 +68,11 @@ public:
    * @brief Integrate a Cartesian velocity command into pos_goal_.
    *        UpdatePos() smooths pos_des_smooth_ toward pos_goal_ at control frequency.
    *
-   * @param xdot  Linear velocity command in world frame [m/s] (3).
+   * @param xdot  Linear velocity in world frame [m/s].
    * @param dt    Input period [s].
    */
   void SetLinearVelocity(const Eigen::Vector3d& xdot, double dt) {
-    if (dt <= 0.0) return;
+    if (!initialized_ || dt <= 0.0) return;
     const double speed = xdot.norm();
     if (speed < kEps) return;
     const double scale = (speed > linear_vel_max_) ? (linear_vel_max_ / speed) : 1.0;
@@ -79,48 +83,41 @@ public:
    * @brief Integrate an angular velocity command into quat_goal_.
    *        UpdateOri() smooths quat_des_smooth_ toward quat_goal_ at control frequency.
    *
-   * @param omega  Angular velocity in world frame [rad/s] (3).
+   * Uses exact exponential map (se3::IntegrateAngularVelocityWorld) — no axis
+   * normalization artifacts for large or small rates.
+   *
+   * @param omega  Angular velocity in world frame [rad/s].
    * @param dt     Input period [s].
    */
   void SetAngularVelocity(const Eigen::Vector3d& omega, double dt) {
-    if (dt <= 0.0) return;
+    if (!initialized_ || dt <= 0.0) return;
     const double rate = omega.norm();
     if (rate < kEps) return;
     const double scale = (rate > angular_vel_max_) ? (angular_vel_max_ / rate) : 1.0;
-    const Eigen::Vector3d rot_vec = omega * (scale * dt);
-    // Exponential map: rotation vector → quaternion (no axis normalization needed)
-    Eigen::Quaterniond delta_q;
-    delta_q.vec() = rot_vec * 0.5;
-    delta_q.w()   = 1.0;
-    delta_q.normalize();
-    quat_goal_ = (delta_q * quat_goal_).normalized();
+    quat_goal_ = se3::IntegrateAngularVelocityWorld(quat_goal_, omega * scale, dt);
   }
 
   /**
-   * @brief Set an absolute position target.
-   *
-   * Only pos_goal_ is updated. UpdatePos() will drive pos_des_smooth_
-   * toward pos_goal_ at linear_vel_max speed, preventing sudden jumps.
+   * @brief Set an absolute position target (jumps goal, smoothed by UpdatePos).
    */
   void SetPosition(const Eigen::Vector3d& x_des) {
+    if (!initialized_) return;
     pos_goal_ = x_des;
   }
 
   /**
-   * @brief Overwrite pos_goal_ directly.
-   *
-   * Intended for post-integration clamping (workspace boundary, anti-windup)
-   * by the caller after SetLinearVelocity().
+   * @brief Overwrite pos_goal_ directly (for post-integration clamping).
    */
-  void SetPosGoal(const Eigen::Vector3d& goal) { pos_goal_ = goal; }
+  void SetPosGoal(const Eigen::Vector3d& goal) {
+    if (!initialized_) return;
+    pos_goal_ = goal;
+  }
 
   /**
-   * @brief Set an absolute orientation target.
-   *
-   * Only quat_goal_ is updated. UpdateOri() will SLERP quat_des_smooth_
-   * toward quat_goal_ at angular_vel_max rate.
+   * @brief Set an absolute orientation target (jumps goal, smoothed by UpdateOri).
    */
   void SetOrientation(const Eigen::Quaterniond& quat_des) {
+    if (!initialized_) return;
     quat_goal_ = quat_des.normalized();
   }
 
@@ -132,7 +129,7 @@ public:
    */
   template <typename PosTaskLike>
   void UpdatePos(PosTaskLike* task, double dt) {
-    if (task == nullptr || dt < kEps) return;
+    if (!initialized_ || task == nullptr || dt < kEps) return;
     const Eigen::Vector3d old_pos = pos_des_smooth_;
     const Eigen::Vector3d delta   = pos_goal_ - pos_des_smooth_;
     const double dist     = delta.norm();
@@ -149,15 +146,17 @@ public:
   /**
    * @brief SLERP quat_des_smooth_ toward quat_goal_ and push to the WBC task.
    *
-   * The orientation is packed as a 4-element [x, y, z, w] vector to match
-   * the LinkOriTask::UpdateDesired(des_pos, des_vel, des_acc) signature.
+   * Angular feedforward velocity is computed via se3::AngularVelocityFromQuatDeltaWorld
+   * (quaternion log map), which is exact and avoids the small-angle approximation.
+   *
+   * Orientation is packed as [x, y, z, w] to match LinkOriTask::UpdateDesired().
    *
    * @param task  Orientation WBC task (e.g. LinkOriTask). Non-null.
    * @param dt    Control time step [s].
    */
   template <typename OriTaskLike>
   void UpdateOri(OriTaskLike* task, double dt) {
-    if (task == nullptr || dt < kEps) return;
+    if (!initialized_ || task == nullptr || dt < kEps) return;
     const Eigen::Quaterniond old_quat = quat_des_smooth_;
     const double angle = old_quat.angularDistance(quat_goal_);
     if (angle < kEps) {
@@ -167,11 +166,8 @@ public:
       const double t = (max_angle >= angle) ? 1.0 : (max_angle / angle);
       quat_des_smooth_ = old_quat.slerp(t, quat_goal_).normalized();
     }
-    // Quaternion differential: w = 2 * q_err.vec() / dt  (sign-safe, no axis flipping)
-    Eigen::Quaterniond q_err = quat_des_smooth_ * old_quat.inverse();
-    if (q_err.w() < 0.0) q_err.coeffs() *= -1.0;  // shortest-path
-    vel3_ = 2.0 * q_err.vec() / dt;
-    const Eigen::Vector4d ori_des = quat_des_smooth_.coeffs();  // [x,y,z,w]
+    vel3_ = se3::AngularVelocityFromQuatDeltaWorld(old_quat, quat_des_smooth_, dt);
+    const Eigen::Vector4d ori_des = se3::QuatToXyzw(quat_des_smooth_);
     task->UpdateDesired(ori_des, vel3_, zeros3_);
   }
 
@@ -191,8 +187,8 @@ private:
   Eigen::Quaterniond quat_des_smooth_{Eigen::Quaterniond::Identity()};
   double linear_vel_max_{1.0};
   double angular_vel_max_{1.0};
-  Eigen::VectorXd zeros3_;
-  Eigen::VectorXd vel3_;   // scratch buffer for feedforward velocity (pre-allocated)
+  Eigen::Vector3d zeros3_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d vel3_{Eigen::Vector3d::Zero()};
   bool initialized_{false};
 };
 
