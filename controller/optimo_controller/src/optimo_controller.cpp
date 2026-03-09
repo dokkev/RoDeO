@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include <yaml-cpp/yaml.h>
 #include <Eigen/Dense>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
@@ -111,6 +112,18 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     arch_config.state_provider = std::make_unique<wbc::StateProvider>(control_dt_);
     ctrl_arch_ = std::make_unique<wbc::ControlArchitecture>(std::move(arch_config));
     ctrl_arch_->Initialize();
+    // Parse debug_mode from WBC YAML
+    {
+      const std::string resolved = wbc::path::ResolvePackageUri(wbc_yaml_path_);
+      YAML::Node root = YAML::LoadFile(resolved);
+      debug_mode_ = root["debug_mode"].as<bool>(false);
+      debug_print_interval_s_ = root["debug_print_interval"].as<double>(5.0);
+      if (debug_mode_) {
+        RCLCPP_INFO(get_node()->get_logger(),
+          "[OptimoController] debug_mode ON (print every %.1f s)", debug_print_interval_s_);
+      }
+    }
+    ctrl_arch_->enable_timing_ = true;  // enable per-phase timing stats
 
     // Cache typed state pointers (non-RT, configure phase only).
     auto * fsm = ctrl_arch_->GetFsmHandler();
@@ -349,6 +362,61 @@ controller_interface::return_type OptimoController::update(
   ctrl_arch_->Update(ReadJointState(), time.seconds(), control_dt_);
   // Refresh after FSM ran so auto-transitions are captured for the next tick.
   active_state_id_ = ctrl_arch_->GetCurrentStateId();
+
+  // QP status monitoring
+  {
+    const auto& ts = ctrl_arch_->timing_stats_;
+    const double total_us = ts.robot_model_us + ts.kinematics_us + ts.dynamics_us
+                          + ts.find_config_us + ts.make_torque_us + ts.feedback_us;
+
+    const auto* wbic_data = ctrl_arch_->GetSolver()->GetWbicData();
+
+    // Track peak tick time
+    if (total_us > max_tick_us_) max_tick_us_ = total_us;
+    ++tick_count_;
+
+    // Log warning if total WBC time exceeds 500 us (half of 1 kHz budget)
+    if (total_us > 500.0) {
+      RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "[WBC] slow tick: %.0f us (model=%.0f kin=%.0f dyn=%.0f ik=%.0f id=%.0f fb=%.0f) "
+        "qp_iter=%d qp_solve=%.0f us",
+        total_us, ts.robot_model_us, ts.kinematics_us, ts.dynamics_us,
+        ts.find_config_us, ts.make_torque_us, ts.feedback_us,
+        wbic_data ? wbic_data->qp_iter_ : -1,
+        wbic_data ? wbic_data->qp_solve_time_us_ : 0.0);
+    }
+
+    // Log error if QP did not solve
+    if (wbic_data && !wbic_data->qp_solved_) {
+      RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "[WBC] QP FAILED: status=%d iter=%d pri_res=%.2e dua_res=%.2e obj=%.4f",
+        wbic_data->qp_status_, wbic_data->qp_iter_,
+        wbic_data->qp_pri_res_, wbic_data->qp_dua_res_, wbic_data->qp_obj_);
+    }
+
+    // Periodic debug status print
+    const double t_now = time.seconds();
+    if (debug_mode_ && (t_now - last_debug_print_time_) >= debug_print_interval_s_) {
+      const auto& cmd = ctrl_arch_->GetCommand();
+      RCLCPP_INFO(get_node()->get_logger(),
+        "[WBC] state=%d | tick=%.0f us (peak=%.0f us) | "
+        "model=%.0f kin=%.0f dyn=%.0f ik=%.0f id=%.0f fb=%.0f | "
+        "qp: solved=%d iter=%d solve=%.0f us | "
+        "tau[0..2]=[%.2f, %.2f, %.2f]",
+        active_state_id_,
+        total_us, max_tick_us_,
+        ts.robot_model_us, ts.kinematics_us, ts.dynamics_us,
+        ts.find_config_us, ts.make_torque_us, ts.feedback_us,
+        wbic_data ? static_cast<int>(wbic_data->qp_solved_) : -1,
+        wbic_data ? wbic_data->qp_iter_ : -1,
+        wbic_data ? wbic_data->qp_solve_time_us_ : 0.0,
+        cmd.tau.size() > 0 ? cmd.tau[0] : 0.0,
+        cmd.tau.size() > 1 ? cmd.tau[1] : 0.0,
+        cmd.tau.size() > 2 ? cmd.tau[2] : 0.0);
+      last_debug_print_time_ = t_now;
+      max_tick_us_ = 0.0;  // reset peak for next interval
+    }
+  }
 
   // Get WBC command and apply actuator model.
   auto cmd = ctrl_arch_->GetCommand();

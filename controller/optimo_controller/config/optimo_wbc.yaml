@@ -70,8 +70,9 @@ controller:
   # jpos_task (role: posture_task) kp/kd: used only in UpdateOpCommand (not ID-QP cost).
   #   Effective joint tracking in all states is governed by kp_acc/kd_acc above.
   ik_method: "weighted_qp"
-  kp_acc: 80.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
-  kd_acc: 8.0   # joint accel-reference velocity gain: critically damped at kp=120
+  kp_acc: 60.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
+  kd_acc: 3.0   # joint accel-reference velocity gain: critically damped at kd_acc=2*sqrt(kp_acc)
+
 
   joint_pid:
     enabled: false
@@ -98,7 +99,7 @@ regularization:
 #   soft_weight: 1.0e+5      → penalty weight when is_soft=true (higher = stricter)
 global_constraints:
   JointPosLimitConstraint:
-    enabled: true
+    enabled: false
     scale: 1.0      # 100% of URDF position range (safety margin)
     is_soft: true   # soft slack variable (controlled violation near limits)
     soft_weight: 1.0e+5
@@ -110,13 +111,17 @@ global_constraints:
     soft_weight: 1.0e+5
 
   JointTrqLimitConstraint:
-    enabled: true   # enable if running torque-only control (no motor PD)
+    enabled: false   # enable if running torque-only control (no motor PD)
     scale: 1.0      # fraction of URDF torque limits
     is_soft: false   # soft → penalty-based
     soft_weight: 1.0e+5
 
 
-# 5. 태스크 풀
+# 5. Debug mode: prints periodic QP/timing status to console
+debug_mode: true
+debug_print_interval: 5.0   # seconds between periodic status prints
+
+# 6. 태스크 풀
 task_pool_yaml: "task_list.yaml"
 
 # 6. 상태별 WBC 레시피

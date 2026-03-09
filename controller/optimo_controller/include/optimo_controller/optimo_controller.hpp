@@ -130,6 +130,13 @@ private:
 
   // Active FSM state id
   wbc::StateId active_state_id_{-1};
+
+  // Debug mode: periodic QP/timing status print
+  bool debug_mode_{false};
+  double debug_print_interval_s_{5.0};
+  double last_debug_print_time_{0.0};
+  uint64_t tick_count_{0};
+  double max_tick_us_{0.0};
 };
 
 }  // namespace optimo_controller
