@@ -14,7 +14,7 @@ state_machine:
       wait_time: 0.0
       stay_here: true
       weight_ramp_duration: 0.3
-      target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
+      # target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0
@@ -99,6 +99,22 @@ state_machine:
       abort_on_safety: true
       hold_on_abort: true
       end_on_finish: true
+    task_hierarchy:
+      - name: "jpos_task"
+        weight: 100.0
+      - name: "ee_pos_task"
+        weight: 1e-6
+      - name: "ee_ori_task"
+        weight: 1e-6
+
+  - id: 5
+    name: "safe_command"
+    type: "initialize"
+    params:
+      duration: 0.0
+      wait_time: 0.0
+      stay_here: true
+      target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
     task_hierarchy:
       - name: "jpos_task"
         weight: 100.0

@@ -116,6 +116,10 @@ void WBIC::ReserveCapacity(int max_contact_dim, int max_uf_rows) {
     A_.setZero(max_n_eq, max_qp_dim);
     b_.setZero(max_n_eq);
     C_.setZero(max_n_ineq, max_qp_dim);
+    // ProxQP rejects C=0 when n_ineq>0.  Set a dummy identity-like structure
+    // so the pre-allocation init passes validation; the first real SolveQP
+    // call will overwrite C with actual constraint data.
+    for (int i = 0; i < max_n_ineq && i < max_qp_dim; ++i) C_(i, i) = 1.0;
     l_.setZero(max_n_ineq);
     u_.setZero(max_n_ineq);
     l_box_.setConstant(max_qp_dim, -1e30);

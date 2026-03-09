@@ -1,807 +1,600 @@
-/**
- * @file controller/optimo_controller/src/optimo_controller.cpp
- * @brief Doxygen documentation for optimo_controller module.
- */
+// Copyright 2024 Roboligent, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include "optimo_controller/optimo_controller.hpp"
 
-#include <cmath>
+#include <chrono>
+#include <condition_variable>
+#include <exception>
+#include <mutex>
+#include <string>
 
-#include <Eigen/Dense>
-#include <hardware_interface/types/hardware_interface_type_values.hpp>
-#include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/rclcpp.hpp>
-#include <yaml-cpp/yaml.h>
+#include <rl/common/RobotConfiguration.h>
+#include <rl/util/Logger.h>
+#include <rl/util/Vector.h>
 
-#include "optimo_controller/state_machines/cartesian_teleop.hpp"
-#include "optimo_controller/state_machines/joint_teleop.hpp"
-#include "wbc_formulation/interface/task.hpp"
-#include "wbc_util/ros_path_utils.hpp"
-#include "wbc_util/task_registry.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
-namespace optimo_controller
+#include "optimo_api/FreeMotionCallback.h"
+#include "optimo_api/IdleCallback.h"
+#include "optimo_api/MoveHomeCallback.h"
+#include "optimo_api/MoveItCallback.h"
+#include "optimo_api/MoveItServoCallback.h"
+#include "optimo_api/PlayTrajCallback.h"
+#include "optimo_api/ROSShared.h"
+#include "optimo_api/Resource.h"
+#include "optimo_api/ServoCallback.h"
+#include "optimo_api/ServoFbCallback.h"
+#include "optimo_api/TeachCallback.h"
+
+namespace optimo_ros
 {
-////////////////////////////////////////////////////////////////////////
-
-OptimoController::~OptimoController() = default;
-
-////////////////////////////////////////////////////////////////////////
-
-controller_interface::CallbackReturn OptimoController::on_init()
-{
-  auto_declare<std::vector<std::string>>("joints", {});
-  auto_declare<std::string>(
-    "wbc_yaml_path", "package://optimo_controller/config/optimo_wbc.yaml");
-  auto_declare<double>("control_frequency", 1000.0);
-  auto_declare<bool>("is_simulation", false);
-  auto_declare<std::string>(
-    "joint_dynamics_yaml", "package://optimo_description/config/joint_dynamics.yaml");
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-////////////////////////////////////////////////////////////////////////
-
 controller_interface::InterfaceConfiguration
-OptimoController::command_interface_configuration() const
+OptimoEffortController::command_interface_configuration() const
 {
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  config.names.reserve(joint_count_ * kInterfacesPerJoint + 1);
-  for (const auto & joint : joints_)
-  {
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_POSITION);
+  for (int i = 1; i <= model->size(); ++i) {
+    config.names.push_back(robot_prefix + "joint" + std::to_string(i) + "/effort");
   }
-  for (const auto & joint : joints_)
-  {
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_VELOCITY);
-  }
-  for (const auto & joint : joints_)
-  {
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_EFFORT);
-  }
-
-  // IMPORTANT: exact name must match `ros2 control list_hardware_interfaces`
   config.names.push_back("/model_safety_error");
 
   return config;
 }
 
-////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-controller_interface::InterfaceConfiguration
-OptimoController::state_interface_configuration() const
+controller_interface::InterfaceConfiguration OptimoEffortController::state_interface_configuration()
+  const
 {
-  // Explicitly list state interfaces — decoupled from command_interface_configuration()
-  // so future command-only additions (e.g. model_safety_error) don't silently bleed here.
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-  config.names.reserve(joint_count_ * kInterfacesPerJoint);
-  for (const auto & joint : joints_)
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_POSITION);
-  for (const auto & joint : joints_)
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_VELOCITY);
-  for (const auto & joint : joints_)
-    config.names.push_back(joint + "/" + hardware_interface::HW_IF_EFFORT);
+  for (int i = 1; i <= model->size(); ++i) {
+    config.names.push_back(robot_prefix + "joint" + std::to_string(i) + "/position");
+    config.names.push_back(robot_prefix + "joint" + std::to_string(i) + "/velocity");
+    config.names.push_back(robot_prefix + "joint" + std::to_string(i) + "/effort");
+  }
+
+  config.names.push_back("/communication_enabled");
+
   return config;
 }
 
-////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-controller_interface::CallbackReturn
-OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*/)
+controller_interface::return_type OptimoEffortController::update(
+  const rclcpp::Time &, const rclcpp::Duration &)
 {
-  joints_ = get_node()->get_parameter("joints").as_string_array();
-  joint_count_ = joints_.size();
-  wbc_yaml_path_ = get_node()->get_parameter("wbc_yaml_path").as_string();
-  control_frequency_hz_ = get_node()->get_parameter("control_frequency").as_double();
-  if (!std::isfinite(control_frequency_hz_) || control_frequency_hz_ <= 0.0)
-  {
-    RCLCPP_ERROR(
-      get_node()->get_logger(),
-      "[OptimoController] parameter 'control_frequency' must be finite and > 0. got=%.6f",
-      control_frequency_hz_);
-    return controller_interface::CallbackReturn::ERROR;
-  }
-  control_dt_ = 1.0 / control_frequency_hz_;
-  if (joints_.empty())
-  {
-    RCLCPP_ERROR(get_node()->get_logger(), "[OptimoController] parameter 'joints' is empty.");
-    return controller_interface::CallbackReturn::ERROR;
-  }
-
-  try
-  {
-    auto arch_config =
-      wbc::ControlArchitectureConfig::FromYaml(wbc_yaml_path_, control_dt_);
-    arch_config.state_provider = std::make_unique<wbc::StateProvider>(control_dt_);
-    ctrl_arch_ = std::make_unique<wbc::ControlArchitecture>(std::move(arch_config));
-    ctrl_arch_->Initialize();
-    ctrl_arch_->logger_.enabled = true;
-
-    // Cache typed state pointers (non-RT, configure phase only).
-    // Pointers remain valid for the controller's lifetime: states are owned
-    // by FSMHandler and never moved or destroyed after Initialize().
-    auto * fsm = ctrl_arch_->GetFsmHandler();
-    if (const auto id = fsm->FindStateIdByName("joint_teleop")) {
-      joint_teleop_state_ = dynamic_cast<wbc::JointTeleop *>(fsm->FindStateById(*id));
+  // divide state interface back into pos/vel/effort
+  for (auto & state_interface : state_interfaces_) {
+    if (state_interface.get_interface_name() == "communication_enabled") {
+      communication_enabled = (bool)state_interface.get_value();
+      continue;
     }
-    if (const auto id = fsm->FindStateIdByName("cartesian_teleop")) {
-      cartesian_teleop_state_ = dynamic_cast<wbc::CartesianTeleop *>(fsm->FindStateById(*id));
-    }
-    if (const auto id = fsm->FindStateIdByName("safe_command")) {
-      safe_command_state_id_ = *id;
-    }
-  }
-  catch (const std::exception & e)
-  {
-    ctrl_arch_.reset();
-    RCLCPP_ERROR(
-      get_node()->get_logger(), "[OptimoController] failed to build control architecture: %s",
-      e.what());
-    return controller_interface::CallbackReturn::ERROR;
-  }
-
-  if (joint_teleop_state_ == nullptr) {
-    RCLCPP_ERROR(get_node()->get_logger(),
-      "[OptimoController] required state 'joint_teleop' not found in WBC config.");
-    return controller_interface::CallbackReturn::ERROR;
-  }
-  if (cartesian_teleop_state_ == nullptr) {
-    RCLCPP_ERROR(get_node()->get_logger(),
-      "[OptimoController] required state 'cartesian_teleop' not found in WBC config.");
-    return controller_interface::CallbackReturn::ERROR;
-  }
-  if (!safe_command_state_id_.has_value()) {
-    RCLCPP_ERROR(get_node()->get_logger(),
-      "[OptimoController] required state 'safe_command' not found in WBC config.");
-    return controller_interface::CallbackReturn::ERROR;
-  }
-
-  // Build actuator interface (spring for sim, passthrough for real HW).
-  {
-    const bool is_sim = get_node()->get_parameter("is_simulation").as_bool();
-    if (is_sim) {
-      // SEA stiffness [Nm/rad] and damping [Nm·s/rad] per joint (from hardware spec).
-      Eigen::VectorXd stiffness(7);
-      stiffness << 966.4, 947.6, 509.3, 404.1, 484.3, 479.2, 455.6;
-      Eigen::VectorXd damping(7);
-      damping << 10.0, 10.0, 5.0, 5.0, 3.0, 3.0, 3.0;
-
-      actuator_ = std::make_unique<wbc::SpringActuator>(stiffness, damping);
-      RCLCPP_INFO(get_node()->get_logger(),
-        "[OptimoController] Simulation mode: spring actuator enabled");
-    } else {
-      actuator_ = std::make_unique<wbc::DirectActuator>();
-      RCLCPP_INFO(get_node()->get_logger(),
-        "[OptimoController] Hardware mode: direct passthrough");
+    int joint_num = state_interface.get_prefix_name().back() - '0';
+    if (joint_num > 0 || joint_num <= model->size()) {
+      if (state_interface.get_interface_name() == "position")
+        pos[joint_num - 1] = state_interface.get_value() * roboligent::RAD2DEG;
+      if (state_interface.get_interface_name() == "velocity")
+        vel[joint_num - 1] = state_interface.get_value() * roboligent::RAD2DEG;
+      if (state_interface.get_interface_name() == "effort")
+        eff[joint_num - 1] = state_interface.get_value() * roboligent::UNIT2MILLI;
     }
   }
 
-  // Pre-size / pre-initialize all command buffers.
-  // (non-RT configure phase — heap alloc acceptable here.)
-  {
-    const std::vector<double> zeros(joint_count_, 0.0);
-    qdot_des_buf_.writeFromNonRT(JointVelRef{zeros, 0});
-    q_des_buf_.writeFromNonRT(JointPosRef{zeros, 0});
-  }
-  // Cartesian buffers: zero linear/angular, identity quaternion.
-  // Must be explicit — Eigen::Quaterniond default constructor leaves coeffs uninitialized.
-  xdot_des_buf_.writeFromNonRT(EEVelRef{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0});
-  x_des_buf_.writeFromNonRT(
-      EEPoseRef{{0.0, 0.0, 0.0}, Eigen::Quaterniond::Identity(), 0});
+  model->update(pos, vel, std::vector<double>(model->size(), 0), torque_command);
 
-  // Joint velocity subscriber — Float64MultiArray: [qdot_0 .. qdot_n] [rad/s]
-  joint_vel_sub_ =
-    get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
-      "~/joint_vel_cmd",
-      rclcpp::SensorDataQoS(),
-      [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr msg) {
-        if (msg->data.size() != joint_count_) { return; }
-        qdot_des_buf_.writeFromNonRT(JointVelRef{msg->data, get_node()->now().nanoseconds()});
-      });
+  // This is a hack to allow the controller to disable hw, in the case of poor robot behavior.
+  command_interfaces_.back().set_value(model->get_safety_error());
 
-  // EE velocity subscriber — TwistStamped: linear [m/s] + angular [rad/s], world frame
-  ee_vel_sub_ =
-    get_node()->create_subscription<geometry_msgs::msg::TwistStamped>(
-      "~/ee_vel_cmd",
-      rclcpp::SensorDataQoS(),
-      [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
-        xdot_des_buf_.writeFromNonRT(EEVelRef{
-          {msg->twist.linear.x,  msg->twist.linear.y,  msg->twist.linear.z},
-          {msg->twist.angular.x, msg->twist.angular.y, msg->twist.angular.z},
-          rclcpp::Time(msg->header.stamp).nanoseconds()});
-      });
+  // adhoc method of resetting fallback on the first run. This behavior should move to model
+  // itself
+  if (first_run) {
+    first_run = false;
+    model->reset_fallback();
+    model->enable_fallback_defaults(true);
+    model->enable_fallback_dragging(true);
+    model->enable_elbow_fallback_dragging(true);
 
-  // Joint position subscriber — Float64MultiArray: [q_0 .. q_n] [rad]
-  joint_pos_sub_ =
-    get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
-      "~/joint_pos_cmd",
-      rclcpp::SensorDataQoS(),
-      [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr msg) {
-        if (msg->data.size() != joint_count_) { return; }
-        q_des_buf_.writeFromNonRT(JointPosRef{msg->data, get_node()->now().nanoseconds()});
-      });
-
-  // EE pose subscriber — PoseStamped: position [m] + orientation [quat], world frame
-  ee_pos_sub_ =
-    get_node()->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "~/ee_pose_cmd",
-      rclcpp::SensorDataQoS(),
-      [this](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
-        x_des_buf_.writeFromNonRT(EEPoseRef{
-          {msg->pose.position.x, msg->pose.position.y, msg->pose.position.z},
-          Eigen::Quaterniond(
-            msg->pose.orientation.w,
-            msg->pose.orientation.x,
-            msg->pose.orientation.y,
-            msg->pose.orientation.z),
-          rclcpp::Time(msg->header.stamp).nanoseconds()});
-      });
-
-  // State transition service — call with state_name or state_id.
-  // Uses atomic RequestState internally; consumed on the next control tick.
-  set_state_srv_ = get_node()->create_service<wbc_msgs::srv::TransitionState>(
-    "~/set_state",
-    [this](const wbc_msgs::srv::TransitionState::Request::SharedPtr req,
-           wbc_msgs::srv::TransitionState::Response::SharedPtr res) {
-      if (!req->state_name.empty()) {
-        if (ctrl_arch_->RequestState(req->state_name)) {
-          res->success = true;
-          res->message = "Transition requested: " + req->state_name;
-        } else {
-          res->success = false;
-          res->message = "Unknown state name: " + req->state_name;
-        }
-      } else {
-        ctrl_arch_->RequestState(req->state_id);
-        res->success = true;
-        res->message = "Transition requested: id=" + std::to_string(req->state_id);
-      }
-    });
-
-  // Task gains service — scalar kp/kd per task name (broadcast per task dim).
-  task_gain_srv_ = get_node()->create_service<wbc_msgs::srv::TaskGainService>(
-    "~/set_task_gains",
-    [this](const wbc_msgs::srv::TaskGainService::Request::SharedPtr req,
-           wbc_msgs::srv::TaskGainService::Response::SharedPtr res) {
-      if (req->task_names.empty()) {
-        res->success = false;
-        res->message = "task_names is empty";
-        return;
-      }
-      if (req->kp.size() != req->task_names.size() ||
-          req->kd.size() != req->task_names.size()) {
-        res->success = false;
-        res->message = "kp/kd size must match task_names size";
-        return;
-      }
-
-      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
-      for (const auto& name : req->task_names) {
-        if (reg->GetMotionTask(name) == nullptr) {
-          res->success = false;
-          res->message = "unknown motion task: " + name;
-          return;
-        }
-      }
-
-      TaskGainUpdate upd;
-      upd.task_names = req->task_names;
-      upd.kp = req->kp;
-      upd.kd = req->kd;
-      upd.ts_ns = get_node()->now().nanoseconds();
-      task_gain_update_buf_.writeFromNonRT(upd);
-
-      res->success = true;
-      res->message = "task gain update latched";
-    });
-
-  // Task weights service — scalar weight per task name (broadcast per task dim).
-  task_weight_srv_ = get_node()->create_service<wbc_msgs::srv::TaskWeightService>(
-    "~/set_task_weights",
-    [this](const wbc_msgs::srv::TaskWeightService::Request::SharedPtr req,
-           wbc_msgs::srv::TaskWeightService::Response::SharedPtr res) {
-      if (req->task_names.empty()) {
-        res->success = false;
-        res->message = "task_names is empty";
-        return;
-      }
-      if (req->weight.size() != req->task_names.size()) {
-        res->success = false;
-        res->message = "weight size must match task_names size";
-        return;
-      }
-
-      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
-      for (const auto& name : req->task_names) {
-        if (reg->GetMotionTask(name) == nullptr) {
-          res->success = false;
-          res->message = "unknown motion task: " + name;
-          return;
-        }
-      }
-
-      TaskWeightUpdate upd;
-      upd.task_names = req->task_names;
-      upd.weight = req->weight;
-      upd.ts_ns = get_node()->now().nanoseconds();
-      task_weight_update_buf_.writeFromNonRT(upd);
-
-      res->success = true;
-      res->message = "task weight update latched";
-    });
-
-  // Residual dynamics service — friction/observer parameter update.
-  residual_dyn_srv_ =
-    get_node()->create_service<wbc_msgs::srv::ResidualDynamicsService>(
-      "~/set_residual_dynamics",
-      [this](const wbc_msgs::srv::ResidualDynamicsService::Request::SharedPtr req,
-             wbc_msgs::srv::ResidualDynamicsService::Response::SharedPtr res) {
-        const auto valid = [this](const std::vector<double>& v) {
-          return v.size() == 1 || v.size() == joint_count_;
-        };
-
-        if (req->friction_enabled) {
-          if (!valid(req->gamma_c) || !valid(req->gamma_v) ||
-              !valid(req->max_f_c) || !valid(req->max_f_v)) {
-            res->success = false;
-            res->message = "friction vectors must be size 1 or num_joints";
-            return;
-          }
-        }
-        if (req->observer_enabled) {
-          if (!valid(req->k_o) || !valid(req->max_tau_dist)) {
-            res->success = false;
-            res->message = "observer vectors must be size 1 or num_joints";
-            return;
-          }
-        }
-
-        ResidualDynamicsUpdate upd;
-        upd.friction_enabled = req->friction_enabled;
-        upd.gamma_c = req->gamma_c;
-        upd.gamma_v = req->gamma_v;
-        upd.max_f_c = req->max_f_c;
-        upd.max_f_v = req->max_f_v;
-        upd.observer_enabled = req->observer_enabled;
-        upd.k_o = req->k_o;
-        upd.max_tau_dist = req->max_tau_dist;
-        upd.ts_ns = get_node()->now().nanoseconds();
-        residual_update_buf_.writeFromNonRT(upd);
-
-        res->success = true;
-        res->message = "residual dynamics update latched";
-      });
-
-  // Log available states for discoverability.
-  {
-    const auto& states = ctrl_arch_->GetFsmHandler()->GetStates();
-    std::string state_list;
-    for (const auto& [id, name] : states) {
-      if (!state_list.empty()) state_list += ", ";
-      state_list += std::to_string(id) + ":" + name;
-    }
-    RCLCPP_INFO(get_node()->get_logger(),
-      "[OptimoController] Available states: [%s]", state_list.c_str());
+    model->enable_j1j7_sg_compensation(false);
+    model->enable_j2_sg_compensation(false);
+    model->enable_j4_sg_compensation(false);
+    model->enable_j6_sg_compensation(false);
+    model->set_angle_j6_sg_compensation(0);
   }
 
-  // RT-safe WBC state publisher for monitoring (PlotJuggler, custom viz, etc.)
-  {
-    auto pub = get_node()->create_publisher<wbc_msgs::msg::WbcState>(
-      "~/wbc_state", rclcpp::SensorDataQoS());
-    rt_wbc_pub_ = std::make_shared<
-      realtime_tools::RealtimePublisher<wbc_msgs::msg::WbcState>>(pub);
+  update_task();
 
-    // Pre-allocate message vectors so publish path does no heap alloc.
-    auto& msg = rt_wbc_pub_->msg_;
-    msg.q_des.resize(joint_count_, 0.0);
-    msg.qdot_des.resize(joint_count_, 0.0);
-    msg.q_curr.resize(joint_count_, 0.0);
-    msg.qdot_curr.resize(joint_count_, 0.0);
-    msg.q_cmd.resize(joint_count_, 0.0);
-    msg.qdot_cmd.resize(joint_count_, 0.0);
-    msg.qddot_cmd.resize(joint_count_, 0.0);
-    msg.tau_ff.resize(joint_count_, 0.0);
-    msg.tau_fb.resize(joint_count_, 0.0);
-    msg.tau.resize(joint_count_, 0.0);
-    msg.gravity.resize(joint_count_, 0.0);
+  // run the callback defined by current task
+  task_mtx.lock();
+  int cmd_id =
+    current_task ? current_task->command().id : static_cast<int>(ROSExtendedCommandID::NONE);
+  task_mtx.unlock();
+  try {
+    cb_list.at(cmd_id)->get_torque(torque_command);
+  } catch (const std::out_of_range & e) {
+    cb_list.at(static_cast<int>(ROSExtendedCommandID::NONE))->get_torque(torque_command);
   }
+  for (int i = 0; i < model->size(); ++i)
+    command_interfaces_[i].set_value(torque_command[i] * roboligent::MILLI2UNIT);
 
-  // Pre-populate tuned maps and msg.tasks using task registry (non-RT configure phase).
-  // Goals:
-  //   1. Maps get all valid task keys inserted now → runtime updates are guaranteed
-  //      lookups (no new key insertion, no heap alloc in RT loop).
-  //   2. msg.tasks inner vectors are pre-allocated to max_dim → PublishWbcState's
-  //      copy() lambda never allocates (dst capacity ≥ actual task dim always).
-  //   3. reapply_scratch_ is pre-sized to max task dim → ReapplyTunedTaskParams
-  //      avoids per-call VectorXd::Constant heap allocation.
-  {
-    auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
-    if (reg) {
-      int max_dim = 0;
-      for (const auto& [name, task] : reg->GetMotionTasks()) {
-        // NaN sentinel: "not yet set by user". ReapplyTunedTaskParams skips NaN entries.
-        tuned_task_kp_[name]     = std::nan("");
-        tuned_task_kd_[name]     = std::nan("");
-        tuned_task_weight_[name] = std::nan("");
-        max_dim = std::max(max_dim, task->Dim());
-      }
-      reapply_scratch_.resize(max_dim);
-
-      if (rt_wbc_pub_) {
-        // Pre-allocate msg.tasks inner vectors to max_dim (not per-task dim) because
-        // the logger fills tasks in WbcFormulation iteration order (operational_tasks
-        // then posture_tasks), which differs from unordered_map iteration order here.
-        // Using max_dim guarantees copy() in PublishWbcState never truncates regardless
-        // of which task lands at which slot. Subscribers must use td.dim for valid count.
-        auto& tasks_msg = rt_wbc_pub_->msg_.tasks;
-        tasks_msg.resize(reg->GetMotionTasks().size());
-        for (auto& td : tasks_msg) {
-          td.x_des.resize(max_dim, 0.0);
-          td.xdot_des.resize(max_dim, 0.0);
-          td.x_curr.resize(max_dim, 0.0);
-          td.x_err.resize(max_dim, 0.0);
-          td.op_cmd.resize(max_dim, 0.0);
-          td.kp.resize(max_dim, 0.0);
-          td.kd.resize(max_dim, 0.0);
-          td.weight.resize(max_dim, 0.0);
-        }
-      }
-    }
+  // If communication transitions from enabled to disabled, use stop_cb to stop all current
+  // callbacks.
+  static bool prev_communication_enabled = true;
+  if (prev_communication_enabled && !communication_enabled) {
+    stop_cb(
+      std::make_shared<std_srvs::srv::Trigger::Request>(),
+      std::make_shared<std_srvs::srv::Trigger::Response>());
   }
-
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-////////////////////////////////////////////////////////////////////////
-
-controller_interface::CallbackReturn
-OptimoController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
-{
-  const std::size_t expected_state_interfaces  = joint_count_ * kInterfacesPerJoint;
-  const std::size_t expected_command_interfaces = joint_count_ * kInterfacesPerJoint + 1; // +1 for model_safety_error
-  if (state_interfaces_.size() < expected_state_interfaces ||
-    command_interfaces_.size() < expected_command_interfaces)
-  {
-    RCLCPP_ERROR(
-      get_node()->get_logger(),
-      "[OptimoController] missing interfaces. expected state>=%zu command>=%zu (got state=%zu command=%zu)",
-      expected_state_interfaces, expected_command_interfaces,
-      state_interfaces_.size(), command_interfaces_.size());
-    return controller_interface::CallbackReturn::ERROR;
-  }
-
-  robot_joint_state_.Reset(static_cast<Eigen::Index>(joint_count_));
-
-  // Read initial joint positions and reset actuator state (zero spring deflection).
-  {
-    Eigen::VectorXd q0(joint_count_);
-    for (std::size_t i = 0; i < joint_count_; ++i) {
-      q0[static_cast<Eigen::Index>(i)] =
-        state_interfaces_[InterfaceIndex(kPositionBlock, i, joint_count_)].get_value();
-    }
-    actuator_->Reset(q0);
-  }
-
-  // Position: hold current hardware positions (not zero — that could swing joints).
-  // Velocity and effort: zero. model_safety_error: 0 (not in safe state on activate).
-  // Layout: [0, n) = position, [n, 2n) = velocity, [2n, 3n) = effort, [3n] = safety.
-  for (std::size_t i = 0; i < joint_count_; ++i) {
-    (void)command_interfaces_[i].set_value(state_interfaces_[i].get_value());
-  }
-  for (std::size_t i = joint_count_; i < command_interfaces_.size(); ++i) {
-    (void)command_interfaces_[i].set_value(0.0);
-  }
-  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(0.0);
-
-  // Sync active_state_id_ before the first update() tick.
-  // Without this, the first tick dispatches against the header-default (-1),
-  // which mismatches joint_teleop/cartesian_teleop IDs and causes a missed dispatch.
-  active_state_id_ = ctrl_arch_->GetCurrentStateId();
-  last_tuned_state_id_ = active_state_id_;
-
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-////////////////////////////////////////////////////////////////////////
-
-controller_interface::CallbackReturn
-OptimoController::on_deactivate(const rclcpp_lifecycle::State & /*previous_state*/)
-{
-  // Keep last position command (do not zero — position=0 rad can swing joints).
-  // Zero velocity, effort, and safety error signal.
-  for (std::size_t i = joint_count_; i < command_interfaces_.size(); ++i) {
-    (void)command_interfaces_[i].set_value(0.0);
-  }
-  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(0.0);
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-////////////////////////////////////////////////////////////////////////
-
-controller_interface::return_type OptimoController::update(
-  const rclcpp::Time & time, const rclcpp::Duration & period)
-{
-  if (!ctrl_arch_) return controller_interface::return_type::OK;
-
-  // Consume pending non-RT service updates on the control thread.
-  ApplyPendingRuntimeUpdates();
-
-  /**
-   * @brief Direct joint path (control-critical, RT primary).
-   *
-   * Hardware interface layout:
-   * - state_interfaces_[0 .. n-1]       : joint position
-   * - state_interfaces_[n .. 2n-1]      : joint velocity
-   * - state_interfaces_[2n .. 3n-1]     : measured effort
-   *
-   * Memory behavior:
-   * - `robot_joint_state_` is pre-allocated in on_activate().
-   * - Per tick this section only overwrites scalar entries (no resize/new).
-   */
-  // Route teleop commands to the active state.
-  // active_state_id_ is refreshed after each ctrl_arch_->Update() so FSM
-  // auto-transitions are observed before the next tick's dispatch.
-  // No dynamic_cast or atomic read in the hot path.
-  if (active_state_id_ == joint_teleop_state_->id()) {
-    const auto* qdot_des = qdot_des_buf_.readFromRT();
-    const auto* q_des = q_des_buf_.readFromRT();
-    joint_teleop_state_->UpdateCommand(
-      Eigen::Map<const Eigen::VectorXd>(qdot_des->qdot.data(), joint_count_),
-      qdot_des->ts_ns,
-      Eigen::Map<const Eigen::VectorXd>(q_des->q.data(), joint_count_),
-      q_des->ts_ns);
-  }
-
-  if (active_state_id_ == cartesian_teleop_state_->id()) {
-    const auto* xdot_des = xdot_des_buf_.readFromRT();
-    const auto* x_des = x_des_buf_.readFromRT();
-    cartesian_teleop_state_->UpdateCommand(
-      xdot_des->xdot, xdot_des->wdot, xdot_des->ts_ns,
-      x_des->x, x_des->w, x_des->ts_ns);
-  }
-
-  ctrl_arch_->Update(ReadJointState(), time.seconds(), control_dt_);
-  // Refresh after FSM ran so auto-transitions are captured for the next tick.
-  active_state_id_ = ctrl_arch_->GetCurrentStateId();
-
-  // Write command to hardware interfaces.
-  // Layout: [pos x n] [vel x n] [effort x n] [model_safety_error]
-  //
-  // Command ordering matches command_interface_configuration():
-  // - [0 .. n-1]       : desired joint position
-  // - [n .. 2n-1]      : desired joint velocity
-  // - [2n .. 3n-1]     : desired joint torque
-  // - [3n]             : model_safety_error (written below, after WriteJointCommand)
-
-  auto cmd = ctrl_arch_->GetCommand();
-  {
-    wbc::ActuatorCommand act_cmd;
-    act_cmd.q_des = cmd.q;
-    act_cmd.qdot_des = cmd.qdot;
-    act_cmd.tau_ff = cmd.tau;
-    act_cmd.q_link = robot_joint_state_.q;
-    act_cmd.qdot_link = robot_joint_state_.qdot;
-    act_cmd.dt = control_dt_;
-    cmd.tau = actuator_->ProcessTorque(act_cmd);
-  }
-  WriteJointCommand(cmd);
-
-  // Signal hardware to disable if the FSM entered the safe_command state.
-  const double model_safety_error =
-    (safe_command_state_id_.has_value() &&
-     active_state_id_ == *safe_command_state_id_) ? 1.0 : 0.0;
-  (void)command_interfaces_[ModelSafetyErrorCmdIndex()].set_value(model_safety_error);
-
-  PublishWbcState(time);
+  prev_communication_enabled = communication_enabled;
 
   return controller_interface::return_type::OK;
 }
 
-////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void OptimoController::PublishWbcState(const rclcpp::Time& time)
+CallbackReturn OptimoEffortController::on_configure(const rclcpp_lifecycle::State &)
 {
-  if (!ctrl_arch_->logger_.HasNewData()) return;
-
-  if (rt_wbc_pub_ && rt_wbc_pub_->trylock()) {
-    const auto& src = ctrl_arch_->logger_.GetStateData();
-    auto& msg = rt_wbc_pub_->msg_;
-
-    msg.header.stamp = time;
-    msg.state_id = src.state_id;
-
-    const auto n = joint_count_;
-    auto copy = [&](auto& dst, const auto& s, std::size_t count) {
-      const std::size_t safe_count =
-          std::min({count, dst.size(), s.size()});
-      for (std::size_t i = 0; i < safe_count; ++i) {
-        dst[i] = s[i];
-      }
-    };
-
-    copy(msg.q_des,     src.q_des,     n);
-    copy(msg.qdot_des,  src.qdot_des,  n);
-    copy(msg.q_curr,    src.q_curr,    n);
-    copy(msg.qdot_curr, src.qdot_curr, n);
-    copy(msg.q_cmd,     src.q_cmd,     n);
-    copy(msg.qdot_cmd,  src.qdot_cmd,  n);
-    copy(msg.qddot_cmd, src.qddot_cmd, n);
-    copy(msg.tau_ff,    src.tau_ff,    n);
-    copy(msg.tau_fb,    src.tau_fb,    n);
-    copy(msg.tau,       src.tau,       n);
-    copy(msg.gravity,   src.gravity,   n);
-
-    msg.joint_pos_err_norm = src.joint_pos_err_norm;
-    msg.joint_vel_err_norm = src.joint_vel_err_norm;
-    msg.joint_pos_err_max = src.joint_pos_err_max;
-    msg.joint_vel_err_max = src.joint_vel_err_max;
-    msg.tau_fb_norm = src.tau_fb_norm;
-
-    msg.qp_solved = src.qp_solved;
-    msg.qp_status = src.qp_status;
-    msg.qp_iter = src.qp_iter;
-    msg.qp_pri_res = src.qp_pri_res;
-    msg.qp_dua_res = src.qp_dua_res;
-    msg.qp_obj = src.qp_obj;
-    msg.qp_setup_time_us = src.qp_setup_time_us;
-    msg.qp_solve_time_us = src.qp_solve_time_us;
-
-    // msg.tasks inner vectors are pre-allocated to max_dim at configure time.
-    // name/dim/priority must be copied from src (not pre-populated) because the logger
-    // fills tasks in WbcFormulation order, which differs from unordered_map order used
-    // during configure. Task names are short (<16 chars) — SSO, no heap alloc on assign.
-    const std::size_t n_tasks = std::min(msg.tasks.size(), src.tasks.size());
-    for (std::size_t t = 0; t < n_tasks; ++t) {
-      const auto& ts = src.tasks[t];
-      auto& td = msg.tasks[t];
-      td.name       = ts.name;  // needed: configure order ≠ formulation order
-      td.dim        = ts.dim;
-      td.priority   = ts.priority;
-      td.x_err_norm = ts.x_err_norm;
-      // Vectors: element-wise copy only (no resize, no realloc if sizes match).
-      copy(td.x_des,    ts.x_des,    ts.x_des.size());
-      copy(td.xdot_des, ts.xdot_des, ts.xdot_des.size());
-      copy(td.x_curr,   ts.x_curr,   ts.x_curr.size());
-      copy(td.x_err,    ts.x_err,    ts.x_err.size());
-      copy(td.op_cmd,   ts.op_cmd,   ts.op_cmd.size());
-      copy(td.kp,       ts.kp,       ts.kp.size());
-      copy(td.kd,       ts.kd,       ts.kd.size());
-      copy(td.weight,   ts.weight,   ts.weight.size());
-    }
-
-    rt_wbc_pub_->unlockAndPublish();
-    ctrl_arch_->logger_.ClearNewData();
-  }
+  return CallbackReturn::SUCCESS;
 }
 
-void OptimoController::ApplyPendingRuntimeUpdates()
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+CallbackReturn OptimoEffortController::on_init()
 {
-  bool task_update_arrived = false;
+  // This is effectively a constructor...
 
-  if (const auto* upd = task_gain_update_buf_.readFromRT();
-      upd != nullptr && upd->ts_ns > last_task_gain_update_ts_) {
-    last_task_gain_update_ts_ = upd->ts_ns;
-    for (std::size_t i = 0; i < upd->task_names.size(); ++i) {
-      tuned_task_kp_[upd->task_names[i]] = upd->kp[i];
-      tuned_task_kd_[upd->task_names[i]] = upd->kd[i];
+  LOG_INFO("OptimoEffortController::on_init: Effort controller starting...");
+
+  // Create service for setting callbacks
+  cb_group = get_node()->create_callback_group(rclcpp::CallbackGroupType::Reentrant, false);
+  exec = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+  exec->add_callback_group(cb_group, get_node()->get_node_base_interface());
+  using namespace std::placeholders;
+  free_motion_srv = get_node()->create_service<optimo_msgs::srv::GenericCb>(
+    "~/free_motion_cb", std::bind(&OptimoEffortController::free_motion_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  move_home_srv = get_node()->create_service<optimo_msgs::srv::PosCb>(
+    "~/move_home_cb", std::bind(&OptimoEffortController::move_home_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  stop_srv = get_node()->create_service<std_srvs::srv::Trigger>(
+    "~/stop_cb", std::bind(&OptimoEffortController::stop_cb, this, _1, _2), rmw_qos_profile_default,
+    cb_group);
+  teach_traj_srv = get_node()->create_service<optimo_msgs::srv::StringCb>(
+    "~/teach_traj_cb", std::bind(&OptimoEffortController::teach_traj_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  play_traj_srv = get_node()->create_service<optimo_msgs::srv::PlayTrajCb>(
+    "~/play_traj_cb", std::bind(&OptimoEffortController::play_traj_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  moveit_srv = get_node()->create_service<optimo_msgs::srv::MoveitCb>(
+    "~/moveit_cb", std::bind(&OptimoEffortController::moveit_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  moveit_servo_srv = get_node()->create_service<optimo_msgs::srv::GenericCb>(
+    "~/moveit_servo_cb", std::bind(&OptimoEffortController::moveit_servo_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  servo_srv = get_node()->create_service<optimo_msgs::srv::ServoCb>(
+    "~/servo_cb", std::bind(&OptimoEffortController::servo_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  servo_fb_srv = get_node()->create_service<optimo_msgs::srv::StringCb>(
+    "~/servo_fb_cb", std::bind(&OptimoEffortController::servo_fb_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+  enable_load_calculation_srv = get_node()->create_service<std_srvs::srv::Trigger>(
+    "~/calculate_load",
+    std::bind(&OptimoEffortController::enable_load_calculation_cb, this, _1, _2),
+    rmw_qos_profile_default, cb_group);
+
+  exec_thread = std::thread([&]() { exec->spin(); });
+
+  std::shared_ptr<roboligent::RobotConfiguration> rconfig;
+
+  robot_prefix = get_node()->get_parameter("robot_prefix").as_string();
+  robot_index = get_node()->get_parameter("robot_index").as_int();
+
+  roboligent::Logger::Override(
+    roboligent::Logger::INFO, "./log/effort_controller_" + std::to_string(robot_index) + ".log");
+
+  if (get_node()->get_parameter("use_sim_hardware").as_bool()) {
+    if (robot_prefix == "left_arm_") {
+      rconfig = std::make_shared<roboligent::RobotConfiguration>(
+        ament_index_cpp::get_package_share_directory("optimo_sim") +
+          "/config/OR7_sim_config_mount_left.yml",
+        "right_arm");
+    } else if (robot_prefix == "right_arm_") {
+      rconfig = std::make_shared<roboligent::RobotConfiguration>(
+        ament_index_cpp::get_package_share_directory("optimo_sim") +
+          "/config/OR7_sim_config_mount_right.yml",
+        "right_arm");
+    } else {
+      rconfig = std::make_shared<roboligent::RobotConfiguration>(
+        ament_index_cpp::get_package_share_directory("optimo_sim") + "/config/OR7_sim_config.yml",
+        "right_arm");
     }
-    task_update_arrived = true;
-  }
-
-  if (const auto* upd = task_weight_update_buf_.readFromRT();
-      upd != nullptr && upd->ts_ns > last_task_weight_update_ts_) {
-    last_task_weight_update_ts_ = upd->ts_ns;
-    for (std::size_t i = 0; i < upd->task_names.size(); ++i) {
-      tuned_task_weight_[upd->task_names[i]] = upd->weight[i];
+  } else {
+    if (robot_index == 0 || robot_index == 1)
+      rconfig = std::make_shared<roboligent::RobotConfiguration>(
+        optimo::RSRC_PATH() + "/master" + std::to_string(robot_index) + "/OR7_config.yml",
+        "right_arm");  // Fix the robot name always being right arm.
+    else {
+      LOG_ERROR("OptimoEffortController::on_init: EtherCAT master index invalid!");
+      return CallbackReturn::ERROR;
     }
-    task_update_arrived = true;
   }
 
-  if (const auto* upd = residual_update_buf_.readFromRT();
-      upd != nullptr && upd->ts_ns > last_residual_update_ts_) {
-    last_residual_update_ts_ = upd->ts_ns;
+  model = std::make_shared<roboligent::Model>(rconfig);
+  pos = std::vector<double>(model->size(), 0);
+  vel = std::vector<double>(model->size(), 0);
+  eff = std::vector<int>(model->size(), 0);
+  first_run = true;
+  moveit_iface = std::make_shared<MoveItInterface>(*model, get_node()->get_namespace());
+  torque_command = std::vector<int>(model->size(), 0);
 
-    auto to_eigen = [](const std::vector<double>& src, double def) -> Eigen::VectorXd {
-      if (src.empty()) {
-        return Eigen::VectorXd::Constant(1, def);
-      }
-      Eigen::VectorXd v(static_cast<Eigen::Index>(src.size()));
-      for (std::size_t i = 0; i < src.size(); ++i) {
-        v[static_cast<Eigen::Index>(i)] = src[i];
-      }
-      return v;
-    };
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::NONE), std::make_unique<optimo::IdleCallback>(*model));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::FREE_MOTION),
+    std::make_unique<optimo::FreeMotionCallback>(*model));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::PLAY_TRAJ),
+    std::make_unique<optimo::PlayTrajCallback>(*model, current_task));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::TEACH),
+    std::make_unique<optimo::TeachCallback>(*model, current_task));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::MOVE_HOME),
+    std::make_unique<optimo::MoveHomeCallback>(*model, current_task));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::MOVEIT),
+    std::make_unique<MoveItCallback>(*model, current_task, *moveit_iface));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::MOVEIT_SERVO),
+    std::make_unique<MoveItServoCallback>(*model, current_task, *moveit_iface));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::SERVO),
+    std::make_unique<ServoCallback>(*model, current_task, get_node()));
+  cb_list.emplace(
+    static_cast<int>(ROSExtendedCommandID::SERVO_FB),
+    std::make_unique<ServoFbCallback>(*model, current_task, get_node()));
+  LOG_INFO("OptimoEffortController::on_init: Effort controller initialized.");
 
-    wbc::FrictionCompensatorConfig fric;
-    fric.enabled = upd->friction_enabled;
-    fric.gamma_c = to_eigen(upd->gamma_c, 0.0);
-    fric.gamma_v = to_eigen(upd->gamma_v, 0.0);
-    fric.max_f_c = to_eigen(upd->max_f_c, 10.0);
-    fric.max_f_v = to_eigen(upd->max_f_v, 5.0);
+  tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*get_node());
 
-    wbc::MomentumObserverConfig obs;
-    obs.enabled = upd->observer_enabled;
-    obs.K_o = to_eigen(upd->k_o, 50.0);
-    obs.max_tau_uncertainty = to_eigen(upd->max_tau_dist, 50.0);
-
-    // SetResidualDynamicsConfig is called from the RT thread.
-    // Service callback already validates sizes, so failure here is a programming error.
-    // std::string err omitted — string construction is not RT-safe. Pass nullptr.
-    (void)ctrl_arch_->SetResidualDynamicsConfig(fric, obs, nullptr);
-  }
-
-  // Reapply tuned task params when a new request arrives, or when state changed.
-  if (task_update_arrived || active_state_id_ != last_tuned_state_id_) {
-    ReapplyTunedTaskParams();
-    last_tuned_state_id_ = active_state_id_;
-  }
+  return CallbackReturn::SUCCESS;
 }
 
-void OptimoController::ReapplyTunedTaskParams()
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::update_task()
 {
-  auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
-  if (reg == nullptr) {
+  task_mtx.lock();
+  if (current_task) {
+    if (current_task->is_completed()) {
+      // RCLCPP_INFO(get_node()->get_logger(), "Task completed, ID: %d",
+      // current_task->command().id);
+      complete_task();
+    } else {
+      // RCLCPP_INFO(get_node()->get_logger(), "Task still in progress, ID: %d",
+      // current_task->command().id);
+      task_mtx.unlock();
+      return;
+    }
+  } else {
+    // RCLCPP_INFO(get_node()->get_logger(), "No current task");
+  }
+  task_mtx.unlock();
+
+  if (task_queue.empty()) {
+    // RCLCPP_INFO(get_node()->get_logger(), "Task queue is empty");
     return;
   }
 
-  // NaN sentinel: key pre-inserted at configure time but not yet set by user — skip.
-  // reapply_scratch_ is pre-sized to max task dim; resize() is a no-op if dim unchanged.
-  for (const auto& [name, kp] : tuned_task_kp_) {
-    if (std::isnan(kp)) continue;
-    auto* task = reg->GetMotionTask(name);
-    if (task == nullptr) continue;
-    reapply_scratch_.resize(task->Dim());
-    reapply_scratch_.setConstant(kp);
-    task->SetKp(reapply_scratch_);
+  task_mtx.lock();
+  current_task = task_queue.front();
+  RCLCPP_INFO(get_node()->get_logger(), "New task from queue, ID: %d", current_task->command().id);
+
+  // start the task
+  switch (current_task->command().id) {
+    case static_cast<int>(ROSExtendedCommandID::PLAY_TRAJ):
+    case static_cast<int>(ROSExtendedCommandID::TEACH):
+    case static_cast<int>(ROSExtendedCommandID::MOVE_HOME):
+    case static_cast<int>(ROSExtendedCommandID::FREE_MOTION):
+    case static_cast<int>(ROSExtendedCommandID::MOVEIT):
+    case static_cast<int>(ROSExtendedCommandID::MOVEIT_SERVO):
+    case static_cast<int>(ROSExtendedCommandID::SERVO):
+    case static_cast<int>(ROSExtendedCommandID::SERVO_FB):
+
+      current_task->start_task();
+      // RCLCPP_INFO(
+      //   get_node()->get_logger(),
+      //   "OptimoEffortController::update_task: Starting CommandID %d",
+      //   current_task->command().id);
+      break;
+    default:
+      RCLCPP_ERROR(
+        get_node()->get_logger(), "OptimoEffortController::update_task: Unknown CommandID %d",
+        current_task->command().id);
+      current_task->set_status(roboligent::CommandStatus::FAILURE);
+      complete_task();
+      break;
   }
-  for (const auto& [name, kd] : tuned_task_kd_) {
-    if (std::isnan(kd)) continue;
-    auto* task = reg->GetMotionTask(name);
-    if (task == nullptr) continue;
-    reapply_scratch_.resize(task->Dim());
-    reapply_scratch_.setConstant(kd);
-    task->SetKd(reapply_scratch_);
-  }
-  for (const auto& [name, w] : tuned_task_weight_) {
-    if (std::isnan(w)) continue;
-    auto* task = reg->GetMotionTask(name);
-    if (task == nullptr) continue;
-    reapply_scratch_.resize(task->Dim());
-    reapply_scratch_.setConstant(w);
-    task->SetWeight(reapply_scratch_);
-  }
+  task_mtx.unlock();
 }
 
-////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-const wbc::RobotJointState & OptimoController::ReadJointState()
+void OptimoEffortController::complete_task()
 {
-  for (std::size_t i = 0; i < joint_count_; ++i)
-  {
-    robot_joint_state_.q[i] =
-      state_interfaces_[InterfaceIndex(kPositionBlock, i, joint_count_)].get_value();
-    robot_joint_state_.qdot[i] =
-      state_interfaces_[InterfaceIndex(kVelocityBlock, i, joint_count_)].get_value();
-    robot_joint_state_.tau[i] =
-      state_interfaces_[InterfaceIndex(kEffortBlock, i, joint_count_)].get_value();
-  }
-  return robot_joint_state_;
+  if (current_task->get_status() == roboligent::CommandStatus::FAILURE)
+    LOG_INFO("OptimoEffortController::complete_task: Task failed, moving to idle callback.");
+  else
+    LOG_INFO("OptimoEffortController::complete_task: Task succeeded, moving to idle callback.");
+
+  if (!task_queue.empty()) task_queue.pop();
+  current_task = nullptr;
+
+  // Ensure fallback doesn't jump and all safeties are at default values
+  // This should probably become a helper in model
+  model->reset_fallback();
+  model->enable_fallback_defaults(true);
+  model->enable_fallback_dragging(true);
+  model->enable_elbow_fallback_dragging(true);
+
+  model->enable_j1j7_sg_compensation(false);
+  model->enable_j2_sg_compensation(false);
+  model->enable_j4_sg_compensation(false);
+  model->enable_j6_sg_compensation(false);
+  model->set_angle_j6_sg_compensation(0);
 }
 
-////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void OptimoController::WriteJointCommand(const wbc::RobotCommand & cmd)
+void OptimoEffortController::free_motion_cb(
+  const std::shared_ptr<optimo_msgs::srv::GenericCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::GenericCb::Response> response)
 {
-  for (std::size_t i = 0; i < joint_count_; ++i)
-  {
-    (void)command_interfaces_[InterfaceIndex(kPositionBlock, i, joint_count_)].set_value(cmd.q[i]);
-    (void)command_interfaces_[InterfaceIndex(kVelocityBlock, i, joint_count_)].set_value(cmd.qdot[i]);
-    (void)command_interfaces_[InterfaceIndex(kEffortBlock, i, joint_count_)].set_value(cmd.tau[i]);
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::FREE_MOTION);
+  LOG_INFO(
+    "OptimoEffortController::free_motion_cb: Queued free motion (gravity compensation only).");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::move_home_cb(
+  const std::shared_ptr<optimo_msgs::srv::PosCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::PosCb::Response> response)
+{
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::MOVE_HOME);
+  cmd.command_data = std::vector<double>(request->pos);  // fix syntax
+
+  LOG_INFO("OptimoEffortController::move_home_cb: Queued move home");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::stop_cb(
+  const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+  const std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+{
+  task_mtx.lock();
+  if (current_task) {
+    // TOOO: Make it possible to only stop the current task, and still allow the rest of the
+    // callbacks to be performed.
+    optimo::TaskQueue empty;
+    std::swap(task_queue, empty);
+
+    // fail the current task, if it exists.
+    current_task->set_status(roboligent::CommandStatus::FAILURE);
+    LOG_INFO("OptimoEffortController::stop_cb: Callbacks stopped.");
+    response->success = true;
+  } else {
+    LOG_INFO("OptimoEffortController::stop_cb: No callback to stop.");
+    response->success = true;
+    response->message = "No callback to stop.";
+  }
+  int ethercat_index = get_node()->get_parameter("robot_index").as_int();
+  LOG_INFO("Stopped EtherCAT master index: " + std::to_string(ethercat_index));
+  task_mtx.unlock();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::teach_traj_cb(
+  const std::shared_ptr<optimo_msgs::srv::StringCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::StringCb::Response> response)
+{
+  // If the current command is to teach, instead end the teach callback.
+  task_mtx.lock();
+  // TODO figure out how to do teach_traj_cb with queue_task
+  //   If the current command is to teach, instead end the teach callback.
+  if (current_task && current_task->command().id == static_cast<int>(ROSExtendedCommandID::TEACH)) {
+    current_task->command().data[0] = 1;
+    response->success = true;
+    task_mtx.unlock();
+    return;
+  }
+  task_mtx.unlock();
+
+  // check if request has a string
+  if (request->string == "") {
+    LOG_ERROR("OptimoEffortController::teach_traj_cb: No filepath given for teach command.");
+    response->success = false;
+    return;
+  }
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::TEACH);
+  std::copy_n(
+    request->string.begin(), std::min(request->string.size(), cmd.text.size() - 1),
+    cmd.text.begin());
+  task_queue.push(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+  LOG_INFO("OptimoEffortController:teach_traj_cb: Queued trajectory teaching.");
+  response->success = true;
+  return;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::play_traj_cb(
+  const std::shared_ptr<optimo_msgs::srv::PlayTrajCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::PlayTrajCb::Response> response)
+{
+  if (request->goal.filepath == "") {
+    // todo enable parsing of non filepath trajectories
+    LOG_ERROR(
+      "OptimoEffortController::play_traj_cb: No filepath given for play trajectory "
+      "command.");
+    response->success = false;
+    return;
+  }
+
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::PLAY_TRAJ);
+  // transfer TrajectoryGoal
+  roboligent::TrajectoryGoal goal;
+  if (!goal.traj_reader.reset(request->goal.filepath)) {
+    response->success = false;
+    return;
+  }
+  if (request->goal.param.imp.impedance != 0)
+    goal.param.impedance = request->goal.param.imp.impedance;
+  if (request->goal.param.imp.max_force != 0)
+    goal.param.max_force = request->goal.param.imp.max_force;
+  if (request->goal.param.imp.stop_sensitivity != 0)
+    goal.param.stop_sensitivity = request->goal.param.imp.stop_sensitivity;
+  if (request->goal.param.recovery_speed != 0)
+    goal.param.recovery_speed = request->goal.param.recovery_speed;
+  goal.param.accept_diff_start = request->goal.param.accept_diff_start;
+  goal.param.servo = false;  // should not be a parameter
+  cmd.command_data = goal;
+
+  LOG_INFO("OptimoEffortController:play_traj_cb: Queued trajectory playing.");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::moveit_cb(
+  const std::shared_ptr<optimo_msgs::srv::MoveitCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::MoveitCb::Response> response)
+{
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::MOVEIT);
+  // transfer TrajectoryGoal
+  roboligent::TrajectoryGoal goal;
+  cmd.data[0] = request->param.impedance;
+  cmd.data[1] = request->param.max_force;
+  cmd.data[2] = request->param.stop_sensitivity;
+  cmd.command_data = roboligent::Pose(
+    std::vector<double>(
+      {request->target.position.x, request->target.position.y, request->target.position.z,
+       request->target.orientation.x, request->target.orientation.y, request->target.orientation.z,
+       request->target.orientation.w}));
+  // currently do not accept orientation
+
+  LOG_INFO("OptimoEffortController:moveit_cb: Queued playing a trajectory with MoveIt");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::moveit_servo_cb(
+  const std::shared_ptr<optimo_msgs::srv::GenericCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::GenericCb::Response> response)
+{
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::MOVEIT_SERVO);
+  LOG_INFO("OptimoEffortController::moveit_servo_cb: Queued servoing with MoveIt.");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::servo_cb(
+  const std::shared_ptr<optimo_msgs::srv::ServoCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::ServoCb::Response> response)
+{
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::SERVO);
+  std::copy_n(
+    request->topic_name.begin(), std::min(request->topic_name.size(), cmd.text.size() - 1),
+    cmd.text.begin());
+  cmd.data[0] = request->cartesian;
+  LOG_INFO(
+    "OptimoEffortController::servo_cb: Queued servoing with " +
+    std::string(request->cartesian ? "cartesian" : "joint state") +
+    " topic: " + request->topic_name);
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::servo_fb_cb(
+  const std::shared_ptr<optimo_msgs::srv::StringCb::Request> request,
+  const std::shared_ptr<optimo_msgs::srv::StringCb::Response> response)
+{
+  roboligent::RobotCommand cmd;
+  cmd.id = static_cast<int>(ROSExtendedCommandID::SERVO_FB);
+  std::copy_n(
+    request->string.begin(), std::min(request->string.size(), cmd.text.size() - 1),
+    cmd.text.begin());
+  LOG_INFO("OptimoEffortController::servo_cb: Queued servo feedback with a joint_states topic.");
+  response->success = queue_task(MAKE_SHARED_TASK(
+    optimo::Task(cmd, request->duration > 0 ? request->duration : roboligent::Timer::NO_TIMEOUT)));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void OptimoEffortController::enable_load_calculation_cb(
+  const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+  const std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+{
+  auto future = model->calculate_load();
+  future.wait();
+  response->success = future.get();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool OptimoEffortController::queue_task(const std::shared_ptr<optimo::Task> task)
+{
+  task_mtx.lock();
+  task_queue.push(task);
+  task_mtx.unlock();
+  while (true) {
+    if (task->get_status() != roboligent::CommandStatus::QUEUED && task->is_timeout())
+      task->set_status(roboligent::CommandStatus::FAILURE);
+    // no logging because redundancy
+    if (task->get_status() == roboligent::CommandStatus::SUCCESS)
+      return true;
+    else if (task->get_status() == roboligent::CommandStatus::FAILURE)
+      return false;
+    usleep(10000);  // 10 ms
   }
 }
 
-}  // namespace optimo_controller
+}  // namespace optimo_ros
+#include <pluginlib/class_list_macros.hpp>
 
 PLUGINLIB_EXPORT_CLASS(
-  optimo_controller::OptimoController, controller_interface::ControllerInterface)
+  optimo_ros::OptimoEffortController, controller_interface::ControllerInterface)

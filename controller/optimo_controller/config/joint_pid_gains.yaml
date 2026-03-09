@@ -10,40 +10,40 @@
 
 # 모든 조인트에 적용되는 기본값
 default:
-  kp_pos: 10.0
+  kp_pos: 200.0
   ki_pos:  0.0
-  kd_pos:  1.0
+  kd_pos:  40.0
   kp_vel:  0.0
   ki_vel:  0.0
   kd_vel:  0.0
 
 # 조인트별 개별 override (없으면 default 사용)
 # 조인트 이름은 로봇 모델 이름과 정확히 일치해야 함
-joints:
-  optimo_joint1:
-    kp_pos: 10.0
-    kd_pos:  1.0
+# joints:
+#   optimo_joint1:
+#     kp_pos: 10.0
+#     kd_pos:  1.0
 
-  optimo_joint2:
-    kp_pos: 10.0
-    kd_pos:  1.0
+#   optimo_joint2:
+#     kp_pos: 10.0
+#     kd_pos:  1.0
 
-  optimo_joint3:
-    kp_pos: 10.0
-    kd_pos:  1.0
+#   optimo_joint3:
+#     kp_pos: 10.0
+#     kd_pos:  1.0
 
-  optimo_joint4:
-    kp_pos: 10.0
-    kd_pos:  1.0
+#   optimo_joint4:
+#     kp_pos: 10.0
+#     kd_pos:  1.0
 
-  optimo_joint5:
-    kp_pos:  5.0
-    kd_pos:  0.5
+#   optimo_joint5:
+#     kp_pos:  5.0
+#     kd_pos:  0.5
 
-  optimo_joint6:
-    kp_pos:  5.0
-    kd_pos:  0.5
+#   optimo_joint6:
+#     kp_pos:  5.0
+#     kd_pos:  0.5
 
-  optimo_joint7:
-    kp_pos:  5.0
-    kd_pos:  0.5
+#   optimo_joint7:
+#     kp_pos:  5.0
+#     kd_pos:  0.5

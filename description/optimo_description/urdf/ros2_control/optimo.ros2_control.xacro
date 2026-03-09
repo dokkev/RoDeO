@@ -14,6 +14,17 @@
                     mujoco_model="${mujoco_model}"
                     headless="${headless}" />
             </xacro:if>
+            <xacro:if value="${use_mock_system}">
+                <hardware>
+                    <plugin>mock_components/GenericSystem</plugin>
+                </hardware>
+            </xacro:if>
+            <xacro:if value="${use_hardware}">
+                <hardware>
+                    <plugin>optimo_hardware/OptimoHardwareInterface</plugin>
+                    <param name="robot_index">${robot_index}</param>
+                </hardware>
+            </xacro:if>
 
             <joint name="optimo_joint1">
                 <command_interface name="position" />
@@ -92,6 +103,7 @@
                 <state_interface name="velocity" />
                 <state_interface name="effort" />
             </joint>
+
         </ros2_control>
     </xacro:macro>
 </robot>

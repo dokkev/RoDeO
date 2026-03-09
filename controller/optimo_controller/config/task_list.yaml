@@ -25,8 +25,8 @@ task_pool:
     role: "operational_task"
     target_frame: "optimo_end_effector"
     reference_frame: "optimo_base_link"
-    kp: 6400.0
-    kd: 180.0
+    kp: 1000.0
+    kd: 80.0
     kp_ik: 1.0
     weight: 100.0
 
@@ -36,7 +36,7 @@ task_pool:
     role: "operational_task"
     target_frame: "optimo_end_effector"
     reference_frame: "optimo_base_link"
-    kp: 6400.0
-    kd: 180.0
+    kp: 1000.0
+    kd: 80.0
     kp_ik: 1.0
     weight: 100.0

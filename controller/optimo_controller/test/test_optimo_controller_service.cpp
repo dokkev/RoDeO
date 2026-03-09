@@ -208,9 +208,9 @@ protected:
       rclcpp::Parameter("control_frequency", 1000.0),
     });
 
-    // Deprecated init() — creates the lifecycle node and calls on_init().
+    // init() — creates the lifecycle node and calls on_init().
     const auto init_ret =
-        controller_->init("optimo_controller", "", 1000, "/test", node_options);
+        controller_->init("optimo_controller", "/test", node_options);
     ASSERT_EQ(init_ret, controller_interface::return_type::OK)
         << "Controller init() failed";
 

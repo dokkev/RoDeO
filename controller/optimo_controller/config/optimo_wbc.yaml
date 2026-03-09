@@ -44,11 +44,11 @@ controller:
   enable_gravity_compensation:  true    # most robot controllers come with built-in gravity compensation, so this is often set to false to avoid double compensation
                                         # If you are using a torque-controlled custom robot, you will most likely want this enabled.
 
-  enable_coriolis_compensation: true    # Coriolis compensation improves orientation tracking (~4x reduction in ori error).
+  enable_coriolis_compensation: false    # Coriolis compensation improves orientation tracking (~4x reduction in ori error).
                                         # If you have an accurate model from SysID, enable this. Otherwise,
                                         # it is often better to leave it off to avoid injecting noise from model errors.
 
-  enable_inertia_compensation:  true    # Essential for torque-controlled robots (e.g. MuJoCo sim with motor actuators).
+  enable_inertia_compensation:  false    # Essential for torque-controlled robots (e.g. MuJoCo sim with motor actuators).
                                         # Without this, tau = gravity_comp only — IK feedback goes to cmd.q/qdot
                                         # which requires impedance-controlled motor firmware.
                                         # For slow, quasi-static tasks with impedance control, this can be left off.
@@ -74,7 +74,7 @@ controller:
   kd_acc: 22.0   # joint accel-reference velocity gain: critically damped at kp=120
 
   joint_pid:
-    enabled: false
+    enabled: true
     gains_yaml: "joint_pid_gains.yaml"
 
   # Residual dynamics compensators (friction, disturbance observer).
@@ -117,7 +117,7 @@ global_constraints:
   JointTrqLimitConstraint:
     enabled: true   # enable if running torque-only control (no motor PD)
     scale: 1.0      # fraction of URDF torque limits
-    is_soft: false    # soft → full coupled dynamics (Sa*M) in C matrix
+    is_soft: true   # soft → penalty-based
     soft_weight: 1.0e+5
 
 

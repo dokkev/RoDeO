@@ -71,14 +71,11 @@ TEST(OptimoControllerTest, UpdateReturnsOkWithoutModifyingCommands) {
   double tau1 = 0.3;
   double tau2 = -0.4;
 
-  std::vector<hardware_interface::StateInterface::ConstSharedPtr> owned_state_ifaces;
-  std::vector<hardware_interface::LoanedStateInterface> loaned_state_ifaces;
+  std::vector<hardware_interface::StateInterface> owned_state_ifaces;
+  owned_state_ifaces.reserve(6);
   auto add_state_iface = [&](const std::string& joint,
                              const std::string& iface_name, double* value_ptr) {
-    owned_state_ifaces.emplace_back(
-        std::make_shared<hardware_interface::StateInterface>(
-            joint, iface_name, value_ptr));
-    loaned_state_ifaces.emplace_back(owned_state_ifaces.back());
+    owned_state_ifaces.emplace_back(joint, iface_name, value_ptr);
   };
   add_state_iface("joint1", hardware_interface::HW_IF_POSITION, &q1);
   add_state_iface("joint2", hardware_interface::HW_IF_POSITION, &q2);
@@ -86,6 +83,10 @@ TEST(OptimoControllerTest, UpdateReturnsOkWithoutModifyingCommands) {
   add_state_iface("joint2", hardware_interface::HW_IF_VELOCITY, &qdot2);
   add_state_iface("joint1", hardware_interface::HW_IF_EFFORT, &tau1);
   add_state_iface("joint2", hardware_interface::HW_IF_EFFORT, &tau2);
+  std::vector<hardware_interface::LoanedStateInterface> loaned_state_ifaces;
+  for (auto& si : owned_state_ifaces) {
+    loaned_state_ifaces.emplace_back(si);
+  }
   controller.SetStateInterfaces(std::move(loaned_state_ifaces));
 
   double cmd_q1 = 0.0;
@@ -95,14 +96,11 @@ TEST(OptimoControllerTest, UpdateReturnsOkWithoutModifyingCommands) {
   double cmd_tau1 = 5.0;
   double cmd_tau2 = 5.0;
 
-  std::vector<hardware_interface::CommandInterface::SharedPtr> owned_cmd_ifaces;
-  std::vector<hardware_interface::LoanedCommandInterface> loaned_cmd_ifaces;
+  std::vector<hardware_interface::CommandInterface> owned_cmd_ifaces;
+  owned_cmd_ifaces.reserve(6);
   auto add_cmd_iface = [&](const std::string& joint,
                            const std::string& iface_name, double* value_ptr) {
-    owned_cmd_ifaces.emplace_back(
-        std::make_shared<hardware_interface::CommandInterface>(
-            joint, iface_name, value_ptr));
-    loaned_cmd_ifaces.emplace_back(owned_cmd_ifaces.back(), nullptr);
+    owned_cmd_ifaces.emplace_back(joint, iface_name, value_ptr);
   };
   add_cmd_iface("joint1", hardware_interface::HW_IF_POSITION, &cmd_q1);
   add_cmd_iface("joint2", hardware_interface::HW_IF_POSITION, &cmd_q2);
@@ -110,6 +108,10 @@ TEST(OptimoControllerTest, UpdateReturnsOkWithoutModifyingCommands) {
   add_cmd_iface("joint2", hardware_interface::HW_IF_VELOCITY, &cmd_qdot2);
   add_cmd_iface("joint1", hardware_interface::HW_IF_EFFORT, &cmd_tau1);
   add_cmd_iface("joint2", hardware_interface::HW_IF_EFFORT, &cmd_tau2);
+  std::vector<hardware_interface::LoanedCommandInterface> loaned_cmd_ifaces;
+  for (auto& ci : owned_cmd_ifaces) {
+    loaned_cmd_ifaces.emplace_back(ci);
+  }
   controller.SetCommandInterfaces(std::move(loaned_cmd_ifaces));
 
   const auto ret =

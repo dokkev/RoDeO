@@ -12,13 +12,6 @@
 
 /optimo/wbc_controller:
   ros__parameters:
-    wbc_yaml_path: package://optimo_controller/config/optimo_wbc.yaml
-    is_simulation: false
-    joints:
-      - optimo_joint1
-      - optimo_joint2
-      - optimo_joint3
-      - optimo_joint4
-      - optimo_joint5
-      - optimo_joint6
-      - optimo_joint7
+    robot_prefix: "optimo_"
+    robot_index: 0
+    use_sim_hardware: false
