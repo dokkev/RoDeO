@@ -1,0 +1,197 @@
+<mujoco model="plato">
+  <compiler angle="radian" meshdir="meshes/"/>
+
+  <asset>
+    <!-- Arm visual meshes -->
+    <mesh name="link0" content_type="model/stl" file="link0.stl"/>
+    <mesh name="link1" content_type="model/stl" file="link1.stl"/>
+    <mesh name="link2" content_type="model/stl" file="link2.stl"/>
+    <mesh name="link3" content_type="model/stl" file="link3.stl"/>
+    <mesh name="link4" content_type="model/stl" file="link4.stl"/>
+    <mesh name="link5" content_type="model/stl" file="link5.stl"/>
+    <mesh name="link6" content_type="model/stl" file="link6.stl"/>
+    <mesh name="link7" content_type="model/stl" file="link7.stl"/>
+    <!-- Arm collision meshes -->
+    <mesh name="col0" content_type="model/stl" file="col0.stl"/>
+    <mesh name="col1" content_type="model/stl" file="col1.stl"/>
+    <mesh name="col2" content_type="model/stl" file="col2.stl"/>
+    <mesh name="col3" content_type="model/stl" file="col3.stl"/>
+    <mesh name="col4" content_type="model/stl" file="col4.stl"/>
+    <mesh name="col5" content_type="model/stl" file="col5.stl"/>
+    <mesh name="col6" content_type="model/stl" file="col6.stl"/>
+    <mesh name="col7" content_type="model/stl" file="col7.stl"/>
+    <!-- Hand visual meshes -->
+    <mesh name="hand_base" content_type="model/stl" file="hand_base.stl"/>
+    <mesh name="thumb_metacarpal" content_type="model/stl" file="thumb_metacarpal.stl"/>
+    <mesh name="thumb_actuators" content_type="model/stl" file="thumb_actuators.stl"/>
+    <mesh name="thumb_proximal" content_type="model/stl" file="thumb_proximal.stl"/>
+    <mesh name="thumb_distal" content_type="model/stl" file="thumb_distal.stl"/>
+    <mesh name="index_proximal" content_type="model/stl" file="index_proximal.stl"/>
+    <mesh name="index_distal" content_type="model/stl" file="index_distal.stl"/>
+    <mesh name="middle_proximal" content_type="model/stl" file="middle_proximal.stl"/>
+    <mesh name="middle_distal" content_type="model/stl" file="middle_distal.stl"/>
+    <!-- Hand collision meshes -->
+    <mesh name="col_hand_base" content_type="model/stl" file="col_hand_base.stl"/>
+    <mesh name="col_thumb_metacarpal" content_type="model/stl" file="col_thumb_metacarpal.stl"/>
+    <mesh name="col_thumb_actuators" content_type="model/stl" file="col_thumb_actuators.stl"/>
+    <mesh name="col_thumb_proximal" content_type="model/stl" file="col_thumb_proximal.stl"/>
+    <mesh name="col_thumb_distal" content_type="model/stl" file="col_thumb_distal.stl"/>
+    <mesh name="col_index_proximal" content_type="model/stl" file="col_index_proximal.stl"/>
+    <mesh name="col_index_distal" content_type="model/stl" file="col_index_distal.stl"/>
+    <mesh name="col_middle_proximal" content_type="model/stl" file="col_middle_proximal.stl"/>
+    <mesh name="col_middle_distal" content_type="model/stl" file="col_middle_distal.stl"/>
+  </asset>
+
+  <worldbody>
+    <geom name="stand" size="0.25 0.25 0.5" pos="0 0 -0.5" type="box" rgba="1 1 1 1" contype="1" conaffinity="1"/>
+    <geom pos="0 0 0.27" quat="1 0 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col0" group="0" contype="0" conaffinity="0"/>
+    <geom pos="0 0 0.27" quat="1 0 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="link0" group="1" contype="0" conaffinity="0"/>
+    <body name="link1" pos="0 0 0.27">
+      <inertial pos="0 -0.01549 -0.01635" mass="4.152" diaginertia="0.01 0.01 0.006"/>
+      <joint name="joint1" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-79 79" damping="0.5" frictionloss="0.2"/>
+      <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col1" group="0" contype="0" conaffinity="0"/>
+      <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="link1" group="1" contype="0" conaffinity="0"/>
+      <body name="link2" quat="0.707107 0.707107 0 0">
+        <inertial pos="0 -0.05677 -0.05063" quat="0.5 0.5 -0.5 0.5" mass="1.72" diaginertia="0.005 0.004 0.003"/>
+        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="1.0472 3.83972" actuatorfrcrange="-95 95" damping="0.5" frictionloss="0.2"/>
+        <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col2" group="0" contype="0" conaffinity="0"/>
+        <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="link2" group="1" contype="0" conaffinity="0"/>
+        <body name="link3" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+          <inertial pos="0 0 -0.098" mass="4.31" diaginertia="0.013 0.013 0.003"/>
+          <joint name="joint3" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-32 32" damping="0.5" frictionloss="0.2"/>
+          <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col3" group="0" contype="0" conaffinity="0"/>
+          <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="link3" group="1" contype="0" conaffinity="0"/>
+          <body name="link4" quat="0.707107 -0.707107 0 0">
+            <inertial pos="-1e-05 -0.0688 0.048852" quat="0.707107 0.707107 0 0" mass="1.09" diaginertia="0.004 0.004 0.0008"/>
+            <joint name="joint4" pos="0 0 0" axis="0 0 1" range="-2.53073 2.53073" actuatorfrcrange="-40 40" damping="0.5" frictionloss="0.2"/>
+            <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col4" group="0" contype="0" conaffinity="0"/>
+            <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="link4" group="1" contype="0" conaffinity="0"/>
+            <body name="link5" pos="0 -0.4 0" quat="0.707107 0.707107 0 0">
+              <inertial pos="0 0.008 -0.085" mass="2.23" diaginertia="0.005 0.005 0.002"/>
+              <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-2.61799 2.61799" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+              <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="col5" group="0" contype="0" conaffinity="0"/>
+              <geom pos="0 0 0" quat="0.707107 -0.707107 0 0" type="mesh" rgba="1 1 1 1" mesh="link5" group="1" contype="0" conaffinity="0"/>
+              <body name="link6" quat="0.707107 -0.707107 0 0">
+                <inertial pos="0 -0.010855 0" mass="1.138" diaginertia="0.0006 0.0006 0.0005"/>
+                <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+                <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="col6" group="0" contype="0" conaffinity="0"/>
+                <geom quat="0.707107 0.707107 0 0" type="mesh" rgba="0.5 0.5 1 1" mesh="link6" group="1" contype="0" conaffinity="0"/>
+                <body name="link7" quat="0.707107 0.707107 0 0">
+                  <inertial pos="-5.5351e-05 -0.103219 0.0775598" quat="0.632141 0.774853 -0.000228533 -0.000159595" mass="1.61903" diaginertia="0.0234142 0.0229348 0.00138288"/>
+                  <joint name="joint7" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-15 15" damping="0.5" frictionloss="0.2"/>
+                  <geom type="mesh" rgba="1 1 1 1" mesh="col7" group="0" contype="0" conaffinity="0"/>
+                  <geom type="mesh" rgba="1 1 1 1" mesh="link7" group="1" contype="0" conaffinity="0"/>
+                  <geom pos="0.00264145 -1.17131e-05 0.233542" quat="-0.500202 0.499802 -0.4998 0.500196" type="mesh" mesh="col_hand_base" group="0" contype="0" conaffinity="0" rgba="0.582976 0.583383 0.583584 1"/>
+                  <geom pos="0.00264145 -1.17131e-05 0.233542" quat="-0.500202 0.499802 -0.4998 0.500196" type="mesh" mesh="hand_base" group="1" contype="0" conaffinity="0" rgba="0.582976 0.583383 0.583584 1"/>
+                  <body name="aristo_thumb_metacarpal" pos="-0.028535 -3.71251e-07 0.203977" quat="-0.707109 -0.000284142 0.000281543 0.707104">
+                    <inertial pos="5.08388e-05 -0.0186588 0.0228524" quat="0.706068 0.0661838 -0.0561044 0.702809" mass="0.120521" diaginertia="3.35536e-05 2.56997e-05 2.15493e-05"/>
+                    <joint name="aristo_joint1" pos="0 0 0" axis="0 0 1" range="-0.785398 0.785398" actuatorfrcrange="-10 10"/>
+                    <geom pos="5.08388e-05 -0.0186588 0.0228524" quat="0.707105 -0.707108 0 0" type="mesh" mesh="col_thumb_metacarpal" group="0" contype="0" conaffinity="0" rgba="0.55008 0.55008 0.55008 1"/>
+                    <geom pos="5.08388e-05 -0.0186588 0.0228524" quat="0.707105 -0.707108 0 0" type="mesh" mesh="thumb_metacarpal" group="1" contype="0" conaffinity="0" rgba="0.55008 0.55008 0.55008 1"/>
+                    <body name="aristo_thumb_actuators" pos="-1.42383e-10 -0.0315 0.025" quat="0.499998 -0.5 0.5 0.500002">
+                      <inertial pos="0.00119788 -0.0189545 -0.0225138" quat="0.530986 0.487693 0.509559 0.469637" mass="0.240831" diaginertia="0.000171952 0.000154911 4.63964e-05"/>
+                      <joint name="aristo_joint2" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" actuatorfrcrange="-10 10"/>
+                      <geom pos="0.00119788 -0.0189545 -0.0225138" quat="0.707105 0 0 -0.707108" type="mesh" mesh="col_thumb_actuators" group="0" contype="0" conaffinity="0" rgba="0.545814 0.546439 0.546747 1"/>
+                      <geom pos="0.00119788 -0.0189545 -0.0225138" quat="0.707105 0 0 -0.707108" type="mesh" mesh="thumb_actuators" group="1" contype="0" conaffinity="0" rgba="0.545814 0.546439 0.546747 1"/>
+                      <body name="aristo_thumb_proximal" pos="-0.022 -0.0305 -0.0235" quat="9.38184e-07 -9.38187e-07 -0.707108 0.707105">
+                        <inertial pos="0.0275353 8.61887e-05 0.00673205" quat="0.509376 0.489174 0.491012 0.510051" mass="0.0306406" diaginertia="1.85498e-05 1.81797e-05 1.79139e-06"/>
+                        <joint name="aristo_joint3" pos="0 0 0" axis="0 0 1" range="-1.0472 1.0472" actuatorfrcrange="-10 10"/>
+                        <geom pos="0.0275353 8.61887e-05 0.00673205" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="col_thumb_proximal" group="0" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                        <geom pos="0.0275353 8.61887e-05 0.00673205" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="thumb_proximal" group="1" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                        <body name="aristo_thumb_distal" pos="0.06 0 0.0105" quat="1.32679e-06 0 0 1">
+                          <inertial pos="-0.0330685 -0.00101822 -0.00300906" quat="0.49668 0.496927 0.502892 0.50346" mass="0.0219871" diaginertia="9.73713e-06 9.42439e-06 1.21292e-06"/>
+                          <joint name="aristo_joint4" pos="0 0 0" axis="0 0 1" range="-2.0944 1.0472" actuatorfrcrange="-10 10"/>
+                          <geom pos="-0.0330685 -0.00101822 -0.00300906" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="col_thumb_distal" group="0" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                          <geom pos="-0.0330685 -0.00101822 -0.00300906" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="thumb_distal" group="1" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                  <body name="aristo_index_proximal" pos="0.0144102 -0.0305003 0.273011" quat="0.4998 0.499802 -0.500198 0.5002">
+                    <inertial pos="0.0275353 -8.61566e-05 0.00673211" quat="0.510125 0.490942 0.489248 0.509299" mass="0.0306406" diaginertia="1.85499e-05 1.81798e-05 1.79134e-06"/>
+                    <joint name="aristo_joint5" pos="0 0 0" axis="0 0 1" range="-1.0472 1.0472" actuatorfrcrange="-10 10"/>
+                    <geom pos="0.0275353 -8.61566e-05 0.00673211" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="col_index_proximal" group="0" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                    <geom pos="0.0275353 -8.61566e-05 0.00673211" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="index_proximal" group="1" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                    <body name="aristo_index_distal" pos="0.06 0 0.0105" quat="1.32679e-06 0 0 1">
+                      <inertial pos="-0.0330685 0.00101822 -0.00299094" quat="0.502892 0.50346 0.49668 0.496927" mass="0.0219871" diaginertia="9.73713e-06 9.42439e-06 1.21292e-06"/>
+                      <joint name="aristo_joint6" pos="0 0 0" axis="0 0 1" range="-1.0472 2.0944" actuatorfrcrange="-10 10"/>
+                      <geom pos="-0.0330685 0.00101822 -0.00299094" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="col_index_distal" group="0" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                      <geom pos="-0.0330685 0.00101822 -0.00299094" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="index_distal" group="1" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                    </body>
+                  </body>
+                  <body name="aristo_middle_proximal" pos="0.0144098 0.0304997 0.273012" quat="0.4998 0.499802 -0.500198 0.5002">
+                    <inertial pos="0.0275353 -8.61887e-05 -0.00673205" quat="0.491012 0.510051 0.509376 0.489174" mass="0.0306406" diaginertia="1.85498e-05 1.81797e-05 1.79139e-06"/>
+                    <joint name="aristo_joint7" pos="0 0 0" axis="0 0 1" range="-1.0472 1.0472" actuatorfrcrange="-10 10"/>
+                    <geom pos="0.0275353 -8.61887e-05 -0.00673205" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="col_middle_proximal" group="0" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                    <geom pos="0.0275353 -8.61887e-05 -0.00673205" quat="0.499998 0.5 -0.5 0.500002" type="mesh" mesh="middle_proximal" group="1" contype="0" conaffinity="0" rgba="0.63463 0.635887 0.633109 1"/>
+                    <body name="aristo_middle_distal" pos="0.06 0 -0.0105" quat="1.32679e-06 0 0 -1">
+                      <inertial pos="-0.0330685 0.00101822 0.00300906" quat="0.502892 0.50346 0.49668 0.496927" mass="0.0219871" diaginertia="9.73713e-06 9.42439e-06 1.21292e-06"/>
+                      <joint name="aristo_joint8" pos="0 0 0" axis="0 0 1" range="-1.0472 2.0944" actuatorfrcrange="-10 10"/>
+                      <geom pos="-0.0330685 0.00101822 0.00300906" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="col_middle_distal" group="0" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                      <geom pos="-0.0330685 0.00101822 0.00300906" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" mesh="middle_distal" group="1" contype="0" conaffinity="0" rgba="0.670015 0.670243 0.668779 1"/>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <keyframe>
+    <key name="spawn_home" qpos="0 3.14159 0 -1.5708 0 -1.5708 0  0 0 0 0 0 0 0 0"/>
+  </keyframe>
+
+  <actuator>
+    <motor name="joint1" joint="joint1" gear="1"/>
+    <motor name="joint2" joint="joint2" gear="1"/>
+    <motor name="joint3" joint="joint3" gear="1"/>
+    <motor name="joint4" joint="joint4" gear="1"/>
+    <motor name="joint5" joint="joint5" gear="1"/>
+    <motor name="joint6" joint="joint6" gear="1"/>
+    <motor name="joint7" joint="joint7" gear="1"/>
+    <motor name="aristo_joint1" joint="aristo_joint1" gear="1"/>
+    <motor name="aristo_joint2" joint="aristo_joint2" gear="1"/>
+    <motor name="aristo_joint3" joint="aristo_joint3" gear="1"/>
+    <motor name="aristo_joint4" joint="aristo_joint4" gear="1"/>
+    <motor name="aristo_joint5" joint="aristo_joint5" gear="1"/>
+    <motor name="aristo_joint6" joint="aristo_joint6" gear="1"/>
+    <motor name="aristo_joint7" joint="aristo_joint7" gear="1"/>
+    <motor name="aristo_joint8" joint="aristo_joint8" gear="1"/>
+  </actuator>
+
+  <sensor>
+    <jointpos name="joint1_pos" joint="joint1" noise="2e-4"/>
+    <jointpos name="joint2_pos" joint="joint2" noise="2e-4"/>
+    <jointpos name="joint3_pos" joint="joint3" noise="2e-4"/>
+    <jointpos name="joint4_pos" joint="joint4" noise="2e-4"/>
+    <jointpos name="joint5_pos" joint="joint5" noise="2e-4"/>
+    <jointpos name="joint6_pos" joint="joint6" noise="2e-4"/>
+    <jointpos name="joint7_pos" joint="joint7" noise="2e-4"/>
+    <jointvel name="joint1_vel" joint="joint1" noise="1e-2"/>
+    <jointvel name="joint2_vel" joint="joint2" noise="1e-2"/>
+    <jointvel name="joint3_vel" joint="joint3" noise="1e-2"/>
+    <jointvel name="joint4_vel" joint="joint4" noise="1e-2"/>
+    <jointvel name="joint5_vel" joint="joint5" noise="1e-2"/>
+    <jointvel name="joint6_vel" joint="joint6" noise="1e-2"/>
+    <jointvel name="joint7_vel" joint="joint7" noise="1e-2"/>
+    <jointpos name="aristo_joint1_pos" joint="aristo_joint1" noise="2e-4"/>
+    <jointpos name="aristo_joint2_pos" joint="aristo_joint2" noise="2e-4"/>
+    <jointpos name="aristo_joint3_pos" joint="aristo_joint3" noise="2e-4"/>
+    <jointpos name="aristo_joint4_pos" joint="aristo_joint4" noise="2e-4"/>
+    <jointpos name="aristo_joint5_pos" joint="aristo_joint5" noise="2e-4"/>
+    <jointpos name="aristo_joint6_pos" joint="aristo_joint6" noise="2e-4"/>
+    <jointpos name="aristo_joint7_pos" joint="aristo_joint7" noise="2e-4"/>
+    <jointpos name="aristo_joint8_pos" joint="aristo_joint8" noise="2e-4"/>
+    <jointvel name="aristo_joint1_vel" joint="aristo_joint1" noise="1e-2"/>
+    <jointvel name="aristo_joint2_vel" joint="aristo_joint2" noise="1e-2"/>
+    <jointvel name="aristo_joint3_vel" joint="aristo_joint3" noise="1e-2"/>
+    <jointvel name="aristo_joint4_vel" joint="aristo_joint4" noise="1e-2"/>
+    <jointvel name="aristo_joint5_vel" joint="aristo_joint5" noise="1e-2"/>
+    <jointvel name="aristo_joint6_vel" joint="aristo_joint6" noise="1e-2"/>
+    <jointvel name="aristo_joint7_vel" joint="aristo_joint7" noise="1e-2"/>
+    <jointvel name="aristo_joint8_vel" joint="aristo_joint8" noise="1e-2"/>
+  </sensor>
+</mujoco>

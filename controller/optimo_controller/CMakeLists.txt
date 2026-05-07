@@ -20,24 +20,13 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(wbc_architecture REQUIRED)
-find_package(wbc_formulation REQUIRED)
-find_package(wbc_fsm REQUIRED)
-find_package(wbc_handlers REQUIRED)
+find_package(wbc_core REQUIRED)
 find_package(wbc_msgs REQUIRED)
-find_package(wbc_robot_system REQUIRED)
-find_package(wbc_solver REQUIRED)
-find_package(wbc_trajectory REQUIRED)
-find_package(wbc_util REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/optimo_controller.cpp
-  src/state_machines/cartesian_teleop.cpp
-  src/state_machines/initialize.cpp
-  src/state_machines/joint_teleop.cpp
-  src/state_machines/sys_id.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -54,15 +43,8 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp_lifecycle
   realtime_tools
   std_msgs
-  wbc_architecture
-  wbc_formulation
-  wbc_fsm
-  wbc_handlers
+  wbc_core
   wbc_msgs
-  wbc_robot_system
-  wbc_solver
-  wbc_trajectory
-  wbc_util
 )
 target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
@@ -100,6 +82,30 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(mujoco REQUIRED)
+
+  # Headless MuJoCo + WBC tests (not run in CI, use --gtest_filter to select)
+  set(_mujoco_tests
+    test_dummy_teleop
+    test_gain_tuning
+    # test_manipulability_comparison  # requires legacy wbc_* packages
+  )
+  foreach(_t ${_mujoco_tests})
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/${_t}.cpp")
+      add_executable(${_t} test/${_t}.cpp)
+      target_link_libraries(${_t}
+        ${PROJECT_NAME}
+        mujoco::mujoco
+        gtest gtest_main
+        yaml-cpp
+      )
+      ament_target_dependencies(${_t}
+        wbc_core pinocchio ament_index_cpp
+      )
+    endif()
+  endforeach()
 endif()
 
 ament_export_include_directories(include)
@@ -116,15 +122,8 @@ ament_export_dependencies(
   rclcpp_lifecycle
   realtime_tools
   std_msgs
-  wbc_architecture
-  wbc_formulation
-  wbc_fsm
-  wbc_handlers
+  wbc_core
   wbc_msgs
-  wbc_robot_system
-  wbc_solver
-  wbc_trajectory
-  wbc_util
 )
 
 ament_package()

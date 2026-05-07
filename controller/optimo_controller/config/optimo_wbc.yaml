@@ -2,81 +2,45 @@
 # Optimo WBC Configuration
 # =============================================================
 
-# [ WBIC (Whole-Body Impulse Control) Formulation ]
-# Decision Variables (x): [ delta_qddot, delta_rf ]^T  
+# [ WBMC (Whole-Body Motion Control) Formulation ]
+# Decision Variables (x): [delta_qddot, lambda]^T
 #
 # minimize:
-#      0.5 * delta_qddot^T * w_qddot * delta_qddot                     (IK tracking)
-#    + 0.5 * delta_rf^T * w_rf * delta_rf                              (Force tracking)
+#      0.5 * delta_qddot^T * w_qddot * delta_qddot                     (nominal stay-close)
+#    + 0.5 * lambda^T * w_rf * lambda                                  (contact-force regularization)
 #    + 0.5 * || tau ||^2_{w_tau}                                       (Torque minimization)
 #    + 0.5 * || tau - tau_prev ||^2_{w_tau_dot}                        (Torque rate smoothing)
-#    + 0.5 * || Jc*(qddot_cmd + delta_qddot) + JcDotQdot ||^2_{w_xc_ddot}  (Soft contact acc)
-#    + 0.5 * || (rf_des + delta_rf) - rf_prev ||^2_{w_f_dot}           (Force rate smoothing)
+#    + 0.5 * || Jc*(qddot_nom + delta_qddot) + JcDotQdot ||^2_{w_xc_ddot}  (contact consistency reg)
+#    + 0.5 * || lambda - lambda_prev ||^2_{w_f_dot}                    (force rate smoothing)
 #
 # subject to:
 #    [Equality]
-#      Sf * (M*(qddot_cmd + delta_qddot) + h - Jc^T*(rf_des + delta_rf)) = 0  (Floating-base EOM)
+#      Sf * (M*(qddot_nom + delta_qddot) + h - Jc^T*lambda) = 0        (Floating-base EOM)
 #       or
-#      M*(qddot_cmd + delta_qddot) + c + g - Jc^T*(rf_des + delta_rf) = tau_cmd  (Fixed-base EOM)
+#      M*(qddot_nom + delta_qddot) + c + g - Jc^T*lambda = tau_cmd      (Fixed-base EOM)
 #
 #    [Inequality] (Hard Constraints)
-#      Uf * (rf_des + delta_rf) >= 0                                          (Friction cone)
-#      A_kin * (qddot_cmd + delta_qddot) <= b_kin                             (Kinematic limits)
+#      Uf * lambda >= 0                                                       (Friction cone)
+#      A_kin * (qddot_nom + delta_qddot) <= b_kin                             (Kinematic limits)
 #      tau_min <= tau <= tau_max                                              (Torque limits)
 #
 # Final Command:
-#    tau_wbc = M*(qddot_cmd + delta_qddot) + h - Jc^T*(rf_des + delta_rf)
+#    tau_wbc = M*(qddot_nom + delta_qddot) + h - Jc^T*lambda
 
 # 1. Robot model (URDF)
 robot_model:
   urdf_path: "package://optimo_description/urdf/optimo.urdf"
-  
-  is_floating_base: false   # determine if the robot has a floating base (e.g. humanoid) or a fixed base (e.g. manipulator)
-                            # Setting this true will add 6 virtual DOFs for the floating base, making your system underactuated.
-  
-  base_frame: "optimo_base_link"   # if reference frame in Task Space is not defined, this frame is used as the default reference for all tasks
+  is_floating_base: false
 
 
 
-# 2. Feedforward Controller (WBC) Settings
+# 2. Controller Settings
 controller:
-  # TODO: add boolean flags to toggle each compensation term on/off, 
-  enable_gravity_compensation:  true    # most robot controllers come with built-in gravity compensation, so this is often set to false to avoid double compensation
-                                        # If you are using a torque-controlled custom robot, you will most likely want this enabled.
-
-  enable_coriolis_compensation: true    # Coriolis compensation improves orientation tracking (~4x reduction in ori error).
-                                        # If you have an accurate model from SysID, enable this. Otherwise,
-                                        # it is often better to leave it off to avoid injecting noise from model errors.
-
-  enable_inertia_compensation:  true    # Essential for torque-controlled robots (e.g. MuJoCo sim with motor actuators).
-                                        # Without this, tau = gravity_comp only — IK feedback goes to cmd.q/qdot
-                                        # which requires impedance-controlled motor firmware.
-                                        # For slow, quasi-static tasks with impedance control, this can be left off.
-
-  # Two-stage WBIC pipeline:
-  #   Stage 1 (IK): Weighted QP over posture_tasks → jpos_ref, jvel_ref
-  #   Stage 2 (accel ref): qddot_posture_ref = kp_acc*(jpos_ref-jpos) + kd_acc*(jvel_ref-jvel)
-  #   Stage 3 (ID-QP): operational_tasks tracked directly in task-space cost;
-  #                     qddot_posture_ref is the nominal; delta_qddot corrects to track EE tasks.
-  #
-  # kp_acc / kd_acc: PD gains converting IK joint reference → joint acceleration command.
-  #   These are the PRIMARY joint-space feedback gains (used in joint_teleop and as posture
-  #   bias in cartesian_teleop). Critically-damped: kd = 2*sqrt(kp).
-  #   kp=120, kd=22 → ωn≈11 rad/s, ζ=1.0, settling ~0.5s at 1kHz.
-  #
-  # Operational task kp/kd (in task_list.yaml): drive ID-QP Cartesian tracking directly.
-  #   These are independent of kp_acc/kd_acc. Higher values = stiffer EE tracking.
-  #
-  # jpos_task (role: posture_task) kp/kd: used only in UpdateOpCommand (not ID-QP cost).
-  #   Effective joint tracking in all states is governed by kp_acc/kd_acc above.
-  ik_method: "weighted_qp"
-  kp_acc: 60.0  # joint accel-reference position gain: qddot = kp_acc*(jpos_ref-jpos_meas)
-  kd_acc: 3.0   # joint accel-reference velocity gain: critically damped at kd_acc=2*sqrt(kp_acc)
-
-
-  joint_pid:
-    enabled: false
-    gains_yaml: "joint_pid_gains.yaml"
+  # Final-form WBMC is nominal-centered strict-priority HQP.
+  # kp_acc / kd_acc are retained for upstream references/handlers as needed.
+  ik_method: "external_nominal"
+  kp_acc: 60.0
+  kd_acc: 3.0
 
 
 # 3. QP Regularization weights
@@ -121,8 +85,6 @@ global_constraints:
 debug_mode: true
 debug_print_interval: 5.0   # seconds between periodic status prints
 
-# 6. 태스크 풀
+# 6. External YAML references (resolved relative to this file)
 task_pool_yaml: "task_list.yaml"
-
-# 6. 상태별 WBC 레시피
 state_machine_yaml: "state_machine.yaml"

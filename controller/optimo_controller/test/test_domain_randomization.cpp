@@ -29,7 +29,7 @@
 #include <Eigen/Dense>
 #include <mujoco/mujoco.h>
 
-#include "wbc_architecture/control_architecture.hpp"
+#include "wbc_core/architecture/control_architecture.hpp"
 #include "wbc_formulation/interface/task.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
 
@@ -275,7 +275,7 @@ void WriteTaskYaml(const std::filesystem::path& dir,
   f << "task_pool:\n"
     << "  - name: \"jpos_task\"\n"
     << "    type: \"JointTask\"\n"
-    << "    role: \"posture_task\"\n"
+    << "    role: \"bias_task\"\n"
     << "    kp: " << g.jpos_kp << "\n"
     << "    kd: " << g.jpos_kd << "\n"
     << "    kp_ik: 1.0\n"
@@ -309,7 +309,7 @@ void WriteStateMachineYaml(const std::filesystem::path& dir) {
     << "      wait_time: 0.0\n"
     << "      stay_here: true\n"
     << "      target_jpos: [0, 3.14159, 0, 0, 0, 0, 0]\n"
-    << "    task_hierarchy:\n"
+    << "    tasks:\n"
     << "      - name: \"jpos_task\"\n"
     << "        weight: 1.0\n"
     << "      - name: \"ee_pos_task\"\n"
@@ -325,7 +325,7 @@ void WriteStateMachineYaml(const std::filesystem::path& dir) {
     << "      wait_time: 0.0\n"
     << "      stay_here: true\n"
     << "      target_jpos: [0, 3.14159, 0, 0, 0, 0, 0]\n"
-    << "    task_hierarchy:\n"
+    << "    tasks:\n"
     << "      - name: \"jpos_task\"\n"
     << "        weight: 1.0\n"
     << "      - name: \"ee_pos_task\"\n"
@@ -338,7 +338,7 @@ void WriteStateMachineYaml(const std::filesystem::path& dir) {
     << "    params:\n"
     << "      stay_here: true\n"
     << "      joint_vel_limit: [0.5, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3]\n"
-    << "    task_hierarchy:\n"
+    << "    tasks:\n"
     << "      - name: \"jpos_task\"\n"
     << "        weight: 1.0\n"
     << "      - name: \"ee_pos_task\"\n"
@@ -355,7 +355,7 @@ void WriteStateMachineYaml(const std::filesystem::path& dir) {
     << "      manipulability:\n"
     << "        step_size: 0.5\n"
     << "        w_threshold: 0.01\n"
-    << "    task_hierarchy:\n"
+    << "    tasks:\n"
     << "      - name: \"ee_pos_task\"\n"
     << "        weight: 10.0\n"
     << "      - name: \"ee_ori_task\"\n"
@@ -542,7 +542,7 @@ struct TimingAndTorqueStats {
   int samples{0};
 
   void Accumulate(const wbc::ControlArchitecture& arch) {
-    const wbc::WBIC* solver = arch.GetSolver();
+    const wbc::WBMC* solver = arch.GetSolver();
     if (solver != nullptr) {
       qp_setup_us_sum += solver->timing_stats_.qp_setup_us;
       qp_solve_us_sum += solver->timing_stats_.qp_solve_us;

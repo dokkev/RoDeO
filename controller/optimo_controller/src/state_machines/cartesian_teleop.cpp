@@ -5,6 +5,7 @@
 #include "optimo_controller/state_machines/cartesian_teleop.hpp"
 
 #include "wbc_fsm/state_factory.hpp"
+#include "wbc_formulation/se3_math.hpp"
 #include "wbc_util/yaml_parser.hpp"
 
 namespace wbc {
@@ -41,31 +42,55 @@ void CartesianTeleop::FirstVisit() {
 
   watchdog_ = Watchdog{watchdog_.GetTimeout()};  // re-initialize to expired state
   prev_vel_ts_ns_ = 0;
+  prev_pose_ts_ns_ = 0;
+  last_vel_ts_ns_ = 0;
+  last_pose_ts_ns_ = 0;
+  const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
+  pose_cmd_pos_ = ee_iso.translation();
+  pose_cmd_quat_ = Eigen::Quaterniond(ee_iso.rotation()).normalized();
 }
 
 void CartesianTeleop::UpdateCommand(const Eigen::Vector3d& xdot,
                               const Eigen::Vector3d& wdot,
-                              int64_t vel_ts_ns) {
+                              int64_t vel_ts_ns,
+                              const Eigen::Vector3d& x_des,
+                              const Eigen::Quaterniond& quat_des,
+                              int64_t pose_ts_ns) {
   if (vel_ts_ns > 0 && vel_ts_ns != prev_vel_ts_ns_) {
     prev_vel_ts_ns_ = vel_ts_ns;
+    last_vel_ts_ns_ = vel_ts_ns;
     watchdog_.Reset();
     ee_handler_.SetLinearVelocity(xdot);
     ee_handler_.SetAngularVelocity(wdot);
+  }
+  if (pose_ts_ns > 0 && pose_ts_ns != prev_pose_ts_ns_) {
+    prev_pose_ts_ns_ = pose_ts_ns;
+    last_pose_ts_ns_ = pose_ts_ns;
+    pose_cmd_pos_ = x_des;
+    pose_cmd_quat_ = quat_des.normalized();
   }
 }
 
 void CartesianTeleop::OneStep() {
   const double dt = sp_->servo_dt_;
+  const Eigen::Vector3d zeros3 = Eigen::Vector3d::Zero();
 
   // --- Task 1: Cartesian teleop (EE position + orientation) ---
-  watchdog_.Update(dt);
-  if (watchdog_.IsTimeout()) {
-    ee_handler_.ResetCommand();
-  }
+  const bool use_pose_cmd =
+      (last_pose_ts_ns_ > 0 && last_pose_ts_ns_ >= last_vel_ts_ns_);
+  if (use_pose_cmd) {
+    ee_pos_task_->UpdateDesired(pose_cmd_pos_, zeros3, zeros3);
+    ee_ori_task_->UpdateDesired(se3::QuatToXyzw(pose_cmd_quat_), zeros3, zeros3);
+  } else {
+    watchdog_.Update(dt);
+    if (watchdog_.IsTimeout()) {
+      ee_handler_.ResetCommand();
+    }
 
-  const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
-  ee_handler_.UpdatePos(ee_iso.translation(), ee_pos_task_);
-  ee_handler_.UpdateOri(Eigen::Quaterniond(ee_iso.rotation()), ee_ori_task_);
+    const Eigen::Isometry3d ee_iso = robot_->GetLinkIsometry(ee_pos_task_->TargetIdx());
+    ee_handler_.UpdatePos(ee_iso.translation(), ee_pos_task_);
+    ee_handler_.UpdateOri(Eigen::Quaterniond(ee_iso.rotation()), ee_ori_task_);
+  }
 
   // --- Task 2: Soft posture bias (manipulability singularity avoidance) ---
   manip_handler_.Update(dt);

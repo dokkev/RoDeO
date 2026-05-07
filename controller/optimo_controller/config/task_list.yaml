@@ -1,19 +1,19 @@
 # =============================================================
-# Optimo Task Pool
+# Optimo Task Pool  (wbc_core TSID format)
 # =============================================================
 # Scalar values are broadcast to all DOFs automatically.
 # Pool weights serve as the default when a state doesn't override them.
-
-# Weight Ratio Guard: clamp all task weights to [weight_min, weight_max].
-# Prevents extreme weight ratios that can cause solver numerical instability.
-weight_min: 1.0e-6
-weight_max: 1.0e+4
+#
+# Task types: JointTask, LinkPosTask, LinkOriTask, ComTask
+# Roles:      bias_task        → lower-priority solution selection preference
+#             operational_task → tracked at WBMC operational level
+# LinkPosTask creates a TaskSE3Equality masked to position (rows 0-2).
+# LinkOriTask creates a TaskSE3Equality masked to orientation (rows 3-5).
 
 task_pool:
   - name: "jpos_task"
     type: "JointTask"
-    # role: posture_task -> IK/posture bias only (not ID-QP operational tracking)
-    role: "posture_task"
+    role: "bias_task"
     kp: 100.0
     kd: 10.0
     kp_ik: 1.0
@@ -21,10 +21,8 @@ task_pool:
 
   - name: "ee_pos_task"
     type: "LinkPosTask"
-    # role: operational_task -> tracked directly by ID-QP task-space cost
     role: "operational_task"
     target_frame: "optimo_end_effector"
-    reference_frame: "optimo_base_link"
     kp: 200.0
     kd: 10.0
     kp_ik: 1.0
@@ -32,11 +30,9 @@ task_pool:
 
   - name: "ee_ori_task"
     type: "LinkOriTask"
-    # role: operational_task -> tracked directly by ID-QP task-space cost
     role: "operational_task"
     target_frame: "optimo_end_effector"
-    reference_frame: "optimo_base_link"
-    kp: 200.0
+    kp: 1000.0
     kd: 10.0
     kp_ik: 1.0
     weight: 100.0

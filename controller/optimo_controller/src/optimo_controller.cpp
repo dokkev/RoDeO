@@ -23,9 +23,7 @@
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "optimo_controller/state_machines/cartesian_teleop.hpp"
-#include "optimo_controller/state_machines/joint_teleop.hpp"
-#include "wbc_util/ros_path_utils.hpp"
+#include "wbc_core/utils/ros_path_utils.hpp"
 
 namespace optimo_controller
 {
@@ -107,31 +105,36 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
 
   try
   {
-    auto arch_config =
-      wbc::ControlArchitectureConfig::FromYaml(wbc_yaml_path_, control_dt_);
-    arch_config.state_provider = std::make_unique<wbc::StateProvider>(control_dt_);
-    ctrl_arch_ = std::make_unique<wbc::ControlArchitecture>(std::move(arch_config));
+    // Resolve the WBC YAML and extract URDF path for ControlArchitecture.
+    const std::string resolved_yaml = wbc::path::ResolvePackageUri(wbc_yaml_path_);
+    YAML::Node root = YAML::LoadFile(resolved_yaml);
+    const std::string urdf_uri = root["robot_model"]["urdf_path"].as<std::string>();
+    const std::string resolved_urdf = wbc::path::ResolvePackageUri(urdf_uri);
+    const std::string package_root =
+      wbc::path::ResolveUrdfPackageRoot(urdf_uri, resolved_urdf);
+
+    ctrl_arch_ = std::make_unique<wbc::ControlArchitecture>(
+      resolved_yaml, resolved_urdf, std::vector<std::string>{package_root});
     ctrl_arch_->Initialize();
+
     // Parse debug_mode from WBC YAML
-    {
-      const std::string resolved = wbc::path::ResolvePackageUri(wbc_yaml_path_);
-      YAML::Node root = YAML::LoadFile(resolved);
-      debug_mode_ = root["debug_mode"].as<bool>(false);
-      debug_print_interval_s_ = root["debug_print_interval"].as<double>(5.0);
-      if (debug_mode_) {
-        RCLCPP_INFO(get_node()->get_logger(),
-          "[OptimoController] debug_mode ON (print every %.1f s)", debug_print_interval_s_);
-      }
+    debug_mode_ = root["debug_mode"].as<bool>(false);
+    debug_print_interval_s_ = root["debug_print_interval"].as<double>(5.0);
+    if (debug_mode_) {
+      RCLCPP_INFO(get_node()->get_logger(),
+        "[OptimoController] debug_mode ON (print every %.1f s)", debug_print_interval_s_);
     }
-    ctrl_arch_->enable_timing_ = true;  // enable per-phase timing stats
+    ctrl_arch_->setTimingEnabled(true);
 
     // Cache typed state pointers (non-RT, configure phase only).
-    auto * fsm = ctrl_arch_->GetFsmHandler();
+    auto * fsm = ctrl_arch_->fsmHandler();
     if (const auto id = fsm->FindStateIdByName("joint_teleop")) {
-      joint_teleop_state_ = dynamic_cast<wbc::JointTeleop *>(fsm->FindStateById(*id));
+      joint_teleop_state_ =
+        dynamic_cast<wbc::JointTeleopState*>(fsm->states().at(*id).get());
     }
     if (const auto id = fsm->FindStateIdByName("cartesian_teleop")) {
-      cartesian_teleop_state_ = dynamic_cast<wbc::CartesianTeleop *>(fsm->FindStateById(*id));
+      cartesian_teleop_state_ =
+        dynamic_cast<wbc::CartesianTeleopState*>(fsm->states().at(*id).get());
     }
     if (const auto id = fsm->FindStateIdByName("safe_command")) {
       safe_command_state_id_ = *id;
@@ -188,6 +191,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     q_des_buf_.writeFromNonRT(JointPosRef{zeros, 0});
   }
   xdot_des_buf_.writeFromNonRT(EEVelRef{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0});
+  x_des_buf_.writeFromNonRT(EEPoseRef{{0.0, 0.0, 0.0}, Eigen::Quaterniond::Identity(), 0});
 
   // Joint velocity subscriber
   joint_vel_sub_ =
@@ -205,10 +209,40 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
       "~/ee_vel_cmd",
       rclcpp::SensorDataQoS(),
       [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+        int64_t ts_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
+        if (ts_ns <= 0) {
+          ts_ns = get_node()->now().nanoseconds();
+        }
         xdot_des_buf_.writeFromNonRT(EEVelRef{
           {msg->twist.linear.x,  msg->twist.linear.y,  msg->twist.linear.z},
           {msg->twist.angular.x, msg->twist.angular.y, msg->twist.angular.z},
-          rclcpp::Time(msg->header.stamp).nanoseconds()});
+          ts_ns});
+      });
+
+  // EE pose subscriber
+  ee_pos_sub_ =
+    get_node()->create_subscription<geometry_msgs::msg::PoseStamped>(
+      "~/ee_pose_cmd",
+      rclcpp::SensorDataQoS(),
+      [this](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) {
+        int64_t ts_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
+        if (ts_ns <= 0) {
+          ts_ns = get_node()->now().nanoseconds();
+        }
+        Eigen::Quaterniond q(
+          msg->pose.orientation.w,
+          msg->pose.orientation.x,
+          msg->pose.orientation.y,
+          msg->pose.orientation.z);
+        if (q.norm() < 1e-12) {
+          q = Eigen::Quaterniond::Identity();
+        } else {
+          q.normalize();
+        }
+        x_des_buf_.writeFromNonRT(EEPoseRef{
+          {msg->pose.position.x, msg->pose.position.y, msg->pose.position.z},
+          q,
+          ts_ns});
       });
 
   // Joint position subscriber
@@ -243,11 +277,11 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
 
   // Log available states
   {
-    const auto& states = ctrl_arch_->GetFsmHandler()->GetStates();
+    const auto& states = ctrl_arch_->fsmHandler()->states();
     std::string state_list;
-    for (const auto& [id, name] : states) {
+    for (const auto& [id, state] : states) {
       if (!state_list.empty()) state_list += ", ";
-      state_list += std::to_string(id) + ":" + name;
+      state_list += std::to_string(id) + ":" + state->name();
     }
     RCLCPP_INFO(get_node()->get_logger(),
       "[OptimoController] Available states: [%s]", state_list.c_str());
@@ -335,71 +369,53 @@ controller_interface::return_type OptimoController::update(
 
   if (active_state_id_ == cartesian_teleop_state_->id()) {
     const auto* xdot_des = xdot_des_buf_.readFromRT();
+    const auto* x_des = x_des_buf_.readFromRT();
     cartesian_teleop_state_->UpdateCommand(
-      xdot_des->xdot, xdot_des->wdot, xdot_des->ts_ns);
+      xdot_des->xdot, xdot_des->wdot, xdot_des->ts_ns,
+      x_des->x, x_des->w, x_des->ts_ns);
   }
 
   ctrl_arch_->Update(ReadJointState(), time.seconds(), control_dt_);
   // Refresh after FSM ran so auto-transitions are captured for the next tick.
   active_state_id_ = ctrl_arch_->GetCurrentStateId();
 
-  // QP status monitoring
+  // Timing monitoring
   {
-    const auto& ts = ctrl_arch_->timing_stats_;
-    const double total_us = ts.robot_model_us + ts.kinematics_us + ts.dynamics_us
-                          + ts.find_config_us + ts.make_torque_us + ts.feedback_us;
+    const auto& ts = ctrl_arch_->timingStats();
+    const double total_us = ts.find_config_us + ts.kinematics_us
+                          + ts.make_torque_us + ts.feedback_us;
 
-    const auto* wbic_data = ctrl_arch_->GetSolver()->GetWbicData();
-
-    // Track peak tick time
     if (total_us > max_tick_us_) max_tick_us_ = total_us;
     ++tick_count_;
 
-    // Log warning if total WBC time exceeds 500 us (half of 1 kHz budget)
     if (total_us > 500.0) {
       RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        "[WBC] slow tick: %.0f us (model=%.0f kin=%.0f dyn=%.0f ik=%.0f id=%.0f fb=%.0f) "
-        "qp_iter=%d qp_solve=%.0f us",
-        total_us, ts.robot_model_us, ts.kinematics_us, ts.dynamics_us,
-        ts.find_config_us, ts.make_torque_us, ts.feedback_us,
-        wbic_data ? wbic_data->qp_iter_ : -1,
-        wbic_data ? wbic_data->qp_solve_time_us_ : 0.0);
+        "[WBC] slow tick: %.0f us (fsm=%.0f kin=%.0f id=%.0f fb=%.0f)",
+        total_us, ts.find_config_us, ts.kinematics_us,
+        ts.make_torque_us, ts.feedback_us);
     }
 
-    // Log error if QP did not solve
-    if (wbic_data && !wbic_data->qp_solved_) {
-      RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        "[WBC] QP FAILED: status=%d iter=%d pri_res=%.2e dua_res=%.2e obj=%.4f",
-        wbic_data->qp_status_, wbic_data->qp_iter_,
-        wbic_data->qp_pri_res_, wbic_data->qp_dua_res_, wbic_data->qp_obj_);
-    }
-
-    // Periodic debug status print
     const double t_now = time.seconds();
     if (debug_mode_ && (t_now - last_debug_print_time_) >= debug_print_interval_s_) {
-      const auto& cmd = ctrl_arch_->GetCommand();
+      const auto& cmd = ctrl_arch_->command();
       RCLCPP_INFO(get_node()->get_logger(),
         "[WBC] state=%d | tick=%.0f us (peak=%.0f us) | "
-        "model=%.0f kin=%.0f dyn=%.0f ik=%.0f id=%.0f fb=%.0f | "
-        "qp: solved=%d iter=%d solve=%.0f us | "
+        "fsm=%.0f kin=%.0f id=%.0f fb=%.0f | "
         "tau[0..2]=[%.2f, %.2f, %.2f]",
         active_state_id_,
         total_us, max_tick_us_,
-        ts.robot_model_us, ts.kinematics_us, ts.dynamics_us,
-        ts.find_config_us, ts.make_torque_us, ts.feedback_us,
-        wbic_data ? static_cast<int>(wbic_data->qp_solved_) : -1,
-        wbic_data ? wbic_data->qp_iter_ : -1,
-        wbic_data ? wbic_data->qp_solve_time_us_ : 0.0,
+        ts.find_config_us, ts.kinematics_us,
+        ts.make_torque_us, ts.feedback_us,
         cmd.tau.size() > 0 ? cmd.tau[0] : 0.0,
         cmd.tau.size() > 1 ? cmd.tau[1] : 0.0,
         cmd.tau.size() > 2 ? cmd.tau[2] : 0.0);
       last_debug_print_time_ = t_now;
-      max_tick_us_ = 0.0;  // reset peak for next interval
+      max_tick_us_ = 0.0;
     }
   }
 
   // Get WBC command and apply actuator model.
-  auto cmd = ctrl_arch_->GetCommand();
+  auto cmd = ctrl_arch_->command();
   {
     wbc::ActuatorCommand act_cmd;
     act_cmd.q_des = cmd.q;

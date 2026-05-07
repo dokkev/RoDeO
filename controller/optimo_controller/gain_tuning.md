@@ -319,6 +319,6 @@ controller:
 ## Test Infrastructure (Phase 3-4)
 
 - **Compensator classes:** `residual_compensator/include/residual_compensator/adaptive_friction_compensator.hpp`, `momentum_observer.hpp`
-- **Integration:** `wbc_architecture/src/control_architecture.cpp` → SolverUpdate() between WBIC and PID
+- **Integration:** `wbc_core/src/architecture/control_architecture.cpp` → SolverUpdate() between WBIC and PID
 - **Test file:** `optimo_controller/test/test_domain_randomization.cpp`
 - **Tests:** `CompensatorComparison` (5 seeds), `FrictionCompGainSweep`, `MomentumObserverGainSweep`

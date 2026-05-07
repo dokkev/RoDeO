@@ -146,14 +146,14 @@ state_machine:
       wait_time: 0.0
       stay_here: false
       target_jpos: [0.0, 0.0]
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
 
   - id: 1
     name: "joint_teleop"
     params:
       stay_here: true
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
 
   - id: 2
@@ -165,7 +165,7 @@ state_machine:
       manipulability:
         step_size: 0.5
         w_threshold: 0.01
-    task_hierarchy:
+    tasks:
       - name: "ee_pos_task"
         priority: 0
       - name: "ee_ori_task"

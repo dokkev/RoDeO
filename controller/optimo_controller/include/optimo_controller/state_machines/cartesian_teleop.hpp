@@ -49,10 +49,17 @@ public:
    * @param xdot       Linear velocity [m/s], world frame.
    * @param wdot       Angular velocity [rad/s], world frame.
    * @param vel_ts_ns  Message timestamp [ns]; 0 = never received.
+   * @param x_des      Absolute EE position target [m], world frame.
+   * @param quat_des   Absolute EE orientation target, world frame.
+   * @param pose_ts_ns Pose-command timestamp [ns]; 0 = ignore pose target.
    */
   void UpdateCommand(const Eigen::Vector3d& xdot,
                      const Eigen::Vector3d& wdot,
-                     int64_t vel_ts_ns);
+                     int64_t vel_ts_ns,
+                     const Eigen::Vector3d& x_des = Eigen::Vector3d::Zero(),
+                     const Eigen::Quaterniond& quat_des =
+                         Eigen::Quaterniond::Identity(),
+                     int64_t pose_ts_ns = 0);
 
 private:
   LinkPosTask*              ee_pos_task_{nullptr};
@@ -64,6 +71,11 @@ private:
   double preview_time_{0.02};
   Watchdog watchdog_{0.2};  // starts expired; Reset() on new message, Update() in OneStep()
   int64_t  prev_vel_ts_ns_{0};
+  int64_t  prev_pose_ts_ns_{0};
+  int64_t  last_vel_ts_ns_{0};
+  int64_t  last_pose_ts_ns_{0};
+  Eigen::Vector3d pose_cmd_pos_{Eigen::Vector3d::Zero()};
+  Eigen::Quaterniond pose_cmd_quat_{Eigen::Quaterniond::Identity()};
 };
 
 }  // namespace wbc

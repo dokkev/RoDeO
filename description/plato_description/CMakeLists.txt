@@ -3,7 +3,7 @@ project(plato_description)
 
 find_package(ament_cmake REQUIRED)
 
-foreach(_asset_dir IN ITEMS launch meshes rviz urdf mujoco)
+foreach(_asset_dir IN ITEMS config launch meshes rviz urdf mjcf)
   if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_asset_dir}")
     install(
       DIRECTORY ${_asset_dir}

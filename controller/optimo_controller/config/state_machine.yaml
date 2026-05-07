@@ -1,10 +1,15 @@
 # =============================================================
-# Optimo State Machine
+# Optimo State Machine  (wbc_core TSID format)
 # =============================================================
 # Weight-based priority: all tasks are present in every state.
-# Active tasks get high weight, inactive tasks use pool default weight.
-# State transitions smoothly interpolate weights via cosine ramp.
-# Scalar values are broadcast to all DOFs automatically.
+# Active tasks get high weight, inactive tasks get near-zero weight.
+#
+# State types (registered in ConfigCompiler factory):
+#   initialize, home, joint_teleop, cartesian_teleop
+# Unknown types fall back to initialize behavior.
+#
+# Base params parsed by StateMachine:
+#   duration, wait_time, next_state_id, stay_here
 
 state_machine:
   - id: 0
@@ -14,9 +19,7 @@ state_machine:
       wait_time: 0.0
       stay_here: false
       next_state_id: 1
-      weight_ramp_duration: 0.3
-      # target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
         weight: 100.0
       - name: "ee_pos_task"
@@ -29,11 +32,9 @@ state_machine:
     type: "initialize"
     params:
       duration: 3.0
-      wait_time: 0.0
       stay_here: true
-      weight_ramp_duration: 0.3
       target_jpos: [0.0, 3.14159, 0.0, -1.5708, 0.0, -1.5708, 0.0]
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
         weight: 100.0
       - name: "ee_pos_task"
@@ -45,9 +46,8 @@ state_machine:
     name: "joint_teleop"
     params:
       stay_here: true
-      weight_ramp_duration: 0.3
       joint_vel_limit: [0.5, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3]
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
         weight: 100.0
       - name: "ee_pos_task"
@@ -59,14 +59,15 @@ state_machine:
     name: "cartesian_teleop"
     params:
       stay_here: true
-      weight_ramp_duration: 0.3
-      linear_vel_max: 0.1
-      angular_vel_max: 0.5
+      preview_time: 0.02
       manipulability:
         sigma_threshold: 0.08
         gain: 0.15
         max_bias_qdot: 0.2
-    task_hierarchy:
+        fd_eps: 1.0e-4
+        use_full_jacobian: true
+        characteristic_length: 0.2
+    tasks:
       - name: "ee_pos_task"
         weight: 100.0
       - name: "ee_ori_task"
@@ -75,48 +76,13 @@ state_machine:
         weight: 1.0
 
   - id: 4
-    name: "sys_id"
-    params:
-      stay_here: true
-      weight_ramp_duration: 0.3
-      mode: "sine"             # off | gravity_grid | friction_sweep | sine | chirp
-      enabled: false
-      joint_idx: 0
-      start_delay: 1.0
-      duration: 20.0
-      amplitude: 0.05
-      offset: 0.0
-      frequency_hz: 0.5
-      cruise_vel: 0.2
-      chirp_f0_hz: 0.2
-      chirp_f1_hz: 3.0
-      chirp_duration: 20.0
-      ramp_time: 1.0
-      dwell_time: 1.0
-      gravity_offsets_rad: [-0.5, -0.25, 0.0, 0.25, 0.5]
-      max_tracking_err: 0.15
-      max_meas_vel: 2.0
-      max_tau_ratio: 0.9
-      abort_on_safety: true
-      hold_on_abort: true
-      end_on_finish: true
-    task_hierarchy:
-      - name: "jpos_task"
-        weight: 100.0
-      - name: "ee_pos_task"
-        weight: 1e-6
-      - name: "ee_ori_task"
-        weight: 1e-6
-
-  - id: 5
     name: "safe_command"
     type: "initialize"
     params:
       duration: 0.0
-      wait_time: 0.0
       stay_here: true
       target_jpos: [0.0, 3.14159, 0.0, 0.0, 0.0, 0.0, 0.0]
-    task_hierarchy:
+    tasks:
       - name: "jpos_task"
         weight: 100.0
       - name: "ee_pos_task"

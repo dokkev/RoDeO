@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<library path="plato_controller">
+  <class
+    name="plato_controller/PlatoController"
+    type="plato_controller::PlatoController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Plato (Optimo arm + Aristo hand) whole-body controller with dual Cartesian teleop.
+    </description>
+  </class>
+</library>

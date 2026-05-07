@@ -30,7 +30,7 @@
       <visual>
         <origin xyz="1.14624e-05 -0.0735402 0.00270001" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/hand_base.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/hand_base.stl"/>
         </geometry>
         <material name="hand_base_parts_material">
           <color rgba="0.582976 0.583383 0.583584 1"/>
@@ -39,7 +39,7 @@
       <collision>
         <origin xyz="1.14624e-05 -0.0735402 0.00270001" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/hand_base.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_hand_base.stl"/>
         </geometry>
       </collision>
     </link>
@@ -75,7 +75,7 @@
       <visual>
         <origin xyz="5.08388e-05 -0.0186588 0.0228524" rpy="-1.5708 0 -2.97318e-15"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_metacarpal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/thumb_metacarpal.stl"/>
         </geometry>
         <material name="thumb_metacarpal_parts_material">
           <color rgba="0.55008 0.55008 0.55008 1"/>
@@ -84,7 +84,7 @@
       <collision>
         <origin xyz="5.08388e-05 -0.0186588 0.0228524" rpy="-1.5708 0 -2.97318e-15"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_metacarpal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_thumb_metacarpal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -99,7 +99,7 @@
       <visual>
         <origin xyz="0.00119788 -0.0189545 -0.0225138" rpy="0 0 -1.5708"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_actuators.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/thumb_actuators.stl"/>
         </geometry>
         <material name="thumb_actuators_parts_material">
           <color rgba="0.545814 0.546439 0.546747 1"/>
@@ -108,7 +108,7 @@
       <collision>
         <origin xyz="0.00119788 -0.0189545 -0.0225138" rpy="0 0 -1.5708"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_actuators.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_thumb_actuators.stl"/>
         </geometry>
       </collision>
     </link>
@@ -123,7 +123,7 @@
       <visual>
         <origin xyz="0.0275353 8.61887e-05 0.00673205" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/thumb_proximal.stl"/>
         </geometry>
         <material name="thumb_proximal_parts_material">
           <color rgba="0.63463 0.635887 0.633109 1"/>
@@ -132,7 +132,7 @@
       <collision>
         <origin xyz="0.0275353 8.61887e-05 0.00673205" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_thumb_proximal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -147,7 +147,7 @@
       <visual>
         <origin xyz="-0.0330685 -0.00101822 -0.00300906" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/thumb_distal.stl"/>
         </geometry>
         <material name="thumb_distal_parts_material">
           <color rgba="0.670015 0.670243 0.668779 1"/>
@@ -156,7 +156,7 @@
       <collision>
         <origin xyz="-0.0330685 -0.00101822 -0.00300906" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/thumb_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_thumb_distal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -211,7 +211,7 @@
       <visual>
         <origin xyz="0.0275353 -8.61566e-05 0.00673211" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/index_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/index_proximal.stl"/>
         </geometry>
         <material name="index_proximal_parts_material">
           <color rgba="0.63463 0.635887 0.633109 1"/>
@@ -220,7 +220,7 @@
       <collision>
         <origin xyz="0.0275353 -8.61566e-05 0.00673211" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/index_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_index_proximal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -235,7 +235,7 @@
       <visual>
         <origin xyz="-0.0330685 0.00101822 -0.00299094" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/index_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/index_distal.stl"/>
         </geometry>
         <material name="index_distal_parts_material">
           <color rgba="0.670015 0.670243 0.668779 1"/>
@@ -244,7 +244,7 @@
       <collision>
         <origin xyz="-0.0330685 0.00101822 -0.00299094" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/index_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_index_distal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -314,7 +314,7 @@
       <visual>
         <origin xyz="0.0275353 -8.61887e-05 -0.00673205" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/middle_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/middle_proximal.stl"/>
         </geometry>
         <material name="middle_proximal_parts_material">
           <color rgba="0.63463 0.635887 0.633109 1"/>
@@ -323,7 +323,7 @@
       <collision>
         <origin xyz="0.0275353 -8.61887e-05 -0.00673205" rpy="1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/middle_proximal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_middle_proximal.stl"/>
         </geometry>
       </collision>
     </link>
@@ -338,7 +338,7 @@
       <visual>
         <origin xyz="-0.0330685 0.00101822 0.00300906" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/middle_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/middle_distal.stl"/>
         </geometry>
         <material name="middle_distal_parts_material">
           <color rgba="0.670015 0.670243 0.668779 1"/>
@@ -347,7 +347,7 @@
       <collision>
         <origin xyz="-0.0330685 0.00101822 0.00300906" rpy="-1.5708 -1.5708 0"/>
         <geometry>
-          <mesh filename="package://plato_description/meshes/middle_distal.stl"/>
+          <mesh filename="package://plato_description/urdf/meshes/col_middle_distal.stl"/>
         </geometry>
       </collision>
     </link>

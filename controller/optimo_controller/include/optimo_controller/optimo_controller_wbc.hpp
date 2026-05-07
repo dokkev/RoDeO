@@ -15,7 +15,7 @@
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
-#include "wbc_architecture/control_architecture.hpp"
+#include "wbc_core/architecture/control_architecture.hpp"
 #include "wbc_logger/wbc_logger.hpp"
 #include "wbc_msgs/msg/wbc_state.hpp"
 #include "wbc_msgs/srv/residual_dynamics_service.hpp"

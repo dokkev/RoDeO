@@ -130,7 +130,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
     // Cache typed state pointers (non-RT, configure phase only).
     // Pointers remain valid for the controller's lifetime: states are owned
     // by FSMHandler and never moved or destroyed after Initialize().
-    auto * fsm = ctrl_arch_->GetFsmHandler();
+    auto * fsm = ctrl_arch_->fsmHandler();
     if (const auto id = fsm->FindStateIdByName("joint_teleop")) {
       joint_teleop_state_ = dynamic_cast<wbc::JointTeleop *>(fsm->FindStateById(*id));
     }
@@ -300,7 +300,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
         return;
       }
 
-      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+      auto* reg = ctrl_arch_->config()->taskRegistry();
       for (const auto& name : req->task_names) {
         if (reg->GetMotionTask(name) == nullptr) {
           res->success = false;
@@ -336,7 +336,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
         return;
       }
 
-      auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+      auto* reg = ctrl_arch_->config()->taskRegistry();
       for (const auto& name : req->task_names) {
         if (reg->GetMotionTask(name) == nullptr) {
           res->success = false;
@@ -399,7 +399,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
 
   // Log available states for discoverability.
   {
-    const auto& states = ctrl_arch_->GetFsmHandler()->GetStates();
+    const auto& states = ctrl_arch_->fsmHandler()->GetStates();
     std::string state_list;
     for (const auto& [id, name] : states) {
       if (!state_list.empty()) state_list += ", ";
@@ -440,7 +440,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
   //   3. reapply_scratch_ is pre-sized to max task dim → ReapplyTunedTaskParams
   //      avoids per-call VectorXd::Constant heap allocation.
   {
-    auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+    auto* reg = ctrl_arch_->config()->taskRegistry();
     if (reg) {
       int max_dim = 0;
       for (const auto& [name, task] : reg->GetMotionTasks()) {
@@ -455,7 +455,7 @@ OptimoController::on_configure(const rclcpp_lifecycle::State & /*previous_state*
       if (rt_wbc_pub_) {
         // Pre-allocate msg.tasks inner vectors to max_dim (not per-task dim) because
         // the logger fills tasks in WbcFormulation iteration order (operational_tasks
-        // then posture_tasks), which differs from unordered_map iteration order here.
+        // then bias_tasks), which differs from unordered_map iteration order here.
         // Using max_dim guarantees copy() in PublishWbcState never truncates regardless
         // of which task lands at which slot. Subscribers must use td.dim for valid count.
         auto& tasks_msg = rt_wbc_pub_->msg_.tasks;
@@ -596,7 +596,7 @@ controller_interface::return_type OptimoController::update(
   // - [2n .. 3n-1]     : desired joint torque
   // - [3n]             : model_safety_error (written below, after WriteJointCommand)
 
-  auto cmd = ctrl_arch_->GetCommand();
+  auto cmd = ctrl_arch_->command();
   {
     wbc::ActuatorCommand act_cmd;
     act_cmd.q_des = cmd.q;
@@ -812,7 +812,7 @@ void OptimoController::ApplyPendingRuntimeUpdates()
 
 void OptimoController::ReapplyTunedTaskParams()
 {
-  auto* reg = ctrl_arch_->GetConfig()->taskRegistry();
+  auto* reg = ctrl_arch_->config()->taskRegistry();
   if (reg == nullptr) {
     return;
   }

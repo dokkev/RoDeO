@@ -1,103 +1,80 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:macro name="optimo" params="prefix:='' standalone:=true">
+    <xacro:macro name="optimo" params="prefix:=''">
 
-
-        <!-- Default joint limits (upright) -->
+        <!-- Joint limits (from hardware safety config) -->
         <xacro:property name="joint1_lower" value="${DtR*-120}" />
         <xacro:property name="joint1_upper" value="${DtR*120}" />
-        <xacro:property name="joint2_lower" value="${DtR*65}" />
-        <xacro:property name="joint2_upper" value="${DtR*195}" />
+        <xacro:property name="joint2_lower" value="${DtR*60}" />
+        <xacro:property name="joint2_upper" value="${DtR*220}" />
         <xacro:property name="joint3_lower" value="${DtR*-120}" />
         <xacro:property name="joint3_upper" value="${DtR*120}" />
-        <xacro:property name="joint4_lower" value="${DtR*-140}" />
-        <xacro:property name="joint4_upper" value="${DtR*5}" />
+        <xacro:property name="joint4_lower" value="${DtR*-145}" />
+        <xacro:property name="joint4_upper" value="${DtR*145}" />
         <xacro:property name="joint5_lower" value="${DtR*-150}" />
         <xacro:property name="joint5_upper" value="${DtR*150}" />
-        <xacro:property name="joint6_lower" value="${DtR*-115}" />
-        <xacro:property name="joint6_upper" value="${DtR*115}" />
+        <xacro:property name="joint6_lower" value="${DtR*-120}" />
+        <xacro:property name="joint6_upper" value="${DtR*120}" />
         <xacro:property name="joint7_lower" value="${DtR*-120}" />
         <xacro:property name="joint7_upper" value="${DtR*120}" />
 
-        <!-- Joint limit properties -->
-        <xacro:if value="${prefix == 'left_arm_'}">
-            <!-- Left arm joint limits -->
-            <xacro:property name="joint1_lower" value="${DtR*-120}" />
-            <xacro:property name="joint1_upper" value="${DtR*60}" />
-            <xacro:property name="joint2_lower" value="${DtR*190}" />
-            <xacro:property name="joint2_upper" value="${DtR*280}" />
-            <xacro:property name="joint3_lower" value="${DtR*-210}" />
-            <xacro:property name="joint3_upper" value="${DtR*30}" />
-            <xacro:property name="joint4_lower" value="${DtR*-5}" />
-            <xacro:property name="joint4_upper" value="${DtR*140}" />
-        </xacro:if>
+        <!-- Stand: connects world to base_link -->
+        <joint name="${prefix}world_to_stand" type="fixed">
+            <parent link="world" />
+            <child link="${prefix}stand" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
 
-        <xacro:if value="${prefix == 'right_arm_'}">
-            <!-- Right arm joint limits -->
-            <xacro:property name="joint1_lower" value="${DtR*-60}" />
-            <xacro:property name="joint1_upper" value="${DtR*120}" />
-            <xacro:property name="joint2_lower" value="${DtR*80}" />
-            <xacro:property name="joint2_upper" value="${DtR*170}" />
-            <xacro:property name="joint3_lower" value="${DtR*-30}" />
-            <xacro:property name="joint3_upper" value="${DtR*210}" />
-            <xacro:property name="joint4_lower" value="${DtR*-140}" />
-            <xacro:property name="joint4_upper" value="${DtR*5}" />
-        </xacro:if>
+        <link name="${prefix}stand">
+            <visual>
+                <origin xyz="0 0 -0.5" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.5 0.5 1" />
+                </geometry>
+                <material name="white" />
+            </visual>
+            <collision>
+                <origin xyz="0 0 -0.5" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.5 0.5 1" />
+                </geometry>
+            </collision>
+        </link>
 
-        <!-- If standalone, connect world link and mounting stand to the base of the arm.-->
-        <xacro:if value="${standalone}">
+        <joint name="${prefix}stand_to_base_link" type="fixed">
+            <parent link="${prefix}stand" />
+            <child link="${prefix}base_link" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </joint>
 
-            <joint name="${prefix}world_to_stand" type="fixed">
-                <parent link="world" />
-                <child link="${prefix}stand" />
-                <origin xyz="0 0 1" rpy="0 0 -1.57" />
-            </joint>
+        <link name="${prefix}base_link"/>
 
-            <link name="${prefix}stand">
-                <visual>
-                    <origin xyz="0 0 -0.5" rpy="0 0 0" />
-                    <geometry>
-                        <box size="0.3 0.3 1" />
-                    </geometry>
-                    <material name="white" />
-                </visual>
-                <collision>
-                    <origin xyz="0 0 -0.5" rpy="0 0 0" />
-                    <geometry>
-                        <box size="0.3 0.3 1" />
-                    </geometry>
-                </collision>
-            </link>
-
-            <joint name="${prefix}stand_to_link0" type="fixed">
-                <parent link="${prefix}stand" />
-                <child link="${prefix}link0" />
-                <origin xyz="0 0 0" rpy="0 0 0" />
-            </joint>
-        </xacro:if>
+        <joint name="${prefix}base_link_to_link0" type="fixed">
+            <parent link="${prefix}base_link" />
+            <child link="${prefix}link0" />
+            <origin xyz="0 0 .27" rpy="0 0 0" />
+        </joint>
 
         <!-- Base Link -->
         <link name="${prefix}link0">
             <visual>
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link0.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link0.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col0.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col0.stl" />
                 </geometry>
             </collision>
-            <inertial>                <!-- Doesn't matter, just placeholder values -->
+            <inertial>
                 <origin xyz="0 0 0" />
                 <mass value="1" />
                 <inertia ixx="0" ixy="0.0" ixz="0.0" iyy="0" iyz="0.0" izz="0" />
             </inertial>
         </link>
-
-
 
         <joint name="${prefix}joint1" type="revolute">
             <origin xyz="0 0 0" rpy="0 0 0" />
@@ -111,18 +88,16 @@
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link1.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link1.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col1.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col1.stl" />
                 </geometry>
             </collision>
-            <!-- Inertia values could be taken from yaml, but do not seem realistic so some estimations
-        were made instead...-->
             <inertial>
                 <origin xyz="0 -0.01549 -0.01635 " />
                 <mass value="4.152" />
@@ -141,14 +116,14 @@
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link2.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link2.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col2.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col2.stl" />
                 </geometry>
             </collision>
             <inertial>
@@ -169,14 +144,14 @@
             <visual>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link3.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link3.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col3.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col3.stl" />
                 </geometry>
             </collision>
             <inertial>
@@ -197,14 +172,14 @@
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link4.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link4.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col4.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col4.stl" />
                 </geometry>
             </collision>
             <inertial>
@@ -225,14 +200,14 @@
             <visual>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link5.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link5.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="-${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col5.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col5.stl" />
                 </geometry>
             </collision>
             <inertial>
@@ -253,14 +228,14 @@
             <visual>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link6.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link6.stl" />
                 </geometry>
                 <material name="blue" />
             </visual>
             <collision>
                 <origin xyz="0 0 0" rpy="${PI/2} 0 0" />
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col6.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col6.stl" />
                 </geometry>
             </collision>
             <inertial>
@@ -280,13 +255,13 @@
         <link name="${prefix}link7">
             <visual>
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/link7.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/link7.stl" />
                 </geometry>
                 <material name="white" />
             </visual>
             <collision>
                 <geometry>
-                    <mesh filename="package://plato_description/meshes/col7.stl" />
+                    <mesh filename="package://plato_description/urdf/meshes/col7.stl" />
                 </geometry>
             </collision>
             <inertial>
