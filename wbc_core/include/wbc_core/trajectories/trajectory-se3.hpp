@@ -22,7 +22,7 @@
 
 #include <pinocchio/spatial/se3.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace trajectories {
 
 class TrajectorySE3Constant : public TrajectoryBase {
@@ -52,6 +52,6 @@ class TrajectorySE3Constant : public TrajectoryBase {
 };
 
 }  // namespace trajectories
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_trajectory_se3_hpp__

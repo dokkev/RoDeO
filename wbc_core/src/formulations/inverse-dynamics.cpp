@@ -4,7 +4,7 @@
 
 #include "wbc_core/formulations/inverse-dynamics.hpp"
 
-namespace tsid {
+namespace wbc {
 
 TaskLevel::TaskLevel(tasks::TaskBase& task, unsigned int priority)
     : task(task), priority(priority) {}
@@ -24,4 +24,4 @@ MeasuredForceLevel::MeasuredForceLevel(
 bool InverseDynamicsBase::addRigidContact(ContactBase& contact) {
   return addRigidContact(contact, 1e-5);
 }
-}  // namespace tsid
+}  // namespace wbc

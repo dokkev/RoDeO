@@ -1,7 +1,7 @@
 <?xml version="0.06.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:macro name="aristo_ros2_control" params="name fake_hardware='false'">
+    <xacro:macro name="aristo_ros2_control" params="name fake_hardware='false' zeroing='false' actuator_config_yaml_path=''">
                                                 
         <!-- Normalize fake_hardware values so callers can pass true/False, 1/0, or strings -->
         <xacro:property name="use_mock" value="${fake_hardware == 'true' or fake_hardware == 'True' or fake_hardware == '1' or fake_hardware == 1 or fake_hardware == True}"/>
@@ -14,7 +14,11 @@
                     <plugin>mock_components/GenericSystem</plugin>
                 </xacro:if>
                 <xacro:unless value="${use_mock}">
-                    <plugin>plato2_hardware_interface/PLATO2Hardware</plugin>
+                    <plugin>aristo_hardware_interface/AristoHardware</plugin>
+                    <param name="zeroing">${zeroing}</param>
+                    <xacro:if value="${actuator_config_yaml_path != ''}">
+                        <param name="actuator_config_yaml_path">${actuator_config_yaml_path}</param>
+                    </xacro:if>
                 </xacro:unless>
             </hardware>
 

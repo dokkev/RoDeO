@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="plato_naritouch_hand" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="fake_hardware" default="false"/>
+  <xacro:arg name="zeroing" default="false"/>
+
+  <xacro:include filename="$(find plato_description)/urdf/xacro/plato_naritouch_description.xacro"/>
+  <xacro:include filename="$(find plato_description)/urdf/ros2_control/plato.ros2_control.xacro"/>
+
+  <xacro:plato_naritouch_description connector_link="world" xyz="0 0 0" rpy="0 0 0"/>
+  <xacro:plato_ros2_control
+    name="plato_ros2_control"
+    fake_hardware="$(arg fake_hardware)"
+    zeroing="$(arg zeroing)"/>
+
+</robot>

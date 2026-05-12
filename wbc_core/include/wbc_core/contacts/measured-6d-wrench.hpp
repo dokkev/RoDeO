@@ -9,7 +9,7 @@
 
 #include "wbc_core/contacts/measured-force-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 class Measured6Dwrench : public MeasuredForceBase {
  public:
@@ -17,11 +17,11 @@ class Measured6Dwrench : public MeasuredForceBase {
 
   typedef math::Index Index;
   typedef math::Vector6 Vector6;
-  typedef robots::RobotWrapper RobotWrapper;
+  typedef robots::RobotSystem RobotSystem;
   typedef pinocchio::Data Data;
   typedef pinocchio::Data::Matrix6x Matrix6x;
 
-  Measured6Dwrench(const std::string& name, RobotWrapper& robot,
+  Measured6Dwrench(const std::string& name, RobotSystem& robot,
                    const std::string& frameName);
 
   const Vector& computeJointTorques(Data& data) override;
@@ -53,6 +53,6 @@ class Measured6Dwrench : public MeasuredForceBase {
   bool m_local_frame;
 };
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_measured_6d_wrench_hpp__

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<library path="wbc_ros">
+  <class
+    name="wbc_ros/WholeBodyController"
+    type="wbc_ros::WholeBodyController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Generic whole-body controller wrapper without a robot-specific FSM profile.
+    </description>
+  </class>
+</library>

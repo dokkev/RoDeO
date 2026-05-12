@@ -24,20 +24,20 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 */
 
-#include "wbc_core/utils/Stdafx.hh"
-
 #ifndef WIN32
 #include <sys/time.h>
 #else
 #include <Windows.h>
-#include <iomanip>
 #endif
 
+#include <ctime>
 #include <iomanip>  // std::setprecision
+#include <map>
+#include <string>
+
 #include "wbc_core/utils/stop-watch.hpp"
 
 using std::map;
-using std::ostringstream;
 using std::string;
 
 Stopwatch& getProfiler() {

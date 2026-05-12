@@ -4,9 +4,9 @@
 
 #include "wbc_core/contacts/measured-3d-force.hpp"
 
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 
 using namespace std;
@@ -15,7 +15,7 @@ using namespace pinocchio;
 
 typedef pinocchio::Data::Matrix6x Matrix6x;
 
-Measured3Dforce::Measured3Dforce(const std::string& name, RobotWrapper& robot,
+Measured3Dforce::Measured3Dforce(const std::string& name, RobotSystem& robot,
                                  const std::string& frameName)
     : MeasuredForceBase(name, robot), m_frame_name(frameName) {
   assert(m_robot.model().existFrame(frameName));
@@ -65,4 +65,4 @@ void Measured3Dforce::useLocalFrame(bool local_frame) {
 }
 
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc

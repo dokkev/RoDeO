@@ -23,13 +23,13 @@
 #include <wbc_core/formulations/contact-level.hpp>
 #include <memory>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 class TaskContactForce : public TaskBase {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  TaskContactForce(const std::string& name, RobotWrapper& robot);
+  TaskContactForce(const std::string& name, RobotSystem& robot);
 
   using TaskBase::compute;
 
@@ -55,6 +55,6 @@ class TaskContactForce : public TaskBase {
   virtual const std::string& getAssociatedContactName() = 0;
 };
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_contact_force_hpp__

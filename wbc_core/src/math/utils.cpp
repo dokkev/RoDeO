@@ -4,7 +4,7 @@
 
 #include <wbc_core/math/utils.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace math {
 
 void SE3ToXYZQUAT(const pinocchio::SE3& M, RefVector xyzQuat) {
@@ -188,4 +188,4 @@ void nullSpaceBasisFromDecomposition(
 }
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc

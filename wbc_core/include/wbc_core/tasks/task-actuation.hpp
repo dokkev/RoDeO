@@ -20,13 +20,13 @@
 
 #include <wbc_core/tasks/task-base.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 class TaskActuation : public TaskBase {
  public:
-  TaskActuation(const std::string& name, RobotWrapper& robot);
+  TaskActuation(const std::string& name, RobotSystem& robot);
 };
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_actuation_hpp__

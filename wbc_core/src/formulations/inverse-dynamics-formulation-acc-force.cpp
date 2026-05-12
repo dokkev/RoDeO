@@ -7,7 +7,7 @@
 #include "wbc_core/math/constraint-bound.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
 
-using namespace tsid;
+using namespace wbc;
 using namespace math;
 using namespace tasks;
 using namespace contacts;
@@ -33,19 +33,25 @@ InverseDynamicsFormulationAccForce::InverseDynamicsFormulationAccForce(
   m_Jc.setZero(m_k, m_v);
   h_fext.setZero(m_v);
   m_hqpData[0].push_back(
-      solvers::make_pair<double, std::shared_ptr<ConstraintBase> >(
+      solvers::make_pair<double, std::shared_ptr<ConstraintBase>>(
           1.0, m_baseDynamics));
 }
 
-Data& InverseDynamicsFormulationAccForce::data() { return m_data; }
+Data& InverseDynamicsFormulationAccForce::data() {
+  return m_data;
+}
 
 unsigned int InverseDynamicsFormulationAccForce::nVar() const {
   return m_v + m_k;
 }
 
-unsigned int InverseDynamicsFormulationAccForce::nEq() const { return m_eq; }
+unsigned int InverseDynamicsFormulationAccForce::nEq() const {
+  return m_eq;
+}
 
-unsigned int InverseDynamicsFormulationAccForce::nIn() const { return m_in; }
+unsigned int InverseDynamicsFormulationAccForce::nIn() const {
+  return m_in;
+}
 
 void InverseDynamicsFormulationAccForce::resizeHqpData() {
   m_Jc.setZero(m_k, m_v);
@@ -79,8 +85,8 @@ void InverseDynamicsFormulationAccForce::addTask(TaskLevelPointer tl,
   //  else
   //    tl->constraint = new ConstraintBound(c.name(), m_v+m_k);
   m_hqpData[priorityLevel].push_back(
-      make_pair<double, std::shared_ptr<ConstraintBase> >(weight,
-                                                          tl->constraint));
+      make_pair<double, std::shared_ptr<ConstraintBase>>(weight,
+                                                         tl->constraint));
 }
 
 bool InverseDynamicsFormulationAccForce::addMotionTask(
@@ -144,8 +150,8 @@ bool InverseDynamicsFormulationAccForce::addActuationTask(
   }
 
   m_hqpData[priorityLevel].push_back(
-      make_pair<double, std::shared_ptr<ConstraintBase> >(weight,
-                                                          tl->constraint));
+      make_pair<double, std::shared_ptr<ConstraintBase>>(weight,
+                                                         tl->constraint));
 
   return true;
 }
@@ -178,14 +184,14 @@ bool InverseDynamicsFormulationAccForce::addRigidContact(
   cl->motionConstraint = std::make_shared<ConstraintEquality>(
       contact.name() + "_motion_task", motionConstr.rows(), m_v + m_k);
   m_hqpData[motionPriorityLevel].push_back(
-      solvers::make_pair<double, std::shared_ptr<ConstraintBase> >(
+      solvers::make_pair<double, std::shared_ptr<ConstraintBase>>(
           motion_weight, cl->motionConstraint));
 
   const ConstraintInequality& forceConstr = contact.getForceConstraint();
   cl->forceConstraint = std::make_shared<ConstraintInequality>(
       contact.name() + "_force_constraint", forceConstr.rows(), m_v + m_k);
   m_hqpData[0].push_back(
-      solvers::make_pair<double, std::shared_ptr<ConstraintBase> >(
+      solvers::make_pair<double, std::shared_ptr<ConstraintBase>>(
           1.0, cl->forceConstraint));
 
   const ConstraintEquality& forceRegConstr =
@@ -193,7 +199,7 @@ bool InverseDynamicsFormulationAccForce::addRigidContact(
   cl->forceRegTask = std::make_shared<ConstraintEquality>(
       contact.name() + "_force_reg_task", forceRegConstr.rows(), m_v + m_k);
   m_hqpData[1].push_back(
-      solvers::make_pair<double, std::shared_ptr<ConstraintBase> >(
+      solvers::make_pair<double, std::shared_ptr<ConstraintBase>>(
           force_regularization_weight, cl->forceRegTask));
 
   if (motionPriorityLevel == 0) m_eq += motionConstr.rows();
@@ -248,7 +254,8 @@ const HQPData& InverseDynamicsFormulationAccForce::computeProblemData(
   m_t = time;
 
   for (auto it_ct = m_contactTransitions.begin();
-       it_ct != m_contactTransitions.end(); /* advanced inside */) {
+       it_ct != m_contactTransitions.end();
+       /* advanced inside */) {
     auto c = *it_ct;
     assert(c->time_start <= m_t);
     if (m_t <= c->time_end) {
@@ -263,13 +270,13 @@ const HQPData& InverseDynamicsFormulationAccForce::computeProblemData(
     }
   }
 
-  m_robot.update(m_data, q, v);
+  m_robot.computeAllTerms(m_data, q, v);
 
   for (auto cl : m_contacts) {
     unsigned int m = cl->contact.n_force();
 
     const ConstraintBase& mc =
-        cl->contact.computeMotionTask(time, q, v, m_data);
+        cl->contact.computeMotionConstraint(time, q, v, m_data);
     cl->motionConstraint->matrix().leftCols(m_v) = mc.matrix();
     cl->motionConstraint->vector() = mc.vector();
 

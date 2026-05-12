@@ -5,7 +5,7 @@
     type="optimo_controller::OptimoController"
     base_class_type="controller_interface::ControllerInterface">
     <description>
-      Optimo effort controller with Pinocchio gravity compensation.
+      Optimo wrapper for wbc_ros::WholeBodyController with Optimo FSM profile.
     </description>
   </class>
 </library>

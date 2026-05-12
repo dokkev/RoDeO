@@ -10,7 +10,7 @@
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/fwd.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 class MeasuredForceBase {
  public:
@@ -18,9 +18,9 @@ class MeasuredForceBase {
 
   typedef math::Vector Vector;
   typedef pinocchio::Data Data;
-  typedef robots::RobotWrapper RobotWrapper;
+  typedef robots::RobotSystem RobotSystem;
 
-  MeasuredForceBase(const std::string& name, RobotWrapper& robot);
+  MeasuredForceBase(const std::string& name, RobotSystem& robot);
 
   virtual ~MeasuredForceBase() = default;
 
@@ -38,9 +38,9 @@ class MeasuredForceBase {
   std::string m_name;
 
   /// \brief Reference on the robot model.
-  RobotWrapper& m_robot;
+  RobotSystem& m_robot;
 };
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_measured_force_base_hpp__

@@ -21,7 +21,7 @@
   std::cout << #a << "(" << a.rows() << "x" << a.cols() << "):\n" \
             << a.format(math::CleanFmt) << std::endl
 
-namespace tsid {
+namespace wbc {
 template <typename T>
 std::string toString(const T& v) {
   std::stringstream ss;
@@ -46,9 +46,9 @@ std::string toString(const Eigen::MatrixBase<T>& v,
   ss << v;
   return ss.str();
 }
-}  // namespace tsid
+}  // namespace wbc
 
-namespace tsid {
+namespace wbc {
 namespace math {
 static const Eigen::IOFormat CleanFmt(1, 0, ", ", "\n", "[", "]");
 
@@ -176,6 +176,6 @@ bool readMatrixFromFile(const std::string& filename,
 }
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_math_utils_hpp__

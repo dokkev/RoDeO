@@ -11,7 +11,7 @@
 
 #include "wbc_core/formulations/contact-level.hpp"
 
-namespace tsid {
+namespace wbc {
 
 using namespace math;
 
@@ -288,4 +288,4 @@ bool InverseKinematics::buildPostureAccelReference(
   return m_qddotPostureRef.allFinite();
 }
 
-}  // namespace tsid
+}  // namespace wbc

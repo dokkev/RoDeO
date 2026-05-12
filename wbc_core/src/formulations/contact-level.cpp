@@ -4,8 +4,8 @@
 
 #include "wbc_core/formulations/contact-level.hpp"
 
-namespace tsid {
+namespace wbc {
 
 ContactLevel::ContactLevel(contacts::ContactBase& contact) : contact(contact) {}
 
-}  // namespace tsid
+}  // namespace wbc

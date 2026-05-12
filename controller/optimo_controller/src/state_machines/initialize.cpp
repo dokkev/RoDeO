@@ -1,55 +1,58 @@
-/**
- * @file controller/optimo_controller/src/state_machines/initialize.cpp
- * @brief Optimo initialization posture state.
- */
+// Copyright 2024 Roboligent, Inc.
+//
+// Licensed under the Apache License, Version 2.0.
+
 #include "optimo_controller/state_machines/initialize.hpp"
 
-#include <cstdio>
+#include "control_architecture/state_machine/state_util.hpp"
 
-#include "wbc_fsm/state_factory.hpp"
+namespace optimo_controller::state_machines {
+namespace state_util = wbc::state_util;
 
-namespace wbc {
+InitializeState::InitializeState(wbc::StateId id, const std::string& name,
+                                 const wbc::StateContext& ctx)
+    : State(id, name, ctx) {}
 
-Initialize::Initialize(StateId state_id, const std::string& state_name,
-                       const StateMachineConfig& context)
-    : StateMachine(state_id, state_name, context) {}
-
-void Initialize::SetParameters(const YAML::Node& node) {
-  SetCommonParameters(node);
-  SetMotionTask("jpos_task", jpos_task_);
-  zeros_.setZero(jpos_task_->Dim());
-  q_des_ = ParseVectorParam(node, "target_jpos");
-}
-
-void Initialize::FirstVisit() {
-  q_curr_ = robot_->GetJointPos();
-  if (q_des_.size() != q_curr_.size()) q_des_ = q_curr_;
-
-  if (!traj_.SetTrajectory(q_curr_, q_des_, duration_)) {
-    fprintf(stderr, "[Initialize] SetTrajectory failed (duration=%.3f); holding current pose.\n",
-            duration_);
+void InitializeState::Configure(const YAML::Node& node) {
+  State::Configure(node);
+  if (node["task_name"]) {
+    task_name_ = node["task_name"].as<std::string>();
   }
+
+  target_q_ = state_util::ReadOptionalVector(
+      node, "target_jpos", robot_->nq_actuated(), "InitializeState");
+  target_qdot_ = state_util::ReadOptionalVector(
+      node, "target_jvel", robot_->na(), "InitializeState");
+  target_qddot_ = state_util::ReadOptionalVector(
+      node, "target_jacc", robot_->na(), "InitializeState");
+  ref_.resize(static_cast<unsigned int>(robot_->nq_actuated()),
+              static_cast<unsigned int>(robot_->na()));
+  task_ =
+      RequireTask<wbc::tasks::TaskJointPosture>(task_name_, "InitializeState");
 }
 
-void Initialize::OneStep() {
-  if (!traj_.IsFinished()) {
-    traj_.Update(current_time_, jpos_task_);
-    return;
+void InitializeState::OnEnter() {
+  if (target_q_.size() != robot_->nq_actuated()) {
+    target_q_ = state_util::CurrentJointPosition(*robot_);
   }
-  jpos_task_->UpdateDesired(q_des_, zeros_, zeros_);
+  if (target_qdot_.size() != robot_->na()) {
+    target_qdot_ = Eigen::VectorXd::Zero(robot_->na());
+  }
+  if (target_qddot_.size() != robot_->na()) {
+    target_qddot_ = Eigen::VectorXd::Zero(robot_->na());
+  }
+  ApplyReference();
 }
 
-void Initialize::LastVisit() {}
-
-bool Initialize::EndOfState() {
-  return traj_.IsFinished() && StateMachine::EndOfState();
+void InitializeState::OnUpdate() {
+  ApplyReference();
 }
 
-WBC_REGISTER_STATE(
-    "initialize",
-    [](StateId id, const std::string& state_name,
-       const StateMachineConfig& context) -> std::unique_ptr<StateMachine> {
-      return std::make_unique<Initialize>(id, state_name, context);
-    });
+void InitializeState::OnExit() {}
 
-} // namespace wbc
+void InitializeState::ApplyReference() {
+  state_util::SetJointPostureReference(*task_, ref_, target_q_, target_qdot_,
+                                       target_qddot_);
+}
+
+}  // namespace optimo_controller::state_machines

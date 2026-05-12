@@ -15,9 +15,9 @@
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>mujoco_ros2_control</exec_depend>
   <exec_depend>optimo_controller</exec_depend>
+  <exec_depend>wbc_ros</exec_depend>
   <exec_depend>optimo_description</exec_depend>
-  <exec_depend>plato_controller</exec_depend>
-  <exec_depend>plato_description</exec_depend>
+  <exec_depend>whole_body_description</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
@@ -27,6 +27,7 @@
   <test_depend>controller_manager</test_depend>
   <test_depend>wbc_msgs</test_depend>
   <test_depend>optimo_controller</test_depend>
+  <test_depend>wbc_ros</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

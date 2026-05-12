@@ -24,7 +24,7 @@
 #include "wbc_core/math/constraint-equality.hpp"
 #include "wbc_core/formulations/inverse-dynamics.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskCopEquality : public TaskContactForce {
@@ -38,7 +38,7 @@ class TaskCopEquality : public TaskContactForce {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::SE3 SE3;
 
-  TaskCopEquality(const std::string& name, RobotWrapper& robot);
+  TaskCopEquality(const std::string& name, RobotSystem& robot);
 
   void setContactList(
       const std::vector<std::shared_ptr<ContactLevel> >* contacts);
@@ -73,6 +73,6 @@ class TaskCopEquality : public TaskContactForce {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_com_equality_hpp__

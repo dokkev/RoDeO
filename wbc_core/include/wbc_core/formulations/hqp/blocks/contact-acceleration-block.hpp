@@ -20,7 +20,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class ContactConsistencyConstraint : public HQPBlock {
  public:
@@ -60,6 +60,6 @@ class ContactConsistencyConstraint : public HQPBlock {
   }
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif

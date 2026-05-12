@@ -6,11 +6,11 @@
 #define __invdyn_solvers_hqp_factory_hpp__
 
 #include <wbc_core/solvers/solver-HQP-base.hpp>
+#include <wbc_core/solvers/solver-HQP-eiquadprog-rt.hpp>
 
-#include <memory>
 #include <pinocchio/macros.hpp>  // for input argument checking and exceptions
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 struct SolverHQPFactory {
@@ -20,25 +20,25 @@ struct SolverHQPFactory {
    * @param solverType Type of HQP solver.
    * @param name Name of the solver.
    *
-   * @return A unique_ptr to the new solver.
+   * @return A pointer to the new solver.
    */
-  static std::unique_ptr<SolverHQPBase> createNewSolver(
-      const SolverHQP solverType, const std::string& name);
+  static SolverHQPBase* createNewSolver(const SolverHQP solverType,
+                                        const std::string& name);
 
   /**
-   * @brief Create a new HQP solver of the specified type (compile-time sized).
+   * @brief Create a new HQP solver of the specified type.
    *
    * @param solverType Type of HQP solver.
    * @param name Name of the solver.
    *
-   * @return A unique_ptr to the new solver.
+   * @return A pointer to the new solver.
    */
   template <int nVars, int nEqCon, int nIneqCon>
-  static std::unique_ptr<SolverHQPBase> createNewSolver(
-      const SolverHQP solverType, const std::string& name);
+  static SolverHQPBase* createNewSolver(const SolverHQP solverType,
+                                        const std::string& name);
 };
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_factory_hpp__

@@ -5,7 +5,7 @@
 #ifndef __solvers_qpdata_hpp__
 #define __solvers_qpdata_hpp__
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 template <typename scalar_>
@@ -38,6 +38,6 @@ struct QPDataQuadProgTpl : QPDataBaseTpl<scalar_> {
   Vector ci0;  // stack of lower and upper bounds
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __solvers_qpdata_hpp__

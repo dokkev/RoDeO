@@ -7,8 +7,8 @@
 #include "eiquadprog/eiquadprog.hpp"
 #include "wbc_core/utils/stop-watch.hpp"
 
-using namespace tsid::math;
-using namespace tsid::solvers;
+using namespace wbc::math;
+using namespace wbc::solvers;
 using namespace Eigen;
 
 SolverHQuadProg::SolverHQuadProg(const std::string& name)
@@ -158,7 +158,7 @@ void SolverHQuadProg::retrieveQPData(const HQPData& problemData,
     //	Z = m_qpData.CE_dec.matrixZ(); // * m_qpData.CE_dec.colsPermutation();
     ZT.setIdentity();
     // m_qpData.CE_dec.applyZAdjointOnTheLeftInPlace(ZT);
-    typedef tsid::math::Index Index;
+    typedef wbc::math::Index Index;
     const Index rank = m_qpData.CE_dec.rank();
     Vector temp(m_n);
     for (Index k = 0; k < rank; ++k) {

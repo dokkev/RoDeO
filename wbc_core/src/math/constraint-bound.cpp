@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <wbc_core/math/constraint-bound.hpp>
 
-using namespace tsid::math;
+using namespace wbc::math;
 
 ConstraintBound::ConstraintBound(const std::string& name)
     : ConstraintBase(name) {}

@@ -27,7 +27,9 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef __invdyn_stopwatch_H__
 #define __invdyn_stopwatch_H__
 
-#include "wbc_core/utils/Stdafx.hh"
+#include <iostream>
+#include <map>
+#include <string>
 
 #ifndef WIN32
 /* The classes below are exported */

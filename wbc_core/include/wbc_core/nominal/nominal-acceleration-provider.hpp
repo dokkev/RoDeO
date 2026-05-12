@@ -1,7 +1,7 @@
 //
 // Copyright (c) 2026
 //
-// External nominal acceleration interface for final-form WBMC.
+// External nominal acceleration interface for final-form IDHQP.
 //
 
 #ifndef __wbc_nominal_nominal_acceleration_provider_hpp__
@@ -9,7 +9,7 @@
 
 #include "wbc_core/math/fwd.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace nominal {
 
 struct NominalAccelerationContext {
@@ -29,6 +29,6 @@ class NominalAccelerationProvider {
 };
 
 }  // namespace nominal
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_nominal_nominal_acceleration_provider_hpp__

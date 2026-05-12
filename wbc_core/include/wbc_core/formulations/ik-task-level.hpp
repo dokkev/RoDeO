@@ -4,7 +4,7 @@
 // Legacy IK-stage task metadata.
 //
 // This header exists only for the staged IK formulation used by the old
-// redundancy-resolution path. Final-form WBMC runtime code should not depend on
+// redundancy-resolution path. Final-form IDHQP runtime code should not depend on
 // these types.
 //
 
@@ -13,7 +13,7 @@
 
 #include "wbc_core/tasks/task-base.hpp"
 
-namespace tsid {
+namespace wbc {
 
 enum class IKMode {
   kPreserve,
@@ -37,6 +37,6 @@ struct IKTaskLevel {
         ik_mode(ik_mode) {}
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_formulations_ik_task_level_hpp__

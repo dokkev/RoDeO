@@ -23,7 +23,7 @@
 #include "wbc_core/trajectories/trajectory-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskComEquality : public TaskMotion {
@@ -36,7 +36,7 @@ class TaskComEquality : public TaskMotion {
   typedef math::Vector3 Vector3;
   typedef math::ConstraintEquality ConstraintEquality;
 
-  TaskComEquality(const std::string& name, RobotWrapper& robot);
+  TaskComEquality(const std::string& name, RobotSystem& robot);
 
   int dim() const override;
 
@@ -80,6 +80,6 @@ class TaskComEquality : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_com_equality_hpp__

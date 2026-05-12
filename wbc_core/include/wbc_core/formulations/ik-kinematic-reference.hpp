@@ -9,7 +9,7 @@
 
 #include "wbc_core/math/fwd.hpp"
 
-namespace tsid {
+namespace wbc {
 
 struct IKKinematicReference {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -17,6 +17,6 @@ struct IKKinematicReference {
   math::Vector jvelRef;
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_formulations_ik_kinematic_reference_hpp__

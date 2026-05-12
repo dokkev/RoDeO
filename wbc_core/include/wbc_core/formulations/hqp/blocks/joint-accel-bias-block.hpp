@@ -13,7 +13,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class JointAccelerationBias : public HQPBlock {
  public:
@@ -57,6 +57,6 @@ class JointAccelerationBias : public HQPBlock {
   const math::Vector* m_qddot_bias{nullptr};
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_hqp_blocks_joint_accel_bias_block_hpp__

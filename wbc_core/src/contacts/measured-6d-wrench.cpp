@@ -4,16 +4,16 @@
 
 #include "wbc_core/contacts/measured-6d-wrench.hpp"
 
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 
 using namespace std;
 using namespace math;
 using namespace pinocchio;
 
-Measured6Dwrench::Measured6Dwrench(const std::string& name, RobotWrapper& robot,
+Measured6Dwrench::Measured6Dwrench(const std::string& name, RobotSystem& robot,
                                    const std::string& frameName)
     : MeasuredForceBase(name, robot), m_frame_name(frameName) {
   assert(m_robot.model().existFrame(frameName));
@@ -60,4 +60,4 @@ void Measured6Dwrench::useLocalFrame(bool local_frame) {
 }
 
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc

@@ -14,6 +14,7 @@
   ros__parameters:
     wbc_yaml_path: package://optimo_controller/config/optimo_wbc.yaml
     is_simulation: false
+    actuator_model: direct
     joints:
       - optimo_joint1
       - optimo_joint2

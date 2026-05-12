@@ -3,16 +3,16 @@
 //
 
 #include <wbc_core/tasks/task-joint-posture.hpp>
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 #include <pinocchio/algorithm/joint-configuration.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
-TaskJointPosture::TaskJointPosture(const std::string& name, RobotWrapper& robot)
+TaskJointPosture::TaskJointPosture(const std::string& name, RobotSystem& robot)
     : TaskMotion(name, robot),
       m_ref(robot.nq_actuated(), robot.na()),
       m_constraint(name, robot.na(), robot.nv()) {
@@ -139,4 +139,4 @@ const ConstraintBase& TaskJointPosture::compute(const double, ConstRefVector q,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

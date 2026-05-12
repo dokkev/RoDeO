@@ -4,7 +4,7 @@
 
 #include <wbc_core/tasks/task-capture-point-inequality.hpp>
 #include "wbc_core/math/utils.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
 /** This class has been implemented following :
  * Ramos, O. E., Mansard, N., & Soueres, P.
@@ -12,14 +12,14 @@
  * Space Inverse Dynamics Control. In IEEE-RAS International Conference on
  * Humanoid Robots (Humanoids).
  */
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
 TaskCapturePointInequality::TaskCapturePointInequality(const std::string& name,
-                                                       RobotWrapper& robot,
+                                                       RobotSystem& robot,
                                                        const double timeStep)
     : TaskMotion(name, robot),
       m_constraint(name, 2, robot.nv()),
@@ -117,4 +117,4 @@ const ConstraintBase& TaskCapturePointInequality::compute(const double,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

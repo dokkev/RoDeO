@@ -1,0 +1,63 @@
+grasp:
+  normal_force_window:
+    min_n: 0.5
+    max_n: 2.5
+    under_weight: 20.0
+    over_weight: 40.0
+    use_object_weight_lower_bound: true
+    weight_safety_factor: 1.5
+
+  friction_margin:
+    enabled: true
+    weight: 20.0
+    mu_nominal: 0.35
+    mu_min: 0.2
+    required_force_weight: 10.0
+
+  tangential_load_proxy:
+    gravity_weight: 1.0
+    # Pinocchio contact velocity is not in the first grasp pass.
+    motion_weight: 0.0
+    slip_weight: 3.0
+    force_spike_weight: 5.0
+
+  normal_force_proxy:
+    closing_force_gain: 1.0
+    opening_force_gain: 1.0
+    max_force_n: 5.0
+
+  tactile_prediction:
+    # Predict which local NariTouch hemispheres belong to the contact patch.
+    force_per_node_n: 0.4
+    slip_decay: 0.9
+    slip_margin_gain_per_n: 0.2
+    centroid_drift_gain_m_per_n: 0.0005
+
+  slip_risk:
+    threshold: 0.25
+    weight: 4.0
+    # Derived from d(shear_displacement)/dt in the ROS adapter. Keep small
+    # until NariTouch units/noise are calibrated on hardware.
+    velocity_weight: 0.0
+
+  contact_centroid:
+    enabled: true
+    boundary_weight: 20.0
+    x_min: -0.008
+    x_max: 0.008
+    y_min: -0.008
+    y_max: 0.008
+
+  tracking_guard:
+    weight: 5.0
+    action_scale_weight: 20.0
+
+  action_smoothness:
+    weight: 1.0
+
+  joint_limit:
+    weight: 10.0
+
+  action:
+    # Plato MPPI v1 controls [joint3, joint4, joint5, joint6].
+    closing_direction: [-1.0, -1.0, 1.0, 1.0]

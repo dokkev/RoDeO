@@ -18,7 +18,7 @@
 #include <stdexcept>
 #include <wbc_core/math/constraint-equality.hpp>
 
-using namespace tsid::math;
+using namespace wbc::math;
 
 ConstraintEquality::ConstraintEquality(const std::string& name)
     : ConstraintBase(name) {}

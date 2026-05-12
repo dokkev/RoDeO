@@ -6,14 +6,14 @@
 #include <pinocchio/multibody/model.hpp>
 #include "wbc_core/tasks/task-contact-force-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
-using namespace tsid::math;
+using namespace wbc::math;
 using namespace std;
 
 TaskContactForceEquality::TaskContactForceEquality(
-    const std::string& name, RobotWrapper& robot, const double dt,
+    const std::string& name, RobotSystem& robot, const double dt,
     contacts::ContactBase& contact)
     : TaskContactForce(name, robot),
       m_contact(&contact),
@@ -135,4 +135,4 @@ const ConstraintBase& TaskContactForceEquality::getConstraint() const {
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

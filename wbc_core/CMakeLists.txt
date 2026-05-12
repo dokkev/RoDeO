@@ -13,23 +13,22 @@ find_package(ament_cmake REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
-find_package(eiquadprog REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(proxsuite REQUIRED)
+find_package(eiquadprog REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
 set(wbc_solver_sources
   src/solvers/solver-HQP-base.cpp
   src/solvers/solver-HQP-factory.cpp
+  src/solvers/solver-HQP-cascade.cpp
   src/solvers/solver-HQP-eiquadprog.cpp
   src/solvers/solver-HQP-eiquadprog-fast.cpp
-  src/solvers/solver-HQP-cascade.cpp
+  src/solvers/solver-qp-params.cpp
   src/solvers/utils.cpp
   src/solvers/solver-proxqp.cpp
 )
 
 set(${PROJECT_NAME}_SOURCES
-  src/utils/statistics.cpp
   src/utils/stop-watch.cpp
   src/utils/math_util.cpp
   src/math/constraint-base.cpp
@@ -65,22 +64,13 @@ set(${PROJECT_NAME}_SOURCES
   src/trajectories/interpolation.cpp
   src/trajectories/joint_integrator.cpp
   ${wbc_solver_sources}
-  src/robots/robot-wrapper.cpp
+  src/robots/robot-system.cpp
   src/formulations/contact-level.cpp
   src/formulations/inverse-dynamics.cpp
   src/formulations/inverse-kinematics.cpp
   src/formulations/inverse-dynamics-formulation-acc-force.cpp
-  src/controller/wbmc.cpp
-  src/runtime/config_loader.cpp
-  src/runtime/config_compiler.cpp
-  src/runtime/config_validator.cpp
-  src/runtime/runtime_assembler.cpp
-  src/architecture/control_architecture.cpp
-  src/architecture/states/initialize_state.cpp
-  src/architecture/states/cartesian_teleop_state.cpp
-  src/architecture/states/joint_teleop_state.cpp
+  src/controller/id-hqp.cpp
   src/utils/ros_path_utils.cpp
-  src/handlers/manipulability_handler.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${${PROJECT_NAME}_SOURCES})
@@ -89,8 +79,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-
-target_compile_definitions(${PROJECT_NAME} PUBLIC TSID_WITH_PROXSUITE)
 
 set(proxsuite_interface proxsuite::proxsuite)
 if(TARGET proxsuite::proxsuite-vectorized)
@@ -101,9 +89,8 @@ target_link_libraries(${PROJECT_NAME}
   PUBLIC
     Eigen3::Eigen
     pinocchio::pinocchio
-    eiquadprog::eiquadprog
-    yaml-cpp
     ${proxsuite_interface}
+    eiquadprog::eiquadprog
   PRIVATE
     ament_index_cpp::ament_index_cpp
 )
@@ -128,22 +115,15 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
 
-  # Path to TSID model files (romeo, quadruped)
-  set(TSID_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tsid/models")
+  # Path to local TSID model files (romeo, quadruped).
+  set(TSID_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tsid/models")
 
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_formulation_wbmc test/test-formulation-wbmc.cpp)
-  target_link_libraries(test_formulation_wbmc ${PROJECT_NAME})
-  target_compile_definitions(test_formulation_wbmc PRIVATE
+  ament_add_gtest(test_id_hqp test/test-id-hqp.cpp)
+  target_link_libraries(test_id_hqp ${PROJECT_NAME})
+  target_compile_definitions(test_id_hqp PRIVATE
     TSID_MODEL_DIR="${TSID_MODEL_DIR}")
-  set_tests_properties(test_formulation_wbmc PROPERTIES
-    ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
-
-  ament_add_gtest(test_architecture test/test-architecture.cpp)
-  target_link_libraries(test_architecture ${PROJECT_NAME})
-  target_compile_definitions(test_architecture PRIVATE
-    TSID_MODEL_DIR="${TSID_MODEL_DIR}")
-  set_tests_properties(test_architecture PROPERTIES
+  set_tests_properties(test_id_hqp PROPERTIES
     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
 
   ament_add_gtest(test_wbc_solver_semantics test/test-wbc-solver-semantics.cpp)
@@ -152,6 +132,9 @@ if(BUILD_TESTING)
     TSID_MODEL_DIR="${TSID_MODEL_DIR}")
   set_tests_properties(test_wbc_solver_semantics PROPERTIES
     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
+
+  ament_add_gtest(test_solver_baselines test/test-solver-baselines.cpp)
+  target_link_libraries(test_solver_baselines ${PROJECT_NAME})
 endif()
 
 ament_export_include_directories(include)
@@ -161,8 +144,8 @@ set(wbc_export_dependencies
   eigen3_cmake_module
   Eigen3
   pinocchio
-  eiquadprog
   proxsuite
+  eiquadprog
   ament_index_cpp
 )
 ament_export_dependencies(${wbc_export_dependencies})

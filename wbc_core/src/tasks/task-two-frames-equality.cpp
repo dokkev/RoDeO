@@ -4,9 +4,9 @@
 
 #include "wbc_core/math/utils.hpp"
 #include "wbc_core/tasks/task-two-frames-equality.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace std;
 using namespace math;
@@ -14,7 +14,7 @@ using namespace trajectories;
 using namespace pinocchio;
 
 TaskTwoFramesEquality::TaskTwoFramesEquality(const std::string& name,
-                                             RobotWrapper& robot,
+                                             RobotSystem& robot,
                                              const std::string& frameName1,
                                              const std::string& frameName2)
     : TaskMotion(name, robot),
@@ -165,4 +165,4 @@ const ConstraintBase& TaskTwoFramesEquality::compute(const double,
   return m_constraint;
 }
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

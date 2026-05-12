@@ -5,11 +5,11 @@
 #ifndef __invdyn_robots_fwd_hpp__
 #define __invdyn_robots_fwd_hpp__
 
-namespace tsid {
+namespace wbc {
 namespace robots {
+struct RobotState;
 class RobotSystem;
-using RobotWrapper = RobotSystem;
 }
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_robots_fwd_hpp__

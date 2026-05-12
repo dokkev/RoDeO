@@ -21,8 +21,11 @@
 #include "wbc_core/tasks/task-base.hpp"
 #include "wbc_core/trajectories/trajectory-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
+
+// TSID-style abstract primitive for tasks that produce motion constraints.
+// HQP-specific wrappers live under formulations/hqp/blocks.
 class TaskMotion : public TaskBase {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -30,7 +33,7 @@ class TaskMotion : public TaskBase {
   typedef math::Vector Vector;
   typedef trajectories::TrajectorySample TrajectorySample;
 
-  TaskMotion(const std::string& name, RobotWrapper& robot);
+  TaskMotion(const std::string& name, RobotSystem& robot);
 
   virtual const TrajectorySample& getReference() const;
 
@@ -55,6 +58,6 @@ class TaskMotion : public TaskBase {
   trajectories::TrajectorySample TrajectorySample_dummy;
 };
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_motion_hpp__

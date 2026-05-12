@@ -6,11 +6,10 @@
 #include "wbc_core/math/utils.hpp"
 #include "wbc_core/utils/stop-watch.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 using namespace math;
-using namespace proxsuite::proxqp;
 SolverProxQP::SolverProxQP(const std::string& name)
     : SolverHQPBase(name),
       m_hessian_regularization(DEFAULT_HESSIAN_REGULARIZATION),
@@ -37,26 +36,26 @@ void SolverProxQP::resize(unsigned int n, unsigned int neq, unsigned int nin) {
   const bool resizeIn = (resizeVar || nin != m_nin);
 
   if (resizeEq) {
-#ifndef NDEBUG
+    if (m_isVerbose) {
     sendMsg("Resizing equality constraints from " + toString(m_neq) + " to " +
             toString(neq));
-#endif
+    }
     m_qpData.CE.resize(neq, n);
     m_qpData.ce0.resize(neq);
   }
   if (resizeIn) {
-#ifndef NDEBUG
+    if (m_isVerbose) {
     sendMsg("Resizing inequality constraints from " + toString(m_nin) + " to " +
             toString(nin));
-#endif
+    }
     m_qpData.CI.resize(nin, n);
     m_qpData.ci_lb.resize(nin);
     m_qpData.ci_ub.resize(nin);
   }
   if (resizeVar) {
-#ifndef NDEBUG
+    if (m_isVerbose) {
     sendMsg("Resizing Hessian from " + toString(m_n) + " to " + toString(n));
-#endif
+    }
     m_qpData.H.resize(n, n);
     m_qpData.g.resize(n);
     m_output.x.resize(n);
@@ -68,7 +67,6 @@ void SolverProxQP::resize(unsigned int n, unsigned int neq, unsigned int nin) {
 
   if (resizeVar || resizeEq || resizeIn) {
     m_solver = dense::QP<double>(m_n, m_neq, m_nin);
-    m_initialized = false;
     setMaximumIterations(m_maxIter);
     setMuInequality(m_muIn);
     setMuEquality(m_muEq);
@@ -76,9 +74,6 @@ void SolverProxQP::resize(unsigned int n, unsigned int neq, unsigned int nin) {
     setEpsilonAbsolute(m_epsAbs);
     setEpsilonRelative(m_epsRel);
     setVerbose(m_isVerbose);
-#ifndef NDEBUG
-    setVerbose(true);
-#endif
   }
 }
 
@@ -157,6 +152,7 @@ void SolverProxQP::retrieveQPData(const HQPData& problemData,
     }
 
     if (hessianRegularization) {
+      double m_hessian_regularization(DEFAULT_HESSIAN_REGULARIZATION);
       m_qpData.H.diagonal().array() += m_hessian_regularization;
     }
   }
@@ -173,16 +169,8 @@ const HQPOutput& SolverProxQP::solve(const HQPData& problemData) {
 
   EIGEN_MALLOC_ALLOWED
 
-  if (!m_initialized) {
-    m_solver.init(m_qpData.H, m_qpData.g, m_qpData.CE, m_qpData.ce0, m_qpData.CI,
-                  m_qpData.ci_lb, m_qpData.ci_ub);
-    m_solver.settings.initial_guess =
-        proxsuite::proxqp::InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT;
-    m_initialized = true;
-  } else {
-    m_solver.update(m_qpData.H, m_qpData.g, m_qpData.CE, m_qpData.ce0, m_qpData.CI,
-                    m_qpData.ci_lb, m_qpData.ci_ub);
-  }
+  m_solver.init(m_qpData.H, m_qpData.g, m_qpData.CE, m_qpData.ce0, m_qpData.CI,
+                m_qpData.ci_lb, m_qpData.ci_ub);
 
   m_solver.solve();
   STOP_PROFILER_PROXQP("PROFILE_PROXQP_SOLUTION");
@@ -232,8 +220,6 @@ const HQPOutput& SolverProxQP::solve(const HQPData& problemData) {
     m_output.status = HQP_STATUS_MAX_ITER_REACHED;
   else if (status == QPSolverOutput::PROXQP_DUAL_INFEASIBLE)
     m_output.status = HQP_STATUS_INFEASIBLE;
-  else
-    m_output.status = HQP_STATUS_UNKNOWN;
 
   return m_output;
 }
@@ -273,4 +259,4 @@ void SolverProxQP::setVerbose(bool isVerbose) {
   m_solver.settings.verbose = m_isVerbose;
 }
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc

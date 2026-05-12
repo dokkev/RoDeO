@@ -1,0 +1,17 @@
+offsets:
+  - name: thumb_roll
+    offset: 0
+  - name: thumb_yaw
+    offset: 0
+  - name: thumb_mcp
+    offset: -0.462920189
+  - name: thumb_pip
+    offset: 9.66868782
+  - name: index_mcp
+    offset: 6.02635956
+  - name: index_pip
+    offset: 6.81219864
+  - name: middle_mcp
+    offset: 1.1903944
+  - name: middle_pip
+    offset: 6.30979538

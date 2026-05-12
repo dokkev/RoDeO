@@ -22,7 +22,7 @@
 #include <wbc_core/trajectories/trajectory-base.hpp>
 #include <wbc_core/math/constraint-inequality.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskActuationBounds : public TaskActuation {
@@ -36,7 +36,7 @@ class TaskActuationBounds : public TaskActuation {
   typedef math::ConstraintInequality ConstraintInequality;
   typedef pinocchio::Data Data;
 
-  TaskActuationBounds(const std::string& name, RobotWrapper& robot);
+  TaskActuationBounds(const std::string& name, RobotSystem& robot);
 
   int dim() const override;
 
@@ -59,6 +59,6 @@ class TaskActuationBounds : public TaskActuation {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_actuation_bounds_hpp__

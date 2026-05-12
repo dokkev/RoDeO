@@ -4,13 +4,13 @@
 
 #include "wbc_core/tasks/task-cop-equality.hpp"
 
-using namespace tsid::math;
+using namespace wbc::math;
 using namespace std;
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
-TaskCopEquality::TaskCopEquality(const std::string& name, RobotWrapper& robot)
+TaskCopEquality::TaskCopEquality(const std::string& name, RobotSystem& robot)
     : TaskContactForce(name, robot),
       m_contact_name(""),
       m_constraint(name, 3, 3) {
@@ -87,4 +87,4 @@ void TaskCopEquality::setContactNormal(const Vector3& n) { m_normal = n; }
 const Vector3& TaskCopEquality::getContactNormal() const { return m_normal; }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

@@ -4,7 +4,7 @@
 
 #include <wbc_core/trajectories/trajectory-euclidian.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace trajectories {
 
 TrajectoryEuclidianConstant::TrajectoryEuclidianConstant(
@@ -42,4 +42,4 @@ void TrajectoryEuclidianConstant::getLastSample(
 bool TrajectoryEuclidianConstant::has_trajectory_ended() const { return true; }
 
 }  // namespace trajectories
-}  // namespace tsid
+}  // namespace wbc

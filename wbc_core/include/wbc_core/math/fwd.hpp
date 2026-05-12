@@ -15,7 +15,7 @@
 #define EIGEN_MALLOC_NOT_ALLOWED
 #endif
 
-namespace tsid {
+namespace wbc {
 namespace math {
 
 typedef double Scalar;
@@ -46,6 +46,6 @@ class ConstraintInequality;
 class ConstraintBound;
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_math_fwd_hpp__

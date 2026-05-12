@@ -24,7 +24,7 @@
 
 #include "eiquadprog/eiquadprog-rt.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 /**
  * @brief
@@ -90,6 +90,6 @@ class TSID_DLLAPI SolverHQuadProgRT : public SolverHQPBase {
   int m_n;    /// number of variables
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_eiquadprog_rt_hpp__

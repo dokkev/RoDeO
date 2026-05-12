@@ -7,13 +7,13 @@
 
 #include <pinocchio/spatial/skew.hpp>
 
-using namespace tsid;
+using namespace wbc;
 using namespace contacts;
 using namespace math;
 using namespace trajectories;
 using namespace tasks;
 
-Contact6d::Contact6d(const std::string& name, RobotWrapper& robot,
+Contact6d::Contact6d(const std::string& name, RobotSystem& robot,
                      const std::string& frameName, ConstRefMatrix contactPoints,
                      ConstRefVector contactNormal,
                      const double frictionCoefficient,
@@ -30,7 +30,7 @@ Contact6d::Contact6d(const std::string& name, RobotWrapper& robot,
   this->init();
 }
 
-Contact6d::Contact6d(const std::string& name, RobotWrapper& robot,
+Contact6d::Contact6d(const std::string& name, RobotSystem& robot,
                      const std::string& frameName, ConstRefMatrix contactPoints,
                      ConstRefVector contactNormal,
                      const double frictionCoefficient,
@@ -101,7 +101,8 @@ double Contact6d::getNormalForce(ConstRefVector f) const {
       f.size() == n_force(),
       "f needs to contain " + std::to_string(n_force()) + " rows");
   double n = 0.0;
-  for (int i = 0; i < 4; i++) n += m_contactNormal.dot(f.segment<3>(i * 3));
+  for (int i = 0; i < 4; i++)
+    n += m_contactNormal.dot(f.segment<3>(i * 3));
   return n;
 }
 
@@ -128,13 +129,25 @@ void Contact6d::updateForceGeneratorMatrix() {
   }
 }
 
-unsigned int Contact6d::n_motion() const { return 6; }
-unsigned int Contact6d::n_force() const { return 12; }
+unsigned int Contact6d::n_motion() const {
+  return 6;
+}
+unsigned int Contact6d::n_force() const {
+  return 12;
+}
 
-const Vector& Contact6d::Kp() const { return m_motionTask.Kp(); }
-const Vector& Contact6d::Kd() const { return m_motionTask.Kd(); }
-void Contact6d::Kp(ConstRefVector Kp) { m_motionTask.Kp(Kp); }
-void Contact6d::Kd(ConstRefVector Kd) { m_motionTask.Kd(Kd); }
+const Vector& Contact6d::Kp() const {
+  return m_motionTask.Kp();
+}
+const Vector& Contact6d::Kd() const {
+  return m_motionTask.Kd();
+}
+void Contact6d::Kp(ConstRefVector Kp) {
+  m_motionTask.Kp(Kp);
+}
+void Contact6d::Kd(ConstRefVector Kd) {
+  m_motionTask.Kd(Kd);
+}
 
 bool Contact6d::setContactPoints(ConstRefMatrix contactPoints) {
   PINOCCHIO_CHECK_INPUT_ARGUMENT(contactPoints.rows() == 3,
@@ -147,7 +160,9 @@ bool Contact6d::setContactPoints(ConstRefMatrix contactPoints) {
   return true;
 }
 
-const Matrix3x& Contact6d::getContactPoints() const { return m_contactPoints; }
+const Matrix3x& Contact6d::getContactPoints() const {
+  return m_contactPoints;
+}
 
 bool Contact6d::setContactNormal(ConstRefVector contactNormal) {
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
@@ -197,12 +212,14 @@ void Contact6d::setForceReference(ConstRefVector& f_ref) {
   updateForceRegularizationTask();
 }
 
-void Contact6d::setReference(const SE3& ref) { m_motionTask.setReference(ref); }
+void Contact6d::setReference(const SE3& ref) {
+  m_motionTask.setReference(ref);
+}
 
-const ConstraintBase& Contact6d::computeMotionTask(const double t,
-                                                   ConstRefVector q,
-                                                   ConstRefVector v,
-                                                   Data& data) {
+const ConstraintBase& Contact6d::computeMotionConstraint(const double t,
+                                                         ConstRefVector q,
+                                                         ConstRefVector v,
+                                                         Data& data) {
   return m_motionTask.compute(t, q, v, data);
 }
 
@@ -222,10 +239,16 @@ const ConstraintEquality& Contact6d::computeForceRegularizationTask(
   return m_forceRegTask;
 }
 
-double Contact6d::getMinNormalForce() const { return m_fMin; }
-double Contact6d::getMaxNormalForce() const { return m_fMax; }
+double Contact6d::getMinNormalForce() const {
+  return m_fMin;
+}
+double Contact6d::getMaxNormalForce() const {
+  return m_fMax;
+}
 
-const TaskSE3Equality& Contact6d::getMotionTask() const { return m_motionTask; }
+const TaskSE3Equality& Contact6d::getMotionTask() const {
+  return m_motionTask;
+}
 
 const ConstraintBase& Contact6d::getMotionConstraint() const {
   return m_motionTask.getConstraint();

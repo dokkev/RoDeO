@@ -1,90 +1,51 @@
 # =============================================================
 # Optimo WBC Configuration
 # =============================================================
+# Runtime flow:
+#   YAML -> ConfigLoader -> ConfigCompiler -> RuntimeAssembler
+#        -> ControlArchitecture -> IDProblemRegistry -> IDHQP
+#
+# YAML defines static structure and state-machine references. The ROS controller
+# only selects states; active states own their task references from params.
 
-# [ WBMC (Whole-Body Motion Control) Formulation ]
-# Decision Variables (x): [delta_qddot, lambda]^T
-#
-# minimize:
-#      0.5 * delta_qddot^T * w_qddot * delta_qddot                     (nominal stay-close)
-#    + 0.5 * lambda^T * w_rf * lambda                                  (contact-force regularization)
-#    + 0.5 * || tau ||^2_{w_tau}                                       (Torque minimization)
-#    + 0.5 * || tau - tau_prev ||^2_{w_tau_dot}                        (Torque rate smoothing)
-#    + 0.5 * || Jc*(qddot_nom + delta_qddot) + JcDotQdot ||^2_{w_xc_ddot}  (contact consistency reg)
-#    + 0.5 * || lambda - lambda_prev ||^2_{w_f_dot}                    (force rate smoothing)
-#
-# subject to:
-#    [Equality]
-#      Sf * (M*(qddot_nom + delta_qddot) + h - Jc^T*lambda) = 0        (Floating-base EOM)
-#       or
-#      M*(qddot_nom + delta_qddot) + c + g - Jc^T*lambda = tau_cmd      (Fixed-base EOM)
-#
-#    [Inequality] (Hard Constraints)
-#      Uf * lambda >= 0                                                       (Friction cone)
-#      A_kin * (qddot_nom + delta_qddot) <= b_kin                             (Kinematic limits)
-#      tau_min <= tau <= tau_max                                              (Torque limits)
-#
-# Final Command:
-#    tau_wbc = M*(qddot_nom + delta_qddot) + h - Jc^T*lambda
+schema: "wbc_control_architecture/v1"
 
-# 1. Robot model (URDF)
 robot_model:
   urdf_path: "package://optimo_description/urdf/optimo.urdf"
   is_floating_base: false
+  base_frame: "optimo_base_link"
 
-
-
-# 2. Controller Settings
 controller:
-  # Final-form WBMC is nominal-centered strict-priority HQP.
-  # kp_acc / kd_acc are retained for upstream references/handlers as needed.
-  ik_method: "external_nominal"
+  dt: 0.001
+  qddot_ref: false
   kp_acc: 60.0
   kd_acc: 3.0
 
+# IDHQP always builds a cascade. This field only selects the inner QP backend.
+solver:
+  type: SOLVER_HQP_PROXQP
+  qp_params:
+    max_iter: 1000
+    rho: 1.0e-6
+    mu_eq: 1.0e-3
+    mu_ineq: 1.0e-1
+    eps_abs: 1.0e-5
+    eps_rel: 0.0
+    verbose: false
 
-# 3. QP Regularization weights
-# Regularization terms are used to penalize undesirable solutions and improve numerical stability. 
 regularization:
-  w_qddot: 0.01                 # posture regularization: suppresses low-weight operational tasks
-                                # 0.01 → λ=100 for init/home (w_ee=1e-6, 0.0025% gain, completely suppressed)
-                                #       → λ=0.03 for cartesian_teleop (w_ee=10, 99.6% gain, near-perfect tracking)
-  w_tau: 0.0                    # torque minimization
-  w_tau_dot: 0.0               # torque rate of change smoothing
-  w_rf: 1.0e-4                 # delta_rf tracking (contact only)
-  w_xc_ddot: 1.0e-3            # contact acceleration minimization (contact only)
-  w_f_dot: 1.0e-3              # reaction force rate smoothing (contact only)
+  w_delta_qddot: 0.01
+  w_lambda: 1.0e-4
+  w_xc_ddot: 1.0e-3
 
-# 4. Global constraints. Unlike contact constraints which only activate when a contact is present,
-# these constraints are always active and apply to all joints uniformly.
-# Each constraint can be toggled between hard (box constraint) and soft (slack variable + penalty).
-#   is_soft: false (default) → hard QP box constraint (strict enforcement)
-#   is_soft: true            → slack variable with quadratic penalty (controlled violation)
-#   soft_weight: 1.0e+5      → penalty weight when is_soft=true (higher = stricter)
-global_constraints:
-  JointPosLimitConstraint:
+constraints:
+  JointTorque:
     enabled: false
-    scale: 1.0      # 100% of URDF position range (safety margin)
-    is_soft: true   # soft slack variable (controlled violation near limits)
-    soft_weight: 1.0e+5
+    scale: 1.0
 
-  JointVelLimitConstraint:
-    enabled: false
-    scale: 1.0      # 80% of URDF velocity limits (conservative margin)
-    is_soft: true   # soft slack variable
-    soft_weight: 1.0e+5
-
-  JointTrqLimitConstraint:
-    enabled: false   # enable if running torque-only control (no motor PD)
-    scale: 1.0      # fraction of URDF torque limits
-    is_soft: false   # soft → penalty-based
-    soft_weight: 1.0e+5
-
-
-# 5. Debug mode: prints periodic QP/timing status to console
-debug_mode: true
-debug_print_interval: 5.0   # seconds between periodic status prints
-
-# 6. External YAML references (resolved relative to this file)
 task_pool_yaml: "task_list.yaml"
 state_machine_yaml: "state_machine.yaml"
+
+debug:
+  enabled: true
+  print_interval: 5.0

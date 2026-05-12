@@ -1,14 +1,8 @@
 # =============================================================
-# Optimo Task Pool  (wbc_core TSID format)
+# Optimo Task Pool
 # =============================================================
-# Scalar values are broadcast to all DOFs automatically.
-# Pool weights serve as the default when a state doesn't override them.
-#
-# Task types: JointTask, LinkPosTask, LinkOriTask, ComTask
-# Roles:      bias_task        → lower-priority solution selection preference
-#             operational_task → tracked at WBMC operational level
-# LinkPosTask creates a TaskSE3Equality masked to position (rows 0-2).
-# LinkOriTask creates a TaskSE3Equality masked to orientation (rows 3-5).
+# Task pool entries are reusable primitives. Runtime state code owns the actual
+# references. States can override task weight/level when selecting tasks.
 
 task_pool:
   - name: "jpos_task"
@@ -16,23 +10,14 @@ task_pool:
     role: "bias_task"
     kp: 100.0
     kd: 10.0
-    kp_ik: 1.0
     weight: 100.0
 
-  - name: "ee_pos_task"
-    type: "LinkPosTask"
+  - name: "ee_task"
+    type: "SE3Task"
     role: "operational_task"
     target_frame: "optimo_end_effector"
-    kp: 200.0
-    kd: 10.0
-    kp_ik: 1.0
-    weight: 100.0
-
-  - name: "ee_ori_task"
-    type: "LinkOriTask"
-    role: "operational_task"
-    target_frame: "optimo_end_effector"
-    kp: 1000.0
-    kd: 10.0
-    kp_ik: 1.0
+    position: true
+    orientation: true
+    kp: [1000.0, 1000.0, 1000.0, 200.0, 200.0, 200.0]
+    kd: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
     weight: 100.0

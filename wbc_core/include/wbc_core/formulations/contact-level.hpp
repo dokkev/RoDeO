@@ -8,7 +8,7 @@
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/contacts/contact-base.hpp"
 
-namespace tsid {
+namespace wbc {
 
 /** Data structure collecting information regarding a single contact.
  * In particular, this structure contains the index of the force corresponding
@@ -30,6 +30,6 @@ struct ContactLevel {
   ContactLevel(contacts::ContactBase& contact);
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __tsid_contact_level_hpp__

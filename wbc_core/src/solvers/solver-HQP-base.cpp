@@ -6,7 +6,7 @@
 
 #include <iostream>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 std::string const SolverHQPBase::HQP_status_string[] = {
@@ -18,7 +18,6 @@ SolverHQPBase::SolverHQPBase(const std::string& name) {
   m_maxIter = 1000;
   m_maxTime = 100.0;
   m_useWarmStart = true;
-  m_isVerbose = false;
 }
 
 bool SolverHQPBase::setMaximumIterations(unsigned int maxIter) {
@@ -34,4 +33,4 @@ bool SolverHQPBase::setMaximumTime(double seconds) {
 }
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc

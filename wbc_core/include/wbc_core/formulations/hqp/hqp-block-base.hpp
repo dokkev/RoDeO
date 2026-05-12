@@ -17,7 +17,7 @@
 #include "wbc_core/formulations/hqp/hqp-build-context.hpp"
 #include "wbc_core/math/constraint-base.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class HQPBlock {
  public:
@@ -53,6 +53,6 @@ class HQPBlock {
   std::shared_ptr<math::ConstraintBase> m_constraint;
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_formulations_hqp_block_base_hpp__

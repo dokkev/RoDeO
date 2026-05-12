@@ -1,7 +1,7 @@
 //
 // Copyright (c) 2026
 //
-// Dedicated full-joint acceleration bias for WBMC.
+// Dedicated full-joint acceleration bias for IDHQP.
 //
 
 #ifndef __wbc_bias_joint_accel_bias_hpp__
@@ -11,7 +11,7 @@
 
 #include "wbc_core/math/fwd.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace bias {
 
 struct JointAccelBias {
@@ -22,6 +22,6 @@ struct JointAccelBias {
 };
 
 }  // namespace bias
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_bias_joint_accel_bias_hpp__

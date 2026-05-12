@@ -22,7 +22,7 @@
 #include "wbc_core/solvers/solver-HQP-base.hpp"
 #include "eiquadprog/eiquadprog-fast.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 /**
  * @brief
@@ -85,6 +85,6 @@ class TSID_DLLAPI SolverHQuadProgFast : public SolverHQPBase {
   QPDataQuadProgTpl<double> m_qpData;
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_eiquadprog_fast_hpp__

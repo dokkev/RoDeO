@@ -3,15 +3,15 @@
 //
 
 #include "wbc_core/tasks/task-com-equality.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
-TaskComEquality::TaskComEquality(const std::string& name, RobotWrapper& robot)
+TaskComEquality::TaskComEquality(const std::string& name, RobotSystem& robot)
     : TaskMotion(name, robot), m_constraint(name, 3, robot.nv()) {
   m_Kp.setZero(3);
   m_Kd.setZero(3);
@@ -130,4 +130,4 @@ const ConstraintBase& TaskComEquality::compute(const double, ConstRefVector,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

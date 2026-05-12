@@ -25,7 +25,7 @@
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskCapturePointInequality : public TaskMotion {
@@ -40,7 +40,7 @@ class TaskCapturePointInequality : public TaskMotion {
   typedef pinocchio::Data Data;
   typedef pinocchio::SE3 SE3;
 
-  TaskCapturePointInequality(const std::string& name, RobotWrapper& robot,
+  TaskCapturePointInequality(const std::string& name, RobotSystem& robot,
                              const double timeStep);
 
   int dim() const override;
@@ -85,6 +85,6 @@ class TaskCapturePointInequality : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_capture_point_inequality_hpp__

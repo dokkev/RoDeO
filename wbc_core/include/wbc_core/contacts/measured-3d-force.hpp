@@ -9,7 +9,7 @@
 
 #include "wbc_core/contacts/measured-force-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 class Measured3Dforce : public MeasuredForceBase {
  public:
@@ -17,11 +17,11 @@ class Measured3Dforce : public MeasuredForceBase {
 
   typedef math::Index Index;
   typedef math::Vector3 Vector3;
-  typedef robots::RobotWrapper RobotWrapper;
+  typedef robots::RobotSystem RobotSystem;
   typedef pinocchio::Data Data;
   typedef pinocchio::Data::Matrix3x Matrix3x;
 
-  Measured3Dforce(const std::string& name, RobotWrapper& robot,
+  Measured3Dforce(const std::string& name, RobotSystem& robot,
                   const std::string& frameName);
 
   const Vector& computeJointTorques(Data& data) override;
@@ -54,6 +54,6 @@ class Measured3Dforce : public MeasuredForceBase {
   bool m_local_frame;
 };
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_measured_3d_force_hpp__

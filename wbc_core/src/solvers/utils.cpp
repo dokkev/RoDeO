@@ -7,7 +7,7 @@
 
 #include <iostream>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 std::string HQPDataToString(const HQPData& data, bool printMatrices) {
@@ -61,4 +61,4 @@ std::string HQPDataToString(const HQPData& data, bool printMatrices) {
 }
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc

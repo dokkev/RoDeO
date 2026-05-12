@@ -1,0 +1,155 @@
+<?xml version="0.06.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:macro name="aristo_ros2_control" params="name fake_hardware='false'">
+                                                
+        <!-- Normalize fake_hardware values so callers can pass true/False, 1/0, or strings -->
+        <xacro:property name="use_mock" value="${fake_hardware == 'true' or fake_hardware == 'True' or fake_hardware == '1' or fake_hardware == 1 or fake_hardware == True}"/>
+        <ros2_control name="${name}" type="system">
+            
+            <!-- Hardware -->
+            <hardware>
+                <!-- Choose real hardware or ros2_control mock component based on the fake_hardware flag -->
+                <xacro:if value="${use_mock}">
+                    <plugin>mock_components/GenericSystem</plugin>
+                </xacro:if>
+                <xacro:unless value="${use_mock}">
+                    <plugin>plato2_hardware_interface/PLATO2Hardware</plugin>
+                </xacro:unless>
+            </hardware>
+
+            <joint name="joint1">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint2">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint3">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint4">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+
+            <joint name="joint5">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint6">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint7">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <joint name="joint8">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <command_interface name="stiffness"/>
+                <command_interface name="damping"/>
+
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+
+      <!-- FT Sensors -->
+        <sensor name="ft_sensor1" type="force_torque">
+            <state_interface name="force.x"/>
+            <state_interface name="force.y"/>
+            <state_interface name="force.z"/>
+            <state_interface name="torque.x"/>
+            <state_interface name="torque.y"/>
+            <state_interface name="torque.z"/>
+        </sensor>
+
+        <sensor name="ft_sensor2" type="force_torque">
+            <state_interface name="force.x"/>
+            <state_interface name="force.y"/>
+            <state_interface name="force.z"/>
+            <state_interface name="torque.x"/>
+            <state_interface name="torque.y"/>
+            <state_interface name="torque.z"/>
+        </sensor>
+
+        <sensor name="ft_sensor3" type="force_torque">
+            <state_interface name="force.x"/>
+            <state_interface name="force.y"/>
+            <state_interface name="force.z"/>
+            <state_interface name="torque.x"/>
+            <state_interface name="torque.y"/>
+            <state_interface name="torque.z"/>
+        </sensor>
+
+
+
+
+
+        </ros2_control>
+
+  </xacro:macro>
+
+</robot>

@@ -21,7 +21,7 @@
 #include <wbc_core/tasks/task-actuation.hpp>
 #include <wbc_core/math/constraint-equality.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 class TaskActuationEquality : public TaskActuation {
  public:
@@ -33,7 +33,7 @@ class TaskActuationEquality : public TaskActuation {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::Data Data;
 
-  TaskActuationEquality(const std::string& name, RobotWrapper& robot);
+  TaskActuationEquality(const std::string& name, RobotSystem& robot);
 
   int dim() const override;
 
@@ -59,6 +59,6 @@ class TaskActuationEquality : public TaskActuation {
   ConstraintEquality m_constraint;
 };
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_actuation_equality_hpp__

@@ -9,7 +9,7 @@
 #include "wbc_core/robots/fwd.hpp"
 #include "wbc_core/tasks/task-se3-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 
 ///
@@ -28,9 +28,9 @@ class ContactBase {
   typedef tasks::TaskSE3Equality TaskSE3Equality;
   typedef tasks::TaskMotion TaskMotion;
   typedef pinocchio::Data Data;
-  typedef robots::RobotWrapper RobotWrapper;
+  typedef robots::RobotSystem RobotSystem;
 
-  ContactBase(const std::string& name, RobotWrapper& robot);
+  ContactBase(const std::string& name, RobotSystem& robot);
 
   virtual ~ContactBase() = default;
 
@@ -44,10 +44,10 @@ class ContactBase {
   /// Return the number of force variables
   virtual unsigned int n_force() const = 0;
 
-  virtual const ConstraintBase& computeMotionTask(const double t,
-                                                  ConstRefVector q,
-                                                  ConstRefVector v,
-                                                  Data& data) = 0;
+  virtual const ConstraintBase& computeMotionConstraint(const double t,
+                                                        ConstRefVector q,
+                                                        ConstRefVector v,
+                                                        Data& data) = 0;
 
   virtual const ConstraintInequality& computeForceTask(const double t,
                                                        ConstRefVector q,
@@ -74,10 +74,10 @@ class ContactBase {
  protected:
   std::string m_name;
   /// \brief Reference on the robot model.
-  RobotWrapper& m_robot;
+  RobotSystem& m_robot;
 };
 
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_contact_base_hpp__

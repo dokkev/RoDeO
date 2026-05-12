@@ -26,7 +26,7 @@
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskAMEquality : public TaskMotion {
@@ -40,7 +40,7 @@ class TaskAMEquality : public TaskMotion {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::Data::Matrix6x Matrix6x;
 
-  TaskAMEquality(const std::string& name, RobotWrapper& robot);
+  TaskAMEquality(const std::string& name, RobotSystem& robot);
 
   int dim() const override;
 
@@ -78,6 +78,6 @@ class TaskAMEquality : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_am_equality_hpp__

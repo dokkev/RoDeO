@@ -21,19 +21,19 @@
 #include <wbc_core/solvers/solver-HQP-factory.hpp>
 #include <wbc_core/solvers/solver-HQP-eiquadprog-rt.hxx>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 template <int nVars, int nEqCon, int nIneqCon>
-std::unique_ptr<SolverHQPBase> SolverHQPFactory::createNewSolver(
-    const SolverHQP solverType, const std::string& name) {
+SolverHQPBase* SolverHQPFactory::createNewSolver(const SolverHQP solverType,
+                                                 const std::string& name) {
   if (solverType == SOLVER_HQP_EIQUADPROG_RT)
-    return std::make_unique<SolverHQuadProgRT<nVars, nEqCon, nIneqCon>>(name);
+    return new SolverHQuadProgRT<nVars, nEqCon, nIneqCon>(name);
 
   PINOCCHIO_CHECK_INPUT_ARGUMENT(false, "Specified solver type not recognized");
   return nullptr;
 }
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_factory_hxx__

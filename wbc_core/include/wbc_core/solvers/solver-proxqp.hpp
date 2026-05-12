@@ -31,7 +31,10 @@
 #define STOP_PROFILER_PROXQP(x)
 #endif
 
-namespace tsid {
+using namespace proxsuite;
+using namespace proxsuite::proxqp;
+
+namespace wbc {
 namespace solvers {
 /**
  * @brief
@@ -80,7 +83,7 @@ class TSID_DLLAPI SolverProxQP : public SolverHQPBase {
   double m_objValue;
   double m_hessian_regularization;
 
-  proxsuite::proxqp::dense::QP<double> m_solver;
+  dense::QP<double> m_solver;
 
   unsigned int m_neq;  /// number of equality constraints
   unsigned int m_nin;  /// number of inequality constraints
@@ -94,9 +97,8 @@ class TSID_DLLAPI SolverProxQP : public SolverHQPBase {
   double m_epsAbs;
   double m_epsRel;
   bool m_isVerbose;
-  bool m_initialized{false};  ///< true after first init(), use update() after
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __solvers_proxqp_hpp__

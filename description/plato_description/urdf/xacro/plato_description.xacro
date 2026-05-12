@@ -1,0 +1,311 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+<xacro:macro name="plato_description" params="connector_link  xyz:='0 0 0'  rpy:='0 0 0' ">
+
+<!-- Connector Joint -->
+<!-- <joint name="connector_joint" type="fixed">
+    <parent link="${connector_link}"/>
+    <child link="base_link"/>
+    <origin xyz="${xyz}" rpy="${rpy}"/>
+</joint> -->
+
+
+<link name="base_link">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/hand_base_visual.stl"/>
+</geometry>
+<material name="hand_base_material">
+<color rgba="0.62757649539087556612 0.63052391066502089245 0.63406435937041083495 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/hand_base_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.071381088457538419134 0.0044411406143265753921 0.014775265975730310017" rpy="0 0 0"/>
+<mass value="0.76837978567269427099" />
+<inertia ixx="0.00085136196223773938103" ixy="0.00013892752211586731174"  ixz="-0.0002179020540203063913" iyy="0.0012036327317835073241" iyz="6.1825154819893692873e-05" izz="0.0016151849851495560934" />
+</inertial>
+</link>
+
+<link name="thumb_metacarpal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_metacarpal_visual.stl"/>
+</geometry>
+<material name="thumb_metacarpal_material">
+<color rgba="0.47481548487313229856 0.49707036313748559353 0.54567970250436259594 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_metacarpal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.036057066254829940599 -9.2990252935181391459e-07 0.020250212737826605441" rpy="0 0 0"/>
+<mass value="0.10438786966597224382" />
+<inertia ixx="2.8951316861868887426e-05" ixy="3.0994244419676533628e-10"  ixz="-4.800649674297535383e-07" iyy="3.8993260644122764531e-05" iyz="2.6529301795122234156e-10" izz="2.6615537505915890328e-05" />
+</inertial>
+</link>
+
+<link name="thumb_actuators">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_actuators_visual.stl"/>
+</geometry>
+<material name="thumb_actuators_material">
+<color rgba="0.54936477010542306143 0.54936477010542306143 0.54936477010542306143 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_actuators_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="-0.002512192597438537775 0.0011397629422540871483 -0.0230114785012479027" rpy="0 0 0"/>
+<mass value="0.22950045822102393966" />
+<inertia ixx="4.7745842527753026808e-05" ixy="2.3503025721242425626e-05"  ixz="-2.1890746820627907549e-06" iyy="0.00016677084855535142301" iyz="-6.3810307366217034236e-07" izz="0.00015370810388584102337" />
+</inertial>
+</link>
+
+<link name="thumb_proximal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_proximal_visual.stl"/>
+</geometry>
+<material name="thumb_proximal_material">
+<color rgba="0.85676347476547665138 0.85684628218728142723 0.85689596664036427054 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_proximal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.041723592555954480687 -0.00015325900345950071589 -0.0025347334070781532556" rpy="0 0 0"/>
+<mass value="0.046493308366953339794" />
+<inertia ixx="5.9693787373143358577e-06" ixy="3.1828148640339470878e-08"  ixz="-1.0284240810881167522e-08" iyy="2.0043167951845195001e-05" iyz="2.6933150996232134927e-10" izz="1.9050463454403359379e-05" />
+</inertial>
+</link>
+
+<link name="thumb_distal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_distal_visual.stl"/>
+</geometry>
+<material name="thumb_distal_material">
+<color rgba="0.91400085189828661481 0.91668729942166382596 0.91820961968491088268 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/thumb_distal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="-0.045658753506383910337 -0.0018551753759659538219 -0.0024988078851896785258" rpy="0 0 0"/>
+<mass value="0.043661202672803788027" />
+<inertia ixx="6.329463162449488319e-06" ixy="-4.2442099039110044596e-08"  ixz="-5.6685758581269062122e-09" iyy="1.633602004590589129e-05" iyz="1.4879017507959954281e-09" izz="1.5001660982685637597e-05" />
+</inertial>
+</link>
+
+<link name="index_proximal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/index_proximal_visual.stl"/>
+</geometry>
+<material name="index_proximal_material">
+<color rgba="0.85676356468084313711 0.85684637213815328938 0.85689605661253964719 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/index_proximal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.041723595625399338693 0.00015313747649351480522 -0.002434116187992104146" rpy="0 0 0"/>
+<mass value="0.046493288431958879059" />
+<inertia ixx="5.9726449639166141053e-06" ixy="-3.1888722333517038492e-08"  ixz="-6.473357273612014867e-08" iyy="2.0046348728969764184e-05" iyz="-1.4192586625139617599e-08" izz="1.9050557719553603604e-05" />
+</inertial>
+</link>
+
+<link name="index_distal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/index_distal_visual.stl"/>
+</geometry>
+<material name="index_distal_material">
+<color rgba="0.91400085189828650378 0.91668729942166371494 0.91820961968491077165 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/index_distal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="-0.04565875350638426422 0.0020571202849013208065 -0.002497684363477587887" rpy="0 0 0"/>
+<mass value="0.043661202672803794966" />
+<inertia ixx="6.3291419694652372767e-06" ixy="4.2972895009339828655e-08"  ixz="-4.5730410138809464667e-09" iyy="1.633600455857050525e-05" iyz="-1.4617685231554839669e-09" izz="1.5001355277034643154e-05" />
+</inertial>
+</link>
+
+
+<!-- <link name="thumb_fingertip">
+<inertial>
+<origin xyz="0 0 0" rpy="0 0 0" />
+<mass value="1e-9" />
+<inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+</inertial>
+</link>
+<joint name="thumb_fingertip_frame" type="fixed">
+<origin xyz="-0.076100000000001249978 0.0052021267064287224358 -0.0025000000001800248839" rpy="1.5707963267948970021 2.01242269850366684e-14 -3.141592653589793116" />
+<parent link="index_distal" />
+<child link="thumb_fingertip" />
+<axis xyz="0 0 0"/>
+</joint> -->
+
+<link name="middle_proximal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/middle_proximal_visual.stl"/>
+</geometry>
+<material name="middle_proximal_material">
+<color rgba="0.85676347476547665138 0.85684628218728142723 0.85689596664036427054 1.0"/>
+</material>
+</visual>
+</link>
+
+<link name="middle_distal">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/middle_distal_visual.stl"/>
+</geometry>
+<material name="middle_distal_material">
+<color rgba="0.91400085189828661481 0.91668729942166382596 0.91820961968491088268 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="file://$(find plato_description)/meshes/middle_distal_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="-0.04565875350638420177 0.0018551753759659171759 -0.0025011921148101919077" rpy="0 0 0"/>
+<mass value="0.043661202672803788027" />
+<inertia ixx="6.329463162449515424e-06" ixy="4.2442099038374330307e-08"  ixz="5.6685758581898778179e-09" iyy="1.6336020045905210276e-05" iyz="1.4879017511101267783e-09" izz="1.5001660982684583888e-05" />
+</inertial>
+</link>
+
+<!-- <link name="middle_fingertip">
+<inertial>
+<origin xyz="0 0 0" rpy="0 0 0" />
+<mass value="1e-9" />
+<inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+</inertial>
+</link>
+<joint name="middle_fingertip_frame" type="fixed">
+<origin xyz="-0.0761000000000008614 0.005000000000000059952 -0.0025000000001793101778" rpy="1.570796326794896336 -3.5331540427409998602e-16 3.141592653589793116" />
+<parent link="middle_distal" />
+<child link="middle_fingertip" />
+<axis xyz="0 0 0"/>
+</joint> -->
+
+<joint name="joint1" type="revolute">
+<origin xyz="0.01149999999999984715 0.039000000000000659139 -0.015849999999999926648" rpy="-1.3045120539345319165e-15 1.5707963267948643615 0" />
+<parent link="base_link" />
+<child link="thumb_metacarpal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-0.34906585039886589561" upper="1.2217304763960306069"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint2" type="revolute">
+<origin xyz="0.058249999999999593769 5.5511151231257827021e-16 0.03224999999999998701" rpy="-3.1415926535897891192 1.5707963267948927832 0" />
+<parent link="thumb_metacarpal" />
+<child link="thumb_actuators" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-0.785398163397448279" upper="0.785398163397448279"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint3" type="revolute">
+<origin xyz="-0.024997917591194747378 -0.011999999478458957258 -0.023999999999999993561" rpy="-1.5707963267948970021 -7.7297547565167041677e-16 -3.1415926535897908956" />
+<parent link="thumb_actuators" />
+<child link="thumb_proximal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-1.0471975511965976313" upper="1.0471975511965976313"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint4" type="revolute">
+<origin xyz="0.060000000000000011657 -1.3877787807814456755e-17 -6.9388939039072283776e-18" rpy="1.9153167705881153685e-14 6.1331864267087110065e-15 -3.141592653589788231" />
+<parent link="thumb_proximal" />
+<child link="thumb_distal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-2.0943951023931952626" upper="0"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint5" type="revolute">
+<origin xyz="0.11342115258546792145 0.041187262013853524756 0.025999851934806916809" rpy="-1.57079632679489678 2.2482016248662969818e-15 -1.850249261987616476e-15" />
+<parent link="base_link" />
+<child link="index_proximal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-1.0471975511965976313" upper="1.0471975511965976313"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint6" type="revolute">
+<origin xyz="0.060000000000000011657 -3.4694469519536141888e-18 0" rpy="-2.1461027329066007583e-16 3.0473921289930194632e-15 3.141592653589793116" />
+<parent link="index_proximal" />
+<child link="index_distal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="0" upper="2.0943951023931952626"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint7" type="revolute">
+<origin xyz="0.11349791759135398339 -0.036249999478459471458 0.026000000000000023093" rpy="-1.570796326794896336 2.4702462297869142187e-15 1.5081753875048004426e-15" />
+<parent link="base_link" />
+<child link="middle_proximal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-1.0471975511965976313" upper="1.0471975511965976313"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<joint name="joint8" type="revolute">
+<origin xyz="0.05999999999999999778 3.4694469519536141888e-18 6.9388939039072283776e-18" rpy="-2.7755575615281513959e-16 3.4694469519536398268e-16 3.141592653589793116" />
+<parent link="middle_proximal" />
+<child link="middle_distal" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="0" upper="2.0943951023931952626"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+</xacro:macro>
+</robot>

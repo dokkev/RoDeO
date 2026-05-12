@@ -20,7 +20,7 @@
 
 #include <wbc_core/trajectories/trajectory-base.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace trajectories {
 
 class TrajectoryEuclidianConstant : public TrajectoryBase {
@@ -51,6 +51,6 @@ class TrajectoryEuclidianConstant : public TrajectoryBase {
 };
 
 }  // namespace trajectories
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_trajectory_euclidian_hpp__

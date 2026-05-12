@@ -25,7 +25,7 @@
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskTwoFramesEquality : public TaskMotion {
@@ -41,7 +41,7 @@ class TaskTwoFramesEquality : public TaskMotion {
   typedef pinocchio::Motion Motion;
   typedef pinocchio::SE3 SE3;
 
-  TaskTwoFramesEquality(const std::string& name, RobotWrapper& robot,
+  TaskTwoFramesEquality(const std::string& name, RobotSystem& robot,
                         const std::string& frameName1,
                         const std::string& frameName2);
 
@@ -118,6 +118,6 @@ class TaskTwoFramesEquality : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_frames_equality_hpp__

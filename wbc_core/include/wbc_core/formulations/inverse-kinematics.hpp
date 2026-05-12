@@ -23,7 +23,7 @@
 #include "wbc_core/contacts/contact-base.hpp"
 #include "wbc_core/solvers/solver-HQP-base.hpp"
 
-namespace tsid {
+namespace wbc {
 
 struct ContactLevel;
 
@@ -133,6 +133,6 @@ class InverseKinematics {
   std::vector<std::shared_ptr<math::ConstraintEquality>> m_hqpTaskConstraints;
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_inverse_kinematics_hpp__

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot name="jenga_block">
+
+  <link name="jenga_block">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.05 0.03"/>
+      </geometry>
+      <material name="jenga_block_wood">
+        <color rgba="0.78 0.58 0.32 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.05 0.03"/>
+      </geometry>
+    </collision>
+
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia
+        ixx="2.8333333333333335e-05" ixy="0" ixz="0"
+        iyy="0.000195" iyz="0"
+        izz="0.00020833333333335"/>
+    </inertial>
+  </link>
+
+</robot>

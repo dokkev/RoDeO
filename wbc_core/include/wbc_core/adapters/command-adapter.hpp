@@ -1,7 +1,7 @@
 //
 // Copyright (c) 2026
 //
-// Command adapter: convert WBMC solver outputs into actuator-facing commands.
+// Command adapter: convert IDHQP solver outputs into actuator-facing commands.
 //
 
 #ifndef __wbc_adapters_command_adapter_hpp__
@@ -9,83 +9,66 @@
 
 #include <Eigen/Core>
 
-#include "wbc_core/controller/wbmc-solution.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/controller/id-solution.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
 namespace wbc {
-
-enum class CommandOutputMode {
-  kTorqueWithIntegratedState,
-  kTorqueOnly,
-};
 
 struct LowLevelCommand {
   Eigen::VectorXd tau;
   Eigen::VectorXd q;
   Eigen::VectorXd qdot;
+  Eigen::VectorXd kp;
+  Eigen::VectorXd kd;
 
   void Initialize(Eigen::Index na) {
     tau = Eigen::VectorXd::Zero(na);
     q = Eigen::VectorXd::Zero(na);
     qdot = Eigen::VectorXd::Zero(na);
+    kp = Eigen::VectorXd::Zero(na);
+    kd = Eigen::VectorXd::Zero(na);
   }
 };
 
 class CommandAdapter {
  public:
-  void setOutputMode(CommandOutputMode mode) { mode_ = mode; }
-  CommandOutputMode outputMode() const { return mode_; }
-
-  /// Map WBMC solution to actuator-facing command.
+  /// Map IDHQP solution state to a complete actuator-facing command payload.
   ///
   /// Contract:
-  /// - Always consumes torque from `sol.tau` when dimensions are valid.
-  /// - `kTorqueOnly` mode:
-  ///   - only torque is updated,
-  ///   - q/qdot helper channels are optional and left untouched.
-  /// - `kTorqueWithIntegratedState` mode:
-  ///   - requires full state dimensions (q, qdot, qddot_sol),
-  ///   - updates helper q/qdot via explicit Euler integration.
+  /// - Always consumes torque from `sol.tau_cmd`.
+  /// - Always consumes integrated q/qdot helper channels from `sol.q_cmd` and
+  ///   `sol.qdot_cmd`.
+  /// - Leaves hardware gain channels (`kp`, `kd`) untouched. Those are hardware
+  ///   output policy, not IDHQP solution data.
   ///
   /// Return value:
-  /// - `true`: output command is valid for the selected mode.
+  /// - `true`: output command is valid.
   /// - `false`: output is invalid for this cycle (caller should keep previous
   ///   command as safe hold behavior).
-  bool fromSolution(const tsid::WBMCSolution& sol,
-                    const tsid::robots::RobotWrapper& robot,
-                    const Eigen::VectorXd& q,
-                    const Eigen::VectorXd& qdot, double dt,
+  bool fromSolution(const wbc::IDSolution& sol,
+                    const wbc::robots::RobotSystem& robot,
                     LowLevelCommand& cmd) const {
     const int na = robot.na();
-    if (sol.tau.size() != na) {
+    if (cmd.tau.size() != na || sol.tau_cmd.size() != na ||
+        !sol.tau_cmd.allFinite()) {
       return false;
-    }
-    cmd.tau = sol.tau;
-
-    if (mode_ == CommandOutputMode::kTorqueOnly) {
-      // Helper q/qdot command is optional in torque-only mode.
-      return true;
     }
 
     const int q_offset = robot.is_fixed_base() ? 0 : 7;
     const int v_offset = robot.is_fixed_base() ? 0 : 6;
-    if (q.size() < q_offset + na || qdot.size() < v_offset + na ||
-        sol.qddot_sol.size() < robot.nv()) {
-      cmd.q.setZero(na);
-      cmd.qdot.setZero(na);
+    if (cmd.q.size() != na || cmd.qdot.size() != na ||
+        sol.q_cmd.size() < q_offset + na ||
+        sol.qdot_cmd.size() < v_offset + na ||
+        !sol.q_cmd.segment(q_offset, na).allFinite() ||
+        !sol.qdot_cmd.segment(v_offset, na).allFinite()) {
       return false;
     }
 
-    const auto q_act = q.segment(q_offset, na);
-    const auto qdot_act = qdot.segment(v_offset, na);
-    const auto qddot_act = sol.qddot_sol.tail(na);
-    cmd.qdot = qdot_act + dt * qddot_act;
-    cmd.q = q_act + dt * cmd.qdot;
+    cmd.tau = sol.tau_cmd;
+    cmd.q = sol.q_cmd.segment(q_offset, na);
+    cmd.qdot = sol.qdot_cmd.segment(v_offset, na);
     return true;
   }
-
- private:
-  CommandOutputMode mode_{CommandOutputMode::kTorqueWithIntegratedState};
 };
 
 }  // namespace wbc

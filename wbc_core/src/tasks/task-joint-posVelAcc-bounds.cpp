@@ -3,7 +3,7 @@
 //
 
 #include <wbc_core/tasks/task-joint-posVelAcc-bounds.hpp>
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 // #include <wbc_core/utils/stop-watch.hpp>
 
 /** This class has been implemented following :
@@ -13,14 +13,14 @@
  * pp.281-288.￿10.1109/LRA.2017.2738321￿. hal-01356989v3 And
  * https://github.com/andreadelprete/pinocchio_inv_dyn/blob/master/python/pinocchio_inv_dyn/acc_bounds_util.py
  */
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
 TaskJointPosVelAccBounds::TaskJointPosVelAccBounds(const std::string& name,
-                                                   RobotWrapper& robot,
+                                                   RobotSystem& robot,
                                                    double dt, bool verbose)
     : TaskMotion(name, robot),
       m_constraint(name, robot.na(), robot.nv()),
@@ -457,4 +457,4 @@ void TaskJointPosVelAccBounds::computeAccLimits(ConstRefVector q,
   }
 }
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

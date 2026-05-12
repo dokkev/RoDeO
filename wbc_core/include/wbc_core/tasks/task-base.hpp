@@ -24,7 +24,7 @@
 
 #include <pinocchio/multibody/fwd.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 ///
@@ -38,9 +38,9 @@ class TaskBase {
   typedef math::ConstraintBase ConstraintBase;
   typedef math::ConstRefVector ConstRefVector;
   typedef pinocchio::Data Data;
-  typedef robots::RobotWrapper RobotWrapper;
+  typedef robots::RobotSystem RobotSystem;
 
-  TaskBase(const std::string& name, RobotWrapper& robot);
+  TaskBase(const std::string& name, RobotSystem& robot);
 
   virtual ~TaskBase() = default;
 
@@ -61,10 +61,10 @@ class TaskBase {
   std::string m_name;
 
   /// \brief Reference on the robot model.
-  RobotWrapper& m_robot;
+  RobotSystem& m_robot;
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_base_hpp__

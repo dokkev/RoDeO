@@ -11,7 +11,7 @@
 #include "wbc_core/formulations/inverse-dynamics.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class ContactTransitionInfo {
  public:
@@ -131,5 +131,5 @@ class InverseDynamicsFormulationAccForce
 
   std::vector<std::shared_ptr<ContactTransitionInfo>> m_contactTransitions;
 };
-}  // namespace tsid
+}  // namespace wbc
 #endif  // ifndef __invdyn_inverse_dynamics_formulation_acc_force_hpp__

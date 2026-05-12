@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <wbc_core/math/constraint-inequality.hpp>
 
-using namespace tsid::math;
+using namespace wbc::math;
 
 ConstraintInequality::ConstraintInequality(const std::string& name)
     : ConstraintBase(name) {}

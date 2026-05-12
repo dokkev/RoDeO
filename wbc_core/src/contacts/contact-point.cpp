@@ -7,13 +7,13 @@
 
 #include <pinocchio/spatial/skew.hpp>
 
-using namespace tsid;
+using namespace wbc;
 using namespace contacts;
 using namespace math;
 using namespace trajectories;
 using namespace tasks;
 
-ContactPoint::ContactPoint(const std::string& name, RobotWrapper& robot,
+ContactPoint::ContactPoint(const std::string& name, RobotSystem& robot,
                            const std::string& frameName,
                            ConstRefVector contactNormal,
                            const double frictionCoefficient,
@@ -95,10 +95,16 @@ void ContactPoint::updateForceRegularizationTask() {
   m_forceRegTask.setVector(A * m_fRef);
 }
 
-void ContactPoint::updateForceGeneratorMatrix() { m_forceGenMat.setIdentity(); }
+void ContactPoint::updateForceGeneratorMatrix() {
+  m_forceGenMat.setIdentity();
+}
 
-unsigned int ContactPoint::n_motion() const { return m_motionTask.dim(); }
-unsigned int ContactPoint::n_force() const { return 3; }
+unsigned int ContactPoint::n_motion() const {
+  return m_motionTask.dim();
+}
+unsigned int ContactPoint::n_force() const {
+  return 3;
+}
 
 const Vector& ContactPoint::Kp() {
   m_Kp3 = m_motionTask.Kp().head<3>();
@@ -179,10 +185,10 @@ void ContactPoint::setReference(const SE3& ref) {
   m_motionTask.setReference(ref);
 }
 
-const ConstraintBase& ContactPoint::computeMotionTask(const double t,
-                                                      ConstRefVector q,
-                                                      ConstRefVector v,
-                                                      Data& data) {
+const ConstraintBase& ContactPoint::computeMotionConstraint(const double t,
+                                                            ConstRefVector q,
+                                                            ConstRefVector v,
+                                                            Data& data) {
   return m_motionTask.compute(t, q, v, data);
 }
 
@@ -202,8 +208,12 @@ const ConstraintEquality& ContactPoint::computeForceRegularizationTask(
   return m_forceRegTask;
 }
 
-double ContactPoint::getMinNormalForce() const { return m_fMin; }
-double ContactPoint::getMaxNormalForce() const { return m_fMax; }
+double ContactPoint::getMinNormalForce() const {
+  return m_fMin;
+}
+double ContactPoint::getMaxNormalForce() const {
+  return m_fMax;
+}
 
 const TaskSE3Equality& ContactPoint::getMotionTask() const {
   return m_motionTask;

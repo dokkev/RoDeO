@@ -1,0 +1,90 @@
+<robot name="plato2">
+<link name="actuators">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///actuators_visual.stl"/>
+</geometry>
+<material name="actuators_material">
+<color rgba="0.55053975530627108359 0.55053975530627108359 0.55053975530627108359 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///actuators_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.037789887392288994128 0.010282407741393440048 0.022897410869195364974" rpy="0 0 0"/>
+<mass value="0.22860228555356348901" />
+<inertia ixx="4.703804985640097576e-05" ixy="2.2955584445211047866e-05"  ixz="-2.9965445880002113189e-06" iyy="0.00016688029418364123458" iyz="-3.3374526920267266839e-07" izz="0.0001532205673130055735" />
+</inertial>
+</link>
+
+<link name="proximal-phalanx">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///proximal-phalanx_visual.stl"/>
+</geometry>
+<material name="proximal-phalanx_material">
+<color rgba="0.91764705882352937127 0.91764705882352937127 0.91764705882352937127 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///proximal-phalanx_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="0.023874123654140686629 -7.8049186991624669527e-05 -0.0024892675154277745485" rpy="0 0 0"/>
+<mass value="0.0072501150073616812616" />
+<inertia ixx="2.5949726042885598507e-07" ixy="1.578147202093530511e-08"  ixz="1.8416522098538666186e-09" iyy="3.8971406546873450138e-06" iyz="-6.0642583071990809865e-12" izz="4.0629642637173263281e-06" />
+</inertial>
+</link>
+
+<joint name="mcp_joint" type="revolute">
+<origin xyz="0.060502082551031663438 0.018499999478474353498 0.023999998559805627019" rpy="1.570796326794896558 2.5535129566379113189e-15 4.2120737225812348728e-16" />
+<parent link="actuators" />
+<child link="proximal-phalanx" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-1.0471975511965976313" upper="1.0471975511965976313"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+<link name="pip_drive_linkage">
+<visual>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///pip_drive_linkage_visual.stl"/>
+</geometry>
+<material name="pip_drive_linkage_material">
+<color rgba="0.64705882352941179736 0.64705882352941179736 0.64705882352941179736 1.0"/>
+</material>
+</visual>
+<collision>
+<origin xyz="0 0 0" rpy="0 -0 0" />
+<geometry>
+<mesh filename="package:///pip_drive_linkage_collision.stl"/>
+</geometry>
+</collision>
+<inertial>
+<origin xyz="1.6670774093584858631e-19 0.0067888474218763530596 -0.0024920276668437334015" rpy="0 0 0"/>
+<mass value="0.004245175670644825601" />
+<inertia ixx="6.7905968146461604887e-07" ixy="4.8428496421383094219e-38"  ixz="-3.0631008443618016055e-38" iyy="1.8567732135313542279e-07" iyz="1.5327583834592643684e-09" izz="8.4734379435703059542e-07" />
+</inertial>
+</link>
+
+<joint name="pip_joint" type="revolute">
+<origin xyz="0.016499999999999997308 0.027999999478458936775 0.023999998559805623549" rpy="1.570796326794896558 2.8449465006022599507e-16 -1.8369701987209845745e-16" />
+<parent link="actuators" />
+<child link="pip_drive_linkage" />
+<axis xyz="0 0 1"/>
+<limit effort="0.8499999999999999778" velocity="1.5700000000000000622" lower="-1.570796326794896558" upper="1.570796326794896558"/>
+<joint_properties friction="0.0"/>
+</joint>
+
+
+</robot>

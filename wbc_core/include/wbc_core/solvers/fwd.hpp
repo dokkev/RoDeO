@@ -27,7 +27,7 @@
 
 #define DEFAULT_HESSIAN_REGULARIZATION 1e-8
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 /**
@@ -36,9 +36,23 @@ namespace solvers {
 enum TSID_DLLAPI SolverHQP {
   SOLVER_HQP_EIQUADPROG = 0,
   SOLVER_HQP_EIQUADPROG_FAST = 1,
-  SOLVER_HQP_EIQUADPROG_RT = 2,
-  SOLVER_HQP_CASCADE = 3,
-  SOLVER_HQP_PROXQP = 4
+  SOLVER_HQP_EIQUADPROG_RT = 2
+#ifdef TSID_QPMAD_FOUND
+  ,
+  SOLVER_HQP_QPMAD
+#endif
+#ifdef TSID_WITH_PROXSUITE
+  ,
+  SOLVER_HQP_PROXQP
+#endif
+#ifdef TSID_WITH_OSQP
+  ,
+  SOLVER_HQP_OSQP
+#endif
+#ifdef QPOASES_FOUND
+  ,
+  SOLVER_HQP_OASES
+#endif
 };
 
 /**
@@ -90,6 +104,6 @@ typedef QPDataBaseTpl<double> QPDataBase;
 typedef QPDataQuadProgTpl<double> QPDataQuadProg;
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_fwd_hpp__

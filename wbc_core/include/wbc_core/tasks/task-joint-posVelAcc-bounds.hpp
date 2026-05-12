@@ -30,7 +30,7 @@
  * pp.281-288.￿10.1109/LRA.2017.2738321￿. hal-01356989v3 And
  * https://github.com/andreadelprete/pinocchio_inv_dyn/blob/master/python/pinocchio_inv_dyn/acc_bounds_util.py
  */
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskJointPosVelAccBounds : public TaskMotion {
@@ -43,7 +43,7 @@ class TaskJointPosVelAccBounds : public TaskMotion {
   typedef math::VectorXi VectorXi;
   typedef pinocchio::Data Data;
 
-  TaskJointPosVelAccBounds(const std::string& name, RobotWrapper& robot,
+  TaskJointPosVelAccBounds(const std::string& name, RobotSystem& robot,
                            double dt, bool verbose = true);
 
   int dim() const override;
@@ -179,6 +179,6 @@ class TaskJointPosVelAccBounds : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_joint_bounds_hpp__

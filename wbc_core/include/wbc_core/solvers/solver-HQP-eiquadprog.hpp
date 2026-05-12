@@ -21,7 +21,7 @@
 #include "wbc_core/deprecated.hh"
 #include <wbc_core/solvers/solver-HQP-base.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 /**
  * @brief Abstract interface for a Quadratic Program (HQP) solver.
@@ -68,7 +68,7 @@ class TSID_DLLAPI SolverHQuadProg : public SolverHQPBase {
 
   Eigen::VectorXi
       m_activeSet;  /// vector containing the indexes of the active inequalities
-  tsid::math::Index m_activeSetSize;
+  wbc::math::Index m_activeSetSize;
 
 #ifdef ELIMINATE_EQUALITY_CONSTRAINTS
   //      Eigen::FullPivLU<Matrix>                        m_CE_dec;
@@ -92,6 +92,6 @@ class TSID_DLLAPI SolverHQuadProg : public SolverHQPBase {
   QPDataQuadProgTpl<double> m_qpData;
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_eiquadprog_hpp__

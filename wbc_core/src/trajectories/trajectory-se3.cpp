@@ -5,9 +5,9 @@
 #include "wbc_core/math/utils.hpp"
 #include "wbc_core/trajectories/trajectory-se3.hpp"
 
-using namespace tsid::math;
+using namespace wbc::math;
 
-namespace tsid {
+namespace wbc {
 namespace trajectories {
 
 TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name)
@@ -21,7 +21,7 @@ TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name,
   m_sample.resize(12, 6);
   TSID_DISABLE_WARNING_PUSH
   TSID_DISABLE_WARNING_DEPRECATED
-  tsid::math::SE3ToVector(M, m_sample.pos);
+  wbc::math::SE3ToVector(M, m_sample.pos);
   TSID_DISABLE_WARNING_POP
 }
 
@@ -31,7 +31,7 @@ void TrajectorySE3Constant::setReference(const pinocchio::SE3& ref) {
   m_sample.resize(12, 6);
   TSID_DISABLE_WARNING_PUSH
   TSID_DISABLE_WARNING_DEPRECATED
-  tsid::math::SE3ToVector(ref, m_sample.pos);
+  wbc::math::SE3ToVector(ref, m_sample.pos);
   TSID_DISABLE_WARNING_POP
 }
 
@@ -50,4 +50,4 @@ void TrajectorySE3Constant::getLastSample(TrajectorySample& sample) const {
 bool TrajectorySE3Constant::has_trajectory_ended() const { return true; }
 
 }  // namespace trajectories
-}  // namespace tsid
+}  // namespace wbc

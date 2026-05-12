@@ -2,16 +2,16 @@
 // Copyright (c) 2017 CNRS
 //
 
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 #include <wbc_core/tasks/task-joint-bounds.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
-TaskJointBounds::TaskJointBounds(const std::string& name, RobotWrapper& robot,
+TaskJointBounds::TaskJointBounds(const std::string& name, RobotSystem& robot,
                                  double dt)
     : TaskMotion(name, robot),
       m_constraint(name, robot.nv()),
@@ -111,4 +111,4 @@ const ConstraintBase& TaskJointBounds::compute(const double, ConstRefVector,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

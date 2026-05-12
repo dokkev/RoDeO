@@ -22,12 +22,12 @@
 
 #include <string>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 std::string HQPDataToString(const HQPData& data, bool printMatrices = false);
 }
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_utils_hpp__

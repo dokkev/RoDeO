@@ -7,7 +7,7 @@
 
 #include "wbc_core/math/constraint-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace math {
 
 class ConstraintInequality : public ConstraintBase {
@@ -50,6 +50,6 @@ class ConstraintInequality : public ConstraintBase {
 };
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_math_constraint_equality_hpp__

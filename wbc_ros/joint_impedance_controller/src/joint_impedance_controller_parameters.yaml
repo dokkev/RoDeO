@@ -1,0 +1,43 @@
+joint_impedance_controller:
+  joints: {
+    type: string_array,
+    default_value: [],
+    description: "Name of the joints to control",
+  }
+  compute_impedance_torque: {
+    type: bool,
+    default_value: false,
+    description: "If true, additionally compute tau = effort_ff + Kp*pos_err + Kd*vel_err in the controller and send it through the effort command interface while still forwarding the desired impedance values. If false, only pass impedance commands through to the hardware.",
+  }
+  interface_name: {
+    type: string,
+    default_value: "",
+    description: "Name of the interface to command",
+  }
+  impedance:
+    __map_joints:  # Dynamic mapping for joint-specific impedance parameters
+      stiffness: {
+        type: double,
+        default_value: 0.0,
+        description: "Stiffness for the joint."
+      }
+      damping: {
+        type: double,
+        default_value: 0.0,
+        description: "Damping for the joint."
+      }
+
+  # impedance:
+  #   __map_joints: joints
+  #   type: struct
+  #   joints_map:
+  #     stiffness: {
+  #       type: double,
+  #       default_value: 0.1,
+  #       description: "Stiffness gain for this joint"
+  #     }
+  #     damping: {
+  #       type: double,
+  #       default_value: 0.02,
+  #       description: "Damping gain for this joint"
+  #     }

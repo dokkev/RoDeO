@@ -3,17 +3,17 @@
 //
 
 #include "wbc_core/tasks/task-angular-momentum-equality.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
-TaskAMEquality::TaskAMEquality(const std::string& name, RobotWrapper& robot)
+TaskAMEquality::TaskAMEquality(const std::string& name, RobotSystem& robot)
     : TaskMotion(name, robot), m_constraint(name, 3, robot.nv()) {
   m_Kp.setZero(3);
   m_Kd.setZero(3);
@@ -94,4 +94,4 @@ const ConstraintBase& TaskAMEquality::compute(const double, ConstRefVector,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

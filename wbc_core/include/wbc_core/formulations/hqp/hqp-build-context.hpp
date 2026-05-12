@@ -12,7 +12,7 @@
 
 #include "wbc_core/math/fwd.hpp"
 
-namespace tsid {
+namespace wbc {
 
 struct HQPBuildContext {
   // ── Robot dynamics (required by dynamics / torque-limit blocks) ──────
@@ -70,6 +70,6 @@ struct HQPBuildContext {
   bool hasReferenceAcceleration() const { return qddot_ref != nullptr; }
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __wbc_formulations_hqp_build_context_hpp__

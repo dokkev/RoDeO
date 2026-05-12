@@ -21,7 +21,7 @@
 #include <wbc_core/tasks/task-motion.hpp>
 #include <wbc_core/math/constraint-bound.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskJointBounds : public TaskMotion {
@@ -32,7 +32,7 @@ class TaskJointBounds : public TaskMotion {
   typedef math::ConstraintBound ConstraintBound;
   typedef pinocchio::Data Data;
 
-  TaskJointBounds(const std::string& name, RobotWrapper& robot, double dt);
+  TaskJointBounds(const std::string& name, RobotSystem& robot, double dt);
 
   int dim() const override;
 
@@ -61,6 +61,6 @@ class TaskJointBounds : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_joint_bounds_hpp__

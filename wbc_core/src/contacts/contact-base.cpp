@@ -4,9 +4,9 @@
 
 #include "wbc_core/contacts/contact-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
-ContactBase::ContactBase(const std::string& name, RobotWrapper& robot)
+ContactBase::ContactBase(const std::string& name, RobotSystem& robot)
     : m_name(name), m_robot(robot) {}
 
 const std::string& ContactBase::name() const { return m_name; }
@@ -14,4 +14,4 @@ const std::string& ContactBase::name() const { return m_name; }
 void ContactBase::name(const std::string& name) { m_name = name; }
 
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc

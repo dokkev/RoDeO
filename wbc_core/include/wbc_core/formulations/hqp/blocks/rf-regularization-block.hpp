@@ -14,7 +14,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class ContactForceRegularization : public HQPBlock {
  public:
@@ -44,6 +44,6 @@ class ContactForceRegularization : public HQPBlock {
   }
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif

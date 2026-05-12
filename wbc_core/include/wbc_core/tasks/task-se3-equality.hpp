@@ -25,7 +25,7 @@
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskSE3Equality : public TaskMotion {
@@ -41,7 +41,7 @@ class TaskSE3Equality : public TaskMotion {
   typedef pinocchio::Motion Motion;
   typedef pinocchio::SE3 SE3;
 
-  TaskSE3Equality(const std::string& name, RobotWrapper& robot,
+  TaskSE3Equality(const std::string& name, RobotSystem& robot,
                   const std::string& frameName);
 
   int dim() const override;
@@ -125,6 +125,6 @@ class TaskSE3Equality : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_se3_equality_hpp__

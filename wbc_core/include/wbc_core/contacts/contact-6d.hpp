@@ -11,7 +11,7 @@
 #include "wbc_core/math/constraint-inequality.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 class Contact6d : public ContactBase {
  public:
@@ -28,19 +28,16 @@ class Contact6d : public ContactBase {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::SE3 SE3;
 
-  Contact6d(const std::string& name, RobotWrapper& robot,
+  Contact6d(const std::string& name, RobotSystem& robot,
             const std::string& frameName, ConstRefMatrix contactPoints,
             ConstRefVector contactNormal, const double frictionCoefficient,
             const double minNormalForce, const double maxNormalForce);
 
-  TSID_DEPRECATED Contact6d(const std::string& name, RobotWrapper& robot,
-                            const std::string& frameName,
-                            ConstRefMatrix contactPoints,
-                            ConstRefVector contactNormal,
-                            const double frictionCoefficient,
-                            const double minNormalForce,
-                            const double maxNormalForce,
-                            const double forceRegWeight);
+  TSID_DEPRECATED Contact6d(
+      const std::string& name, RobotSystem& robot, const std::string& frameName,
+      ConstRefMatrix contactPoints, ConstRefVector contactNormal,
+      const double frictionCoefficient, const double minNormalForce,
+      const double maxNormalForce, const double forceRegWeight);
 
   /// Return the number of motion constraints
   unsigned int n_motion() const override;
@@ -48,9 +45,9 @@ class Contact6d : public ContactBase {
   /// Return the number of force variables
   unsigned int n_force() const override;
 
-  const ConstraintBase& computeMotionTask(double t, ConstRefVector q,
-                                          ConstRefVector v,
-                                          Data& data) override;
+  const ConstraintBase& computeMotionConstraint(double t, ConstRefVector q,
+                                                ConstRefVector v,
+                                                Data& data) override;
 
   const ConstraintInequality& computeForceTask(double t, ConstRefVector q,
                                                ConstRefVector v,
@@ -107,6 +104,6 @@ class Contact6d : public ContactBase {
   Matrix m_forceGenMat;
 };
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_contact_6d_hpp__

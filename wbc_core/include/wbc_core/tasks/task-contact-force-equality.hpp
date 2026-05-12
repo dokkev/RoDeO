@@ -24,7 +24,7 @@
 #include "wbc_core/math/constraint-equality.hpp"
 #include "wbc_core/contacts/contact-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskContactForceEquality : public TaskContactForce {
@@ -39,7 +39,7 @@ class TaskContactForceEquality : public TaskContactForce {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::SE3 SE3;
 
-  TaskContactForceEquality(const std::string& name, RobotWrapper& robot,
+  TaskContactForceEquality(const std::string& name, RobotSystem& robot,
                            const double dt, contacts::ContactBase& contact);
 
   int dim() const override;
@@ -89,6 +89,6 @@ class TaskContactForceEquality : public TaskContactForce {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_contact_force_equality_hpp__

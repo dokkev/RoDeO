@@ -1,8 +1,12 @@
 <?xml version="1.0"?>
 <robot name="aristo_hand" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <xacro:arg name="fake_hardware" default="false"/>
+  <xacro:arg name="zeroing" default="false"/>
+  <xacro:arg name="actuator_config_yaml_path" default=""/>
+
   <!-- Root link for TF tree -->
-  <link name="world"/>
+  <link name="base_link"/>
 
   <!-- Includes -->
     <xacro:include filename="$(find plato_description)/urdf/xacro/aristo_description.xacro"/>
@@ -10,13 +14,11 @@
 
 
   <!-- Instantiate geometry/tree and ros2_control -->
-  <xacro:aristo_description
-    prefix=""/>
-  <joint name="connector_to_hand_mount" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <parent link="world"/>
-    <child link="hand_mount"/>
-  </joint>
-  <xacro:aristo_ros2_control name="aristo_ros2_control"/>
+  <xacro:aristo_description connector_link="base_link" xyz="0 0 0" rpy="0 0 0"/>
+  <xacro:aristo_ros2_control
+    name="aristo_ros2_control"
+    fake_hardware="$(arg fake_hardware)"
+    zeroing="$(arg zeroing)"
+    actuator_config_yaml_path="$(arg actuator_config_yaml_path)"/>
 
 </robot>

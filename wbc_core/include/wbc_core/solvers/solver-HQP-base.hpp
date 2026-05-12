@@ -25,7 +25,7 @@
 #include <vector>
 #include <utility>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 /**
@@ -59,11 +59,6 @@ class TSID_DLLAPI SolverHQPBase {
   /** Get the objective value of the last solved problem. */
   virtual double getObjectiveValue() = 0;
 
-  /** Get the current solver diagnostic verbosity. */
-  virtual bool verbose() const { return m_isVerbose; }
-  /** Enable or disable solver diagnostic verbosity. */
-  virtual void setVerbose(bool isVerbose) { m_isVerbose = isVerbose; }
-
   /** Return true if the solver is allowed to warm start, false otherwise. */
   virtual bool getUseWarmStart() { return m_useWarmStart; }
   /** Specify whether the solver is allowed to use warm-start techniques. */
@@ -87,10 +82,9 @@ class TSID_DLLAPI SolverHQPBase {
   unsigned int m_maxIter;  // max number of iterations
   double m_maxTime;        // max time to solve the HQP [s]
   HQPOutput m_output;
-  bool m_isVerbose;
 };
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_base_hpp__

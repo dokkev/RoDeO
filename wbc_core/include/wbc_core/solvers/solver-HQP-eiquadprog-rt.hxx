@@ -15,7 +15,7 @@ namespace eisol = eiquadprog::solvers;
 #define PROFILE_EIQUADPROG_PREPARATION "EiquadprogRT problem preparation"
 #define PROFILE_EIQUADPROG_SOLUTION "EiquadprogRT problem solution"
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 template <int nVars, int nEqCon, int nIneqCon>
@@ -50,7 +50,7 @@ void SolverHQuadProgRT<nVars, nEqCon, nIneqCon>::resize(unsigned int n,
 template <int nVars, int nEqCon, int nIneqCon>
 const HQPOutput& SolverHQuadProgRT<nVars, nEqCon, nIneqCon>::solve(
     const HQPData& problemData) {
-  using namespace tsid::math;
+  using namespace wbc::math;
 
   // #ifndef EIGEN_RUNTIME_NO_MALLOC
   //   Eigen::internal::set_is_malloc_allowed(false);
@@ -216,6 +216,6 @@ bool SolverHQuadProgRT<nVars, nEqCon, nIneqCon>::setMaximumIterations(
 }
 
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_eiquadprog_rt_hxx__

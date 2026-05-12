@@ -4,16 +4,16 @@
 
 #include "wbc_core/math/utils.hpp"
 #include "wbc_core/tasks/task-se3-equality.hpp"
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace std;
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
-TaskSE3Equality::TaskSE3Equality(const std::string& name, RobotWrapper& robot,
+TaskSE3Equality::TaskSE3Equality(const std::string& name, RobotSystem& robot,
                                  const std::string& frameName)
     : TaskMotion(name, robot),
       m_frame_name(frameName),
@@ -92,7 +92,7 @@ void TaskSE3Equality::setReference(const SE3& ref) {
   TrajectorySample s(12, 6);
   TSID_DISABLE_WARNING_PUSH
   TSID_DISABLE_WARNING_DEPRECATED
-  tsid::math::SE3ToVector(ref, s.pos);
+  wbc::math::SE3ToVector(ref, s.pos);
   TSID_DISABLE_WARNING_POP
   setReference(s);
 }
@@ -204,4 +204,4 @@ const ConstraintBase& TaskSE3Equality::compute(const double, ConstRefVector,
   return m_constraint;
 }
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

@@ -7,8 +7,8 @@ YAML / external config
   -> compiled config compile
   -> runtime assembly
   -> FSM / handlers / managers update references
-  -> registry/adapters assemble WBMCStepInput
-  -> WBMC solve
+  -> registry/adapters assemble IDProblem
+  -> IDHQP solve
   -> command adapter
   -> actuator interface
 
@@ -17,7 +17,7 @@ YAML / external config
 원칙 A. TSID는 primitive provider
 
 TSID task/contact/HQP solver는 계속 써도 돼.
-하지만 **WBMC semantics의 owner는 TSID가 아니라 너의 WBMC**여야 해.
+하지만 **IDHQP semantics의 owner는 TSID가 아니라 너의 IDHQP**여야 해.
 
 즉 TSID 객체는 직접적인 제어 철학이 아니라:
 
@@ -45,7 +45,7 @@ solver 내부 level policy
 hard/soft 의미론 재정의
 원칙 C. registry는 binding layer
 
-WBMCRegistry는 아주 유용한 migration shim인데, 최종형에서도 살아남으려면 역할이 분명해야 해.
+IDProblemRegistry는 아주 유용한 migration shim인데, 최종형에서도 살아남으려면 역할이 분명해야 해.
 
 registry의 일:
 
@@ -53,7 +53,7 @@ task/contact primitive 보관
 role 기반 분류
 active set filtering
 snapshot 변환
-nominal/bounds/external wrench 같은 runtime context를 WBMCStepInput으로 assemble
+nominal/bounds/external wrench 같은 runtime context를 IDProblem으로 assemble
 
 registry가 하면 안 되는 일:
 
@@ -63,7 +63,7 @@ state transition 결정
 hierarchy semantics 재정의
 원칙 D. solver output과 actuator command는 분리
 
-WBMC의 본질적인 출력은:
+IDHQP의 본질적인 출력은:
 
 delta_qddot
 qddot
@@ -74,7 +74,7 @@ lambda
 
 따라서 장기적으로는
 
-WBMC = optimization result producer
+IDHQP = optimization result producer
 CommandAdapter = actuator-friendly command generator
 
 로 나누는 게 맞아.
@@ -85,11 +85,11 @@ CommandAdapter = actuator-friendly command generator
 
 wbc_core/
   include/wbc_core/
-    wbmc/
-      wbmc.hpp
-      wbmc-step-input.hpp
-      wbmc-solution.hpp
-      wbmc-hierarchy-policy.hpp
+    id_hqp/
+      id-hqp.hpp
+      id-problem.hpp
+      id-solution.hpp
+      id-hierarchy-policy.hpp
       blocks/
       bias/
       nominal/
@@ -120,10 +120,10 @@ Phase 0. Semantic freeze
 
 목표
 
-WBMC의 의미론을 더 이상 흔들리지 않게 고정.
+IDHQP의 의미론을 더 이상 흔들리지 않게 고정.
 
 해야 할 일
-WBMC.md를 단일 source of truth로 유지
+IDHQP.md를 단일 source of truth로 유지
 아래를 명시적으로 고정
 decision variable = [delta_qddot, lambda]
 qddot = qddot_nom + delta_qddot
@@ -198,7 +198,7 @@ parsing unit test와 assembly unit test가 독립적으로 존재
 Phase 2. State semantics 정리
 현재 문제
 
-StateConfig 안에 task_names, task_weights, task_priorities가 있는데, WBMC에서는 task_priorities가 거의 의미론적으로 위험해.
+StateConfig 안에 task_names, task_weights, task_priorities가 있는데, IDHQP에서는 task_priorities가 거의 의미론적으로 위험해.
 
 또 YAML 키가 task_hierarchy라서 state가 solver hierarchy를 직접 정의하는 느낌을 줌.
 
@@ -235,11 +235,11 @@ priority 개념이 정말 필요하면 오직 operational layer 내부 ordering 
 
 완료 조건
 state는 active task/contact와 state params만 가짐
-solver hierarchy는 WBMCHierarchyPolicy 또는 fixed policy가 소유
+solver hierarchy는 IDHierarchyPolicy 또는 fixed policy가 소유
 Phase 3. Registry 역할 고정
 현재 문제
 
-WBMCRegistry는 지금 매우 유용하지만, 방심하면 “작은 control architecture”가 되기 쉬워.
+IDProblemRegistry는 지금 매우 유용하지만, 방심하면 “작은 control architecture”가 되기 쉬워.
 
 목표
 
@@ -254,7 +254,7 @@ contact selection
 nominal provider hookup
 torque bounds hookup
 external wrench hookup
-WBMCStepInput 생성
+IDProblem 생성
 금지 기능
 state transition logic
 task reference generator 로직 자체
@@ -266,7 +266,7 @@ control mode semantics redefinition
 
 registry 자체에 comment/doc로 contract 명시:
 
-// WBMCRegistry is a runtime binding and snapshot assembly layer.
+// IDProblemRegistry is a runtime binding and snapshot assembly layer.
 // It does not own solver semantics, bias generation, or state transitions.
 완료 조건
 registry header와 tests에서 이 contract가 분명함
@@ -286,7 +286,7 @@ tau
 
 목표
 
-ControlArchitecture는 WBMCSolution까지만 책임지고, actuator-facing command는 별도 adapter가 생성.
+ControlArchitecture는 IDSolution까지만 책임지고, actuator-facing command는 별도 adapter가 생성.
 
 추천 구조
 struct LowLevelCommand {
@@ -298,9 +298,8 @@ struct LowLevelCommand {
 class CommandAdapter {
  public:
   LowLevelCommand fromSolution(
-      const WBMCSolution& sol,
-      const RobotState& state,
-      double dt);
+      const IDSolution& sol,
+      const RobotSystem& robot);
 };
 장점
 pure torque mode / hybrid mode / fallback mode 분리 쉬움
@@ -316,7 +315,7 @@ Phase 5. Nominal / Bias pipeline 강화
 
 목표
 
-WBMC는 nominal/bias를 소비만 하고, 생성하지는 않게 유지.
+IDHQP는 nominal/bias를 소비만 하고, 생성하지는 않게 유지.
 
 추천 확장
 ZeroNominalProvider
@@ -337,7 +336,7 @@ posture task와 nominal source의 역할이 문서/테스트에서 분명
 Phase 6. Primitive layer와 semantic layer 분리
 현재 문제
 
-repo 안에 아직 TSID-style general library와 final WBMC core가 함께 살아 있음.
+repo 안에 아직 TSID-style general library와 final IDHQP core가 함께 살아 있음.
 
 목표
 
@@ -348,25 +347,25 @@ robot wrapper
 TSID task/contact types
 generic constraint classes
 generic HQP solver implementations
-WBMC semantic layer
-WBMCStepInput
-WBMC
-WBMCSolution
+IDHQP semantic layer
+IDProblem
+IDHQP
+IDSolution
 hierarchy policy
 registry/adapters
 bias/nominal interfaces
 완료 조건
 include dependency가 한 방향으로만 흐름
-primitives -> adapters -> wbmc/runtime -> architecture
+primitives -> adapters -> id_hqp/runtime -> architecture
 반대 방향 include 없음
 3. 구현 체크리스트
 
 아래는 실제로 PR 단위로 쪼개기 좋은 체크리스트야.
 
 A. Semantic contract
- [x] WBMC.md와 실제 API가 일치한다
- [x] WBMCStepInput이 solver semantics의 단일 입력 계약이다
- [x] WBMCSolution이 solver output의 단일 truth다
+ [x] IDHQP.md와 실제 API가 일치한다
+ [x] IDProblem이 optimization problem의 단일 입력 계약이다
+ [x] IDSolution이 solver output의 단일 truth다
  [x] decision variable에 tau가 다시 들어가지 않는다
  [x] qddot_nom 없는 경우 zero fallback이 유지된다
  [x] hierarchy가 strict ordered 아니면 안전 실패한다
@@ -378,12 +377,12 @@ B. Runtime/config split
  [x] assembly code가 parsing 정책을 다시 해석하지 않는다
  [x] ConfigCompiler가 thin facade가 되거나 제거된다
 C. State machine boundaries
- [x] state YAML에서 task_hierarchy 이름을 제거/alias 처리한다
+ [x] state YAML에서 task_hierarchy 이름을 제거한다
  [x] state는 active tasks/contacts만 정의한다
  [x] state가 solver hierarchy level을 직접 정하지 않는다
  [x] task_priorities를 제거하거나 deprecated 처리한다
  [x] state transition과 task reference update 책임이 분리된다
- [x] state code가 WBMC 내부 semantics를 직접 호출하지 않는다
+ [x] state code가 IDHQP 내부 semantics를 직접 호출하지 않는다
 D. Registry boundaries
  [x] registry가 task/contact binding만 담당한다
  [x] registry가 snapshot assembly만 담당한다
@@ -401,7 +400,7 @@ E. Solver/core
  [x] support contact consistency residual이 작다
  [x] bias가 operational task를 깨지 않는다
 F. Command/output path
- [x] WBMCSolution과 actuator command를 분리한다
+ [x] IDSolution과 actuator command를 분리한다
  [x] command adapter가 별도 클래스/모듈이 된다
  [x] torque-only mode를 지원한다
  [x] position/velocity helper command는 optional이다
@@ -409,10 +408,10 @@ F. Command/output path
  [x] 이전 명령 hold 정책이 문서화된다
 G. Naming / API hygiene
  [x] task_hierarchy naming 정리
- [x] posture_task vs bias semantics가 명확하다
+ [x] bias_task semantics가 단일 config 표현이다
  [x] operational_task naming이 코드 전반에서 일관적이다
- [x] TSID legacy naming이 WBMC semantics를 오염시키지 않는다
- [x] deprecated alias는 명확히 주석 처리된다
+ [x] TSID legacy naming이 IDHQP semantics를 오염시키지 않는다
+ [x] deprecated alias를 public API/config에서 제거한다
  [x] public API에서 “old WBIC interpretation” 흔적이 줄어든다
 4. 테스트 플랜
 
@@ -426,7 +425,7 @@ Layer 1. Solver semantic tests
 
 목적
 
-WBMC 수학 의미가 안 깨졌는지 확인.
+IDHQP 수학 의미가 안 깨졌는지 확인.
 
 반드시 있어야 할 테스트
 1) Nominal effect
@@ -466,7 +465,7 @@ A. YAML parsing tests
 valid minimal config parse
 missing required key throws
 unknown task/contact type throws
-deprecated field alias accepted with warning
+deprecated field aliases are rejected deterministically
 malformed state config deterministic fail
 B. Spec compilation tests
 YAML의 task/contact/state count가 spec count와 일치
@@ -522,7 +521,7 @@ duplicate names
 invalid hierarchy
 compile/assembly 단계에서 fail 확인
 Scenario 5. Command adapter
-WBMCSolution에서 torque-only command
+IDSolution에서 torque-only command
 optional q/qdot integration command
 solve failure hold behavior
 pass criteria
@@ -550,7 +549,7 @@ zero nominal
 good nominal
 bad nominal
 축 5: Runtime path
-direct step input
+direct IDProblem
 registry assembled input
 full YAML + FSM + control architecture
 
@@ -566,8 +565,8 @@ full YAML + FSM + control architecture
 
 Q1.
 
-WBMC solve에 들어가는 모든 정보가 WBMCStepInput으로 설명 가능한가?
-예여야 함.
+IDHQP QP가 푸는 모든 정보가 IDProblem으로 설명 가능한가?
+예여야 함. 적분 시간 `dt`는 problem이 아니라 solve-cycle command integration parameter다.
 
 Q2.
 
@@ -576,7 +575,7 @@ state machine을 갈아껴도 solver semantics가 안 바뀌는가?
 
 Q3.
 
-TSID task/contact 구현을 바꿔도 WBMC의 level semantics는 유지되는가?
+TSID task/contact 구현을 바꿔도 IDHQP의 level semantics는 유지되는가?
 예여야 함.
 
 Q4.
@@ -669,7 +668,7 @@ full architecture tests를 Romeo 의존에서 일부 분리
 PR 6
 
 public include 구조 정리
-primitive vs WBMC semantic dependency 정리
+primitive vs IDHQP semantic dependency 정리
 
 8. 개인적으로 가장 먼저 고칠 3개
 
@@ -694,7 +693,7 @@ solver purity와 actuator integration을 나누는 순간 구조가 훨씬 선�
 
 검증 방식
 - 코드 정합성 점검: 핵심 파일 grep/수동 확인
-- 테스트 검증: `test_formulation_wbmc`, `test_architecture`, `test_wbc_solver_semantics`
+- 테스트 검증: `test_id_hqp`, `test_architecture`, `test_wbc_solver_semantics`
 
 요약
 - 체크리스트 A~G는 현재 코드 기준으로 구현/검증 완료 상태로 판단.
@@ -702,47 +701,47 @@ solver purity와 actuator integration을 나누는 순간 구조가 훨씬 선�
 
 근거 스냅샷
 - A. Semantic contract
-  - `WBMCStepInput`/`WBMCSolution` 단일 입출력 계약: `include/wbc_core/controller/wbmc-step-input.hpp`, `include/wbc_core/controller/wbmc-solution.hpp`
-  - `qddot_nom` fallback + strict hierarchy fail-safe + `tau` 복원: `src/controller/wbmc.cpp`
+  - `IDProblem`/`IDSolution` solve 계약: `include/wbc_core/controller/id-problem.hpp`, `include/wbc_core/controller/id-solution.hpp`
+  - `qddot_nom` fallback + strict hierarchy fail-safe + `tau` 복원: `src/controller/id-hqp.cpp`
 - B. Runtime/config split
   - `ConfigLoader`/`ConfigCompiler`/`RuntimeAssembler` 분리:
-    - `include/wbc_core/runtime/config_loader.hpp`
-    - `include/wbc_core/runtime/config_compiler.hpp`
-    - `include/wbc_core/runtime/config_validator.hpp`
-    - `include/wbc_core/runtime/compiled_config.hpp`
-    - `include/wbc_core/runtime/runtime_assembler.hpp`
+    - `include/control_architecture/runtime/config_loader.hpp`
+    - `include/control_architecture/runtime/config_compiler.hpp`
+    - `include/control_architecture/runtime/config_validator.hpp`
+    - `include/control_architecture/runtime/compiled_config.hpp`
+    - `include/control_architecture/runtime/runtime_assembler.hpp`
 - C. State machine boundaries
   - 상태별 solver hierarchy override 거부:
-    - `src/runtime/config_compiler.cpp`
+    - `../control_architecture/src/runtime/config_compiler.cpp`
   - state unknown task/contact 조기 실패:
-    - `src/runtime/runtime_assembler.cpp`
+    - `../control_architecture/src/runtime/runtime_assembler.cpp`
   - 관련 테스트:
-    - `test/test-architecture.cpp` (`ConfigCompiler_RejectsStateHierarchyOverride`, `ConfigCompiler_StateUnknown*Throws`)
+    - `../control_architecture/test/test-architecture.cpp` (`ConfigCompiler_RejectsStateHierarchyOverride`, `ConfigCompiler_StateUnknown*Throws`)
 - D. Registry boundaries
   - registry 계약 주석 + deterministic unknown-name 에러:
-    - `include/wbc_core/controller/wbmc-registry.hpp`
+    - `include/wbc_core/controller/id-problem-registry.hpp`
   - 역할 보존 테스트:
     - `test/test-wbc-solver-semantics.cpp` (`RegistryPreservesOperationalAndBiasRoleSemantics`)
 - E. Solver/core
   - 물리/운용/bias/regularization strict level 분리:
-    - `src/controller/wbmc.cpp`
+    - `src/controller/id-hqp.cpp`
   - contact optional activation/regularization 조건부:
-    - `src/controller/wbmc.cpp`
+    - `src/controller/id-hqp.cpp`
   - 관련 테스트:
     - `test/test-wbc-solver-semantics.cpp` (`ContactConsistency*`, `TorqueBounds*`, `RegularizationNeverOverrides*`)
 - F. Command/output path
   - `CommandAdapter` 분리 + torque-only 모드:
     - `include/wbc_core/adapters/command-adapter.hpp`
   - solve/adapter 실패 시 이전 명령 hold:
-    - `src/architecture/control_architecture.cpp`
+    - `../control_architecture/src/architecture/control_architecture.cpp`
   - 관련 테스트:
-    - `test/test-architecture.cpp` (`CommandAdapter_TorqueOnlyMode*`)
+    - `../control_architecture/test/test-architecture.cpp` (`CommandAdapter_TorqueOnlyMode*`)
 - G. Naming/API hygiene
-  - preferred naming: `bias_task`, `tasks`
-  - deprecated alias 유지: `posture_task`, `task_hierarchy`
+  - canonical naming only: `bias_task`, `tasks`
+  - deprecated alias 제거: `posture_task`, `task_hierarchy`
   - 근거:
-    - `src/runtime/runtime_assembler.cpp`
-    - `src/runtime/config_compiler.cpp`
+    - `../control_architecture/src/runtime/runtime_assembler.cpp`
+    - `../control_architecture/src/runtime/config_compiler.cpp`
     - `controller/optimo_controller/config/task_list.yaml`
     - `controller/optimo_controller/config/state_machine.yaml`
 
@@ -755,18 +754,18 @@ solver purity와 actuator integration을 나누는 순간 구조가 훨씬 선�
 - CompiledConfig pure-typed 전환
   - `TaskSpec { YAML::Node }`, `ContactSpec { YAML::Node }` 제거
   - 명시적 typed 필드로 전환:
-    - `include/wbc_core/runtime/compiled_config.hpp`
+    - `include/control_architecture/runtime/compiled_config.hpp`
   - compiler 단계에서 typed compiled config 생성:
-    - `src/runtime/config_compiler.cpp`
+    - `../control_architecture/src/runtime/config_compiler.cpp`
 - StateConfig legacy 축소
   - `task_priorities` 제거
   - canonical task name heuristic 필드(`ee_pos_name` 등) 제거
   - 관련 로직 제거:
-    - `include/wbc_core/runtime/runtime_config.hpp`
-    - `src/runtime/runtime_assembler.cpp`
+    - `include/control_architecture/runtime/runtime_config.hpp`
+    - `../control_architecture/src/runtime/runtime_assembler.cpp`
 - ForceTask silent skip 제거
-  - WBMC v1에서 `ForceTask` 입력 시 explicit 예외 처리:
-    - `src/runtime/runtime_assembler.cpp`
+  - IDHQP에서 `ForceTask` 입력 시 explicit 예외 처리:
+    - `../control_architecture/src/runtime/runtime_assembler.cpp`
 - CommandAdapter 계약 명확화
   - mode별 동작/실패 시 contract 주석 강화:
     - `include/wbc_core/adapters/command-adapter.hpp`
@@ -780,5 +779,6 @@ solver purity와 actuator integration을 나누는 순간 구조가 훨씬 선�
 
 아직 남은 핵심 리스크 (체크리스트 외)
 - `RuntimeAssembler::InitializeFsm()`가 여전히 다기능(배선/제약/FSM 생성) 집중
-- `WBMCRegistry` 구현이 header에 크게 존재(유지보수/컴파일 비용 리스크)
-- `include/wbc_core` vs `include/tsid` 이중 public include tree 정리 필요
+- `IDProblemRegistry` 구현이 header에 크게 존재(유지보수/컴파일 비용 리스크)
+- `include/tsid` public alias tree는 제거 완료. solver layer는 TSID-derived subset이라
+  upstream sync 시 optional backend(qpmad/osqp/qpoases) 의존성이 다시 섞이지 않게 주의.

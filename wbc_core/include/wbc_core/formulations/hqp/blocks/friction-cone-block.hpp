@@ -14,7 +14,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class FrictionConeConstraint : public HQPBlock {
  public:
@@ -49,6 +49,6 @@ class FrictionConeConstraint : public HQPBlock {
   }
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif

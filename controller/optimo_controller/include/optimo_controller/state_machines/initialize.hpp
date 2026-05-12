@@ -1,44 +1,41 @@
-/**
- * @file controller/optimo_controller/include/optimo_controller/state_machines/initialize.hpp
- * @brief Optimo initialization posture state.
- */
+// Copyright 2024 Roboligent, Inc.
+//
+// Licensed under the Apache License, Version 2.0.
+
 #pragma once
 
+#include <memory>
 #include <string>
 
-#include "wbc_formulation/motion_task.hpp"
-#include "wbc_fsm/interface/state_machine.hpp"
-#include "wbc_handlers/trajectory_handler.hpp"
+#include <Eigen/Core>
 
-namespace wbc {
+#include "control_architecture/state_machine/state_machine.hpp"
+#include "wbc_core/tasks/task-joint-posture.hpp"
+#include "wbc_core/trajectories/trajectory-base.hpp"
 
-/**
- * @brief Drives Optimo to a YAML-configured initial posture via min-jerk trajectory.
- *
- * YAML params (under `params:`):
- *   - `duration`:     trajectory duration in seconds
- *   - `target_jpos`:  target joint positions (must match robot DOF)
- *
- * Registration key: "initialize"
- */
-class Initialize : public StateMachine {
-public:
-  Initialize(StateId state_id, const std::string& state_name,
-             const StateMachineConfig& context);
-  ~Initialize() override = default;
+namespace optimo_controller::state_machines {
 
-  void SetParameters(const YAML::Node& node) override;
-  void FirstVisit() override;
-  void OneStep() override;
-  void LastVisit() override;
-  bool EndOfState() override;
+class InitializeState final : public wbc::State {
+ public:
+  STATE_NAME("initialize");
 
-private:
-  JointTask*              jpos_task_{nullptr};
-  JointTrajectoryHandler  traj_;
-  Eigen::VectorXd         q_curr_;
-  Eigen::VectorXd         q_des_;
-  Eigen::VectorXd         zeros_;
+  InitializeState(wbc::StateId id, const std::string& name,
+                  const wbc::StateContext& ctx);
+
+  void Configure(const YAML::Node& node) override;
+  void OnEnter() override;
+  void OnUpdate() override;
+  void OnExit() override;
+
+ private:
+  void ApplyReference();
+
+  std::string task_name_{"jpos_task"};
+  std::shared_ptr<wbc::tasks::TaskJointPosture> task_;
+  Eigen::VectorXd target_q_;
+  Eigen::VectorXd target_qdot_;
+  Eigen::VectorXd target_qddot_;
+  wbc::trajectories::TrajectorySample ref_;
 };
 
-} // namespace wbc
+}  // namespace optimo_controller::state_machines

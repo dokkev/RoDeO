@@ -4,12 +4,11 @@
 
 #include <wbc_core/tasks/task-actuation.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
-using namespace tsid;
 
-TaskActuation::TaskActuation(const std::string& name, RobotWrapper& robot)
+TaskActuation::TaskActuation(const std::string& name, RobotSystem& robot)
     : TaskBase(name, robot) {}
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

@@ -7,14 +7,14 @@
 
 #include <pinocchio/spatial/skew.hpp>
 
-using namespace tsid;
+using namespace wbc;
 using namespace contacts;
 using namespace math;
 using namespace trajectories;
 using namespace tasks;
 
 ContactTwoFramePositions::ContactTwoFramePositions(
-    const std::string& name, RobotWrapper& robot, const std::string& frameName1,
+    const std::string& name, RobotSystem& robot, const std::string& frameName1,
     const std::string& frameName2, const double minNormalForce,
     const double maxNormalForce)
     : ContactBase(name, robot),
@@ -84,7 +84,9 @@ void ContactTwoFramePositions::updateForceGeneratorMatrix() {
 unsigned int ContactTwoFramePositions::n_motion() const {
   return m_motionTask.dim();
 }
-unsigned int ContactTwoFramePositions::n_force() const { return 3; }
+unsigned int ContactTwoFramePositions::n_force() const {
+  return 3;
+}
 
 const Vector& ContactTwoFramePositions::Kp() {
   m_Kp3 = m_motionTask.Kp().head<3>();
@@ -136,7 +138,7 @@ void ContactTwoFramePositions::setForceReference(ConstRefVector& f_ref) {
   updateForceRegularizationTask();
 }
 
-const ConstraintBase& ContactTwoFramePositions::computeMotionTask(
+const ConstraintBase& ContactTwoFramePositions::computeMotionConstraint(
     const double t, ConstRefVector q, ConstRefVector v, Data& data) {
   return m_motionTask.compute(t, q, v, data);
 }
@@ -158,8 +160,12 @@ ContactTwoFramePositions::computeForceRegularizationTask(const double,
   return m_forceRegTask;
 }
 
-double ContactTwoFramePositions::getMinNormalForce() const { return m_fMin; }
-double ContactTwoFramePositions::getMaxNormalForce() const { return m_fMax; }
+double ContactTwoFramePositions::getMinNormalForce() const {
+  return m_fMin;
+}
+double ContactTwoFramePositions::getMaxNormalForce() const {
+  return m_fMax;
+}
 
 const TaskTwoFramesEquality& ContactTwoFramePositions::getMotionTask() const {
   return m_motionTask;

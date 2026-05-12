@@ -3,16 +3,16 @@
 //
 
 #include <wbc_core/tasks/task-actuation-bounds.hpp>
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace trajectories;
 using namespace pinocchio;
 
 TaskActuationBounds::TaskActuationBounds(const std::string& name,
-                                         RobotWrapper& robot)
+                                         RobotSystem& robot)
     : TaskActuation(name, robot), m_constraint(name, robot.na(), robot.na()) {
   Vector m = Vector::Ones(robot.na());
   mask(m);
@@ -75,4 +75,4 @@ const ConstraintBase& TaskActuationBounds::compute(const double, ConstRefVector,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

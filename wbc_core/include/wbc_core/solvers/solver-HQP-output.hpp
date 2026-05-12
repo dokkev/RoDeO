@@ -23,7 +23,7 @@
 
 #include <vector>
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 class HQPOutput {
@@ -52,6 +52,6 @@ class HQPOutput {
   }
 };
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_solvers_hqp_output_hpp__

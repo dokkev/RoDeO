@@ -11,7 +11,7 @@
 
 using namespace eiquadprog::solvers;
 
-namespace tsid {
+namespace wbc {
 namespace solvers {
 
 using namespace math;
@@ -24,9 +24,6 @@ SolverHQuadProgFast::SolverHQuadProgFast(const std::string& name)
 }
 
 void SolverHQuadProgFast::sendMsg(const std::string& s) {
-  if (!m_isVerbose) {
-    return;
-  }
   std::cout << "[SolverHQuadProgFast." << m_name << "] " << s << std::endl;
 }
 
@@ -150,6 +147,7 @@ void SolverHQuadProgFast::retrieveQPData(const HQPData& problemData,
     }
 
     if (hessianRegularization) {
+      double m_hessian_regularization(DEFAULT_HESSIAN_REGULARIZATION);
       m_qpData.H.diagonal().array() += m_hessian_regularization;
     }
   }
@@ -227,4 +225,4 @@ bool SolverHQuadProgFast::setMaximumIterations(unsigned int maxIter) {
   return m_solver.setMaxIter(maxIter);
 }
 }  // namespace solvers
-}  // namespace tsid
+}  // namespace wbc

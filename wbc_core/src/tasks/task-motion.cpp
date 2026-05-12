@@ -4,13 +4,13 @@
 
 #include "wbc_core/tasks/task-motion.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 typedef math::Vector Vector;
 typedef trajectories::TrajectorySample TrajectorySample;
 
-TaskMotion::TaskMotion(const std::string& name, RobotWrapper& robot)
+TaskMotion::TaskMotion(const std::string& name, RobotSystem& robot)
     : TaskBase(name, robot) {}
 
 void TaskMotion::setMask(math::ConstRefVector mask) { m_mask = mask; }
@@ -35,4 +35,4 @@ const Vector& TaskMotion::position_ref() const { return m_dummy; }
 const Vector& TaskMotion::velocity_ref() const { return m_dummy; }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

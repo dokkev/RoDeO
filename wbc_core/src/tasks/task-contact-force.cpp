@@ -4,12 +4,11 @@
 
 #include "wbc_core/tasks/task-contact-force.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
-using namespace tsid;
 
-TaskContactForce::TaskContactForce(const std::string& name, RobotWrapper& robot)
+TaskContactForce::TaskContactForce(const std::string& name, RobotSystem& robot)
     : TaskBase(name, robot) {}
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

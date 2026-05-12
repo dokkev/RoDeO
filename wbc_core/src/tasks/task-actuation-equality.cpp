@@ -3,15 +3,15 @@
 //
 
 #include <wbc_core/tasks/task-actuation-equality.hpp>
-#include "wbc_core/robots/robot-wrapper.hpp"
+#include "wbc_core/robots/robot-system.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 using namespace math;
 using namespace pinocchio;
 
 TaskActuationEquality::TaskActuationEquality(const std::string& name,
-                                             RobotWrapper& robot)
+                                             RobotSystem& robot)
     : TaskActuation(name, robot), m_constraint(name, robot.na(), robot.na()) {
   m_ref = Vector::Zero(robot.na());
   m_weights = Vector::Ones(robot.na());
@@ -97,4 +97,4 @@ const ConstraintBase& TaskActuationEquality::compute(const double,
 }
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc

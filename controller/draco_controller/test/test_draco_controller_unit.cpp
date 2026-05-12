@@ -13,7 +13,6 @@
 #include "wbc_architecture/control_architecture_config.hpp"
 #include "wbc_fsm/state_factory.hpp"
 #include "wbc_robot_system/pinocchio_robot_system.hpp"
-#include "wbc_robot_system/state_provider.hpp"
 
 // Force-link the draco state machine registrations.
 #include "draco_controller/state_machines/initialize.hpp"
@@ -135,7 +134,6 @@ std::unique_ptr<ControlArchitecture> MakeDracoArch(const std::string& yaml_conte
   const auto tmp = std::filesystem::temp_directory_path() / tmp_name;
   { std::ofstream f(tmp); f << yaml_content; }
   auto cfg = ControlArchitectureConfig::FromYaml(tmp.string(), 0.001);
-  cfg.state_provider = std::make_unique<StateProvider>(0.001);
   auto arch = std::make_unique<ControlArchitecture>(std::move(cfg));
   arch->Initialize();
   return arch;

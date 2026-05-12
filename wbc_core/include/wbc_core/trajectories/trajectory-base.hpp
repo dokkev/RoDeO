@@ -25,7 +25,7 @@
 
 #include <string>
 
-namespace tsid {
+namespace wbc {
 namespace trajectories {
 
 typedef Eigen::Map<const Eigen::Matrix<double, 3, 3>> MapMatrix3;
@@ -96,6 +96,6 @@ class TrajectoryBase {
   TrajectorySample m_sample;
 };
 }  // namespace trajectories
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_trajectory_base_hpp__

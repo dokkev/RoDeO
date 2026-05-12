@@ -23,7 +23,7 @@
 #include <wbc_core/math/constraint-equality.hpp>
 #include <wbc_core/deprecated.hh>
 
-namespace tsid {
+namespace wbc {
 namespace tasks {
 
 class TaskJointPosture : public TaskMotion {
@@ -37,7 +37,7 @@ class TaskJointPosture : public TaskMotion {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::Data Data;
 
-  TaskJointPosture(const std::string& name, RobotWrapper& robot);
+  TaskJointPosture(const std::string& name, RobotSystem& robot);
 
   int dim() const override;
 
@@ -81,6 +81,6 @@ class TaskJointPosture : public TaskMotion {
 };
 
 }  // namespace tasks
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_task_joint_posture_hpp__

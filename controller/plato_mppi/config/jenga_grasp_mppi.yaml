@@ -1,0 +1,39 @@
+jenga_grasp_mppi_node:
+  ros__parameters:
+    command_joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7, joint8]
+    joint_names: [joint3, joint4, joint5, joint6]
+    fixed_joint_names: [joint1, joint2]
+    fixed_joint_positions: [0.0, 0.0]
+
+    joint_state_topic: /plato2/joint_states
+    command_topic: /plato2/joint_impedance_controller/commands
+    tactile_topics:
+      - tactile_0/tactile_states
+      - tactile_1/tactile_states
+    tactile_frame_names:
+      - thumb_distal_tactile
+      - index_distal_tactile
+
+    control_rate_hz: 100.0
+    joint_state_timeout_s: 0.25
+    tactile_timeout_s: 0.25
+    publish_hold_without_tactile: true
+    cop_to_m_scale: 0.001
+    slip_velocity_filter_alpha: 0.25
+    slip_velocity_max_norm: 100.0
+    urdf_path: "package://plato_description/urdf/plato_naritouch.urdf"
+    publish_tactile_frame_poses: true
+    tactile_frame_pose_topic: "~/tactile_frame_poses"
+    tactile_pose_frame_id: "base_link"
+
+    # Empty means the node uses mppi_core/config/mppi.yaml and grasp.yaml.
+    mppi_yaml_path: ""
+    cost_yaml_path: ""
+
+    q_lower_bound: [-1.0471975512, -2.0943951024, -1.0471975512, 0.0]
+    q_upper_bound: [1.0471975512, 0.0, 1.0471975512, 2.0943951024]
+
+    # Fixed impedance command sent with every MPPI q_ref.
+    stiffness: [10.0, 10.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
+    damping: [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    effort_ff: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

@@ -4,7 +4,7 @@
 
 #include <wbc_core/math/constraint-base.hpp>
 
-using namespace tsid::math;
+using namespace wbc::math;
 
 ConstraintBase::ConstraintBase(const std::string& name) : m_name(name) {}
 

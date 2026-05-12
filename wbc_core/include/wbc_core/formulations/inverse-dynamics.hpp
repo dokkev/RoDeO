@@ -18,7 +18,7 @@
 #include <optional>
 #include <string>
 
-namespace tsid {
+namespace wbc {
 
 struct TaskLevel {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -65,7 +65,6 @@ class InverseDynamicsBase {
   typedef solvers::HQPData HQPData;
   typedef solvers::HQPOutput HQPOutput;
   typedef robots::RobotSystem RobotSystem;
-  typedef robots::RobotWrapper RobotWrapper;
 
   InverseDynamicsBase(const std::string& name, RobotSystem& robot,
                       bool verbose = false);
@@ -118,7 +117,7 @@ class InverseDynamicsBase {
                                             ConstRefVector v) = 0;
 
   /// @brief Decode solver output (e.g., extract qddot/forces/tau).
-  ///        Default no-op; WBMC overrides to split the stacked decision vector.
+  ///        Default no-op; IDHQP overrides to split the stacked decision vector.
   virtual bool decodeSolution(const HQPOutput& /*sol*/) { return true; }
 
   virtual const Vector& getActuatorForces(const HQPOutput& sol) = 0;
@@ -136,6 +135,6 @@ class InverseDynamicsBase {
   bool m_verbose;
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_inverse_dynamics_hpp__

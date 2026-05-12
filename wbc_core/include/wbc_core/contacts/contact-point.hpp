@@ -10,7 +10,7 @@
 #include "wbc_core/math/constraint-inequality.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace contacts {
 class ContactPoint : public ContactBase {
  public:
@@ -27,7 +27,7 @@ class ContactPoint : public ContactBase {
   typedef math::ConstraintEquality ConstraintEquality;
   typedef pinocchio::SE3 SE3;
 
-  ContactPoint(const std::string& name, RobotWrapper& robot,
+  ContactPoint(const std::string& name, RobotSystem& robot,
                const std::string& frameName, ConstRefVector contactNormal,
                const double frictionCoefficient, const double minNormalForce,
                const double maxNormalForce);
@@ -38,9 +38,9 @@ class ContactPoint : public ContactBase {
   /// Return the number of force variables
   unsigned int n_force() const override;
 
-  const ConstraintBase& computeMotionTask(double t, ConstRefVector q,
-                                          ConstRefVector v,
-                                          Data& data) override;
+  const ConstraintBase& computeMotionConstraint(double t, ConstRefVector q,
+                                                ConstRefVector v,
+                                                Data& data) override;
 
   const ConstraintInequality& computeForceTask(double t, ConstRefVector q,
                                                ConstRefVector v,
@@ -107,6 +107,6 @@ class ContactPoint : public ContactBase {
   Matrix m_forceGenMat;
 };
 }  // namespace contacts
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_contact_point_hpp__

@@ -9,7 +9,7 @@
 #include <string>
 #include <pinocchio/macros.hpp>
 
-namespace tsid {
+namespace wbc {
 namespace math {
 
 /**
@@ -63,6 +63,6 @@ class ConstraintBase {
 };
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_math_constraint_base_hpp__

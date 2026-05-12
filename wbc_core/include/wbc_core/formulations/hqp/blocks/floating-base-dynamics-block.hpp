@@ -17,7 +17,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class FloatingBaseDynamicsConstraint : public HQPBlock {
  public:
@@ -85,6 +85,6 @@ class FloatingBaseDynamicsConstraint : public HQPBlock {
   }
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif

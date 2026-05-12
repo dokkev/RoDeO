@@ -1,0 +1,114 @@
+<?xml version="0.06.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="plato_ros2_control" params="name fake_hardware='false' zeroing='false'">
+    <xacro:property name="use_mock" value="${fake_hardware == 'true' or fake_hardware == 'True' or fake_hardware == '1' or fake_hardware == 1 or fake_hardware == True}"/>
+    <xacro:property
+      name="hardware_config"
+      value="${xacro.load_yaml('$(find plato_hardware_interface)/config/plato_hardware.yaml')}"/>
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <xacro:if value="${use_mock}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_mock}">
+          <plugin>plato_hardware_interface/PlatoHardware</plugin>
+          <param name="zeroing">${zeroing}</param>
+          <param name="direct_tx_inter_frame_gap_us">${hardware_config['direct_tx_inter_frame_gap_us']}</param>
+          <param name="servo_stiffness_scale">${hardware_config['servo_stiffness_scale']}</param>
+        </xacro:unless>
+      </hardware>
+
+      <joint name="joint1">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint2">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint3">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint4">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint5">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint6">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint7">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="joint8">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="effort"/>
+        <command_interface name="stiffness"/>
+        <command_interface name="damping"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

@@ -7,7 +7,7 @@
 
 #include "wbc_core/math/constraint-base.hpp"
 
-namespace tsid {
+namespace wbc {
 namespace math {
 
 class ConstraintBound : public ConstraintBase {
@@ -49,6 +49,6 @@ class ConstraintBound : public ConstraintBase {
 };
 
 }  // namespace math
-}  // namespace tsid
+}  // namespace wbc
 
 #endif  // ifndef __invdyn_math_constraint_bound_hpp__

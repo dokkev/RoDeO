@@ -22,7 +22,7 @@
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
 
-namespace tsid {
+namespace wbc {
 
 class TorqueLimitConstraint : public HQPBlock {
  public:
@@ -97,6 +97,6 @@ class TorqueLimitConstraint : public HQPBlock {
   math::Vector m_cTmp;  ///< Scratch: torque limit constant (na)
 };
 
-}  // namespace tsid
+}  // namespace wbc
 
 #endif

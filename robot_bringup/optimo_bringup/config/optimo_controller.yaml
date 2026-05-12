@@ -15,6 +15,7 @@
     wbc_yaml_path: "package://optimo_controller/config/optimo_wbc.yaml"
     control_frequency: 1000.0
     is_simulation: false
+    actuator_model: direct
     joints:
       - optimo_joint1
       - optimo_joint2
