@@ -18,6 +18,8 @@ jenga_grasp_mppi_node:
     joint_state_timeout_s: 0.25
     tactile_timeout_s: 0.25
     publish_hold_without_tactile: true
+    activation_requires_all_tactile_enough_contact: true
+    activation_contact_state_threshold: 2
     cop_to_m_scale: 0.001
     slip_velocity_filter_alpha: 0.25
     slip_velocity_max_norm: 100.0
@@ -34,6 +36,6 @@ jenga_grasp_mppi_node:
     q_upper_bound: [1.0471975512, 0.0, 1.0471975512, 2.0943951024]
 
     # Fixed impedance command sent with every MPPI q_ref.
-    stiffness: [10.0, 10.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
+    stiffness: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     damping: [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     effort_ff: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

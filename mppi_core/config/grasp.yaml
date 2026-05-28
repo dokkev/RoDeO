@@ -32,6 +32,15 @@ grasp:
     slip_decay: 0.9
     slip_margin_gain_per_n: 0.2
     centroid_drift_gain_m_per_n: 0.0005
+    # Local contact-patch oscillation model: arm/object shaking shows up as
+    # slip velocity and centroid velocity on the tactile surface.
+    slip_velocity_decay: 0.85
+    slip_velocity_margin_gain_per_nps: 0.2
+    action_slip_damping_gain_per_rad: 0.0
+    max_slip_velocity: 100.0
+    centroid_velocity_decay: 0.9
+    centroid_velocity_slip_gain: 0.001
+    max_centroid_velocity_mps: 0.05
 
   slip_risk:
     threshold: 0.25
@@ -47,6 +56,12 @@ grasp:
     x_max: 0.008
     y_min: -0.008
     y_max: 0.008
+
+  contact_patch:
+    # Prefer a wider local contact patch when force/slip costs are comparable.
+    enabled: true
+    target_node_count: 6
+    weight: 2.0
 
   tracking_guard:
     weight: 5.0

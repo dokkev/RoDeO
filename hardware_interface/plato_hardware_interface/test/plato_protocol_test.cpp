@@ -1,10 +1,14 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "can_hardware_common/core/actuator_frame_router.hpp"
 #include "plato_hardware_interface/actuator.hpp"
+#include "plato_hardware_interface/dynamixel_can_protocol.hpp"
 #include "plato_hardware_interface/gim3505_protocol.hpp"
 #include "plato_hardware_interface/plato_layout.hpp"
 
@@ -38,6 +42,32 @@ std::vector<plato_actuator::Actuator> make_plato_actuators(std::size_t count)
     actuators.emplace_back(config);
   }
   return actuators;
+}
+
+uint16_t pack_position(float position_rad)
+{
+  const float packed = (position_rad + 12.5f) * 65535.0f / 25.0f;
+  return static_cast<uint16_t>(std::clamp(packed, 0.0f, 65535.0f));
+}
+
+uint16_t pack_velocity(float velocity_rpm)
+{
+  const float packed = (velocity_rpm + 65.0f) * 4095.0f / 130.0f;
+  return static_cast<uint16_t>(std::clamp(packed, 0.0f, 4095.0f));
+}
+
+uint16_t pack_torque(float torque_nm, float torque_constant, float gear_ratio)
+{
+  const float scale = 450.0f * torque_constant * gear_ratio;
+  const float offset = 225.0f * torque_constant * gear_ratio;
+  const float packed = (torque_nm + offset) * 4095.0f / scale;
+  return static_cast<uint16_t>(std::clamp(packed, 0.0f, 4095.0f));
+}
+
+float rpm_to_rad_s(float rpm)
+{
+  constexpr float kTwoPi = 6.28318530717958647692f;
+  return rpm * kTwoPi / 60.0f;
 }
 
 TEST(ActuatorFrameRouterTest, AppendEnableFramesUsesActuatorEnableCommands)
@@ -76,6 +106,44 @@ TEST(ActuatorFrameRouterTest, AppendDisableFramesUsesActuatorDisableCommands)
   EXPECT_EQ(
     frames[2].DATA[0],
     plato_hardware_interface::gim3505_protocol::CommandByte::STOP_MOTOR);
+}
+
+TEST(ActuatorFrameRouterTest, DynamixelPackedFeedbackPayloadUpdatesMatchingServoState)
+{
+  auto actuators = make_plato_actuators(2);
+  constexpr float kPosition = -0.42f;
+  constexpr float kVelocityRpm = 12.0f;
+  constexpr float kTorqueNm = 0.2f;
+  constexpr float kTorqueConstant = 0.1f;
+  constexpr float kGearRatio = 1.0f;
+
+  const uint16_t packed_position = pack_position(kPosition);
+  const uint16_t packed_velocity = pack_velocity(kVelocityRpm);
+  const uint16_t packed_torque = pack_torque(kTorqueNm, kTorqueConstant, kGearRatio);
+
+  TPCANMsg frame;
+  std::memset(&frame, 0, sizeof(frame));
+  frame.ID = actuators[1].get_rx_id();
+  frame.MSGTYPE = PCAN_MESSAGE_STANDARD;
+  frame.LEN = plato_hardware_interface::dynamixel_can_protocol::kFeedbackResponseLength;
+  frame.DATA[0] =
+    static_cast<std::uint8_t>(plato_hardware_interface::dynamixel_can_protocol::Command::kSetPosition);
+  frame.DATA[1] = 2;
+  frame.DATA[2] =
+    static_cast<std::uint8_t>(plato_hardware_interface::dynamixel_can_protocol::Result::kSuccess);
+  frame.DATA[3] = packed_position & 0xFF;
+  frame.DATA[4] = (packed_position >> 8) & 0xFF;
+  frame.DATA[5] = (packed_velocity >> 4) & 0xFF;
+  frame.DATA[6] = static_cast<std::uint8_t>(
+    ((packed_velocity & 0x0F) << 4) | ((packed_torque >> 8) & 0x0F));
+  frame.DATA[7] = packed_torque & 0xFF;
+
+  EXPECT_TRUE(can_hardware_common::core::dispatch_rx_frame(frame, actuators));
+  EXPECT_FALSE(actuators[0].is_initialized());
+  ASSERT_TRUE(actuators[1].is_initialized());
+  EXPECT_NEAR(actuators[1].get_state().position, kPosition, 1.0e-3f);
+  EXPECT_NEAR(actuators[1].get_state().velocity, rpm_to_rad_s(kVelocityRpm), 5.0e-3f);
+  EXPECT_NEAR(actuators[1].get_state().torque, kTorqueNm, 2.0e-2f);
 }
 
 }  // namespace

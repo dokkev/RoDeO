@@ -27,14 +27,23 @@ enum class Result : uint8_t
 
 struct Response
 {
+  struct PackedState
+  {
+    uint16_t position = 0;
+    uint16_t velocity = 0;
+    uint16_t torque = 0;
+  };
+
   Command command;
   uint8_t servo_id = 0;
   Result result = Result::kFailure;
+  std::optional<PackedState> state;
 };
 
 constexpr uint8_t kLifecycleCommandLength = 2;
 constexpr uint8_t kLifecycleResponseLength = 3;
 constexpr uint8_t kPositionCommandLength = 8;
+constexpr uint8_t kFeedbackResponseLength = 8;
 
 // Command frame:
 //   DATA[0] = Command
@@ -45,6 +54,9 @@ constexpr uint8_t kPositionCommandLength = 8;
 //   DATA[0] = echoed Command
 //   DATA[1] = Dynamixel servo/channel ID
 //   DATA[2] = Result
+//   DATA[3..4] = optional uint16 packed position
+//   DATA[5..6] = optional packed velocity bits
+//   DATA[6..7] = optional packed torque bits
 //
 // Position command payload:
 //   DATA[2..5] = float32 goal position, little-endian, radians

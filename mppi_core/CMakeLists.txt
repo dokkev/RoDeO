@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ament_cmake REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(pinocchio REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 set(${PROJECT_NAME}_SOURCES
@@ -31,7 +32,11 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(${PROJECT_NAME} PUBLIC Eigen3::Eigen yaml-cpp)
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  Eigen3::Eigen
+  pinocchio::pinocchio
+  yaml-cpp
+)
 
 install(TARGETS ${PROJECT_NAME}
   EXPORT ${PROJECT_NAME}Targets
@@ -67,6 +72,6 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-ament_export_dependencies(eigen3_cmake_module Eigen3 yaml-cpp)
+ament_export_dependencies(eigen3_cmake_module Eigen3 pinocchio yaml-cpp)
 
 ament_package()

@@ -88,6 +88,20 @@ void JengaGrasp::Initialize(std::size_t joint_dim, JengaGraspConfig config) {
       config.grasp_stability_cost.slip_prediction_margin_gain_per_n;
   prediction_config.centroid_slip_drift_gain_m_per_n =
       config.grasp_stability_cost.centroid_slip_drift_gain_m_per_n;
+  prediction_config.slip_velocity_decay =
+      config.grasp_stability_cost.slip_velocity_decay;
+  prediction_config.slip_velocity_margin_gain_per_nps =
+      config.grasp_stability_cost.slip_velocity_margin_gain_per_nps;
+  prediction_config.action_slip_damping_gain_per_rad =
+      config.grasp_stability_cost.action_slip_damping_gain_per_rad;
+  prediction_config.max_slip_velocity =
+      config.grasp_stability_cost.max_slip_velocity;
+  prediction_config.centroid_velocity_decay =
+      config.grasp_stability_cost.centroid_velocity_decay;
+  prediction_config.centroid_velocity_slip_gain =
+      config.grasp_stability_cost.centroid_velocity_slip_gain;
+  prediction_config.max_centroid_velocity_mps =
+      config.grasp_stability_cost.max_centroid_velocity_mps;
   prediction_config.closing_direction =
       config.grasp_stability_cost.closing_direction;
   model_ = std::make_shared<DeltaQReferenceRolloutModel>(
@@ -112,6 +126,40 @@ GraspCommand JengaGrasp::Update(const GraspObservation& observation) {
     policy_observation.tactile_disturbances = disturbances_;
   }
   return optimizer_.Update(policy_observation);
+}
+
+RolloutTrace JengaGrasp::PredictRollout(const GraspObservation& observation,
+                                        const ActionSequence& actions) const {
+  if (!initialized_) {
+    throw std::logic_error(
+        "JengaGrasp::PredictRollout: policy is not initialized");
+  }
+
+  GraspObservation policy_observation = observation;
+  if (policy_observation.object == nullptr) {
+    policy_observation.object = &object_;
+  }
+  if (policy_observation.tactile_disturbances.empty()) {
+    policy_observation.tactile_disturbances = disturbances_;
+  }
+  return optimizer_.PredictRollout(policy_observation, actions);
+}
+
+RolloutTrace JengaGrasp::PredictNominalRollout(
+    const GraspObservation& observation) const {
+  if (!initialized_) {
+    throw std::logic_error(
+        "JengaGrasp::PredictNominalRollout: policy is not initialized");
+  }
+
+  GraspObservation policy_observation = observation;
+  if (policy_observation.object == nullptr) {
+    policy_observation.object = &object_;
+  }
+  if (policy_observation.tactile_disturbances.empty()) {
+    policy_observation.tactile_disturbances = disturbances_;
+  }
+  return optimizer_.PredictNominalRollout(policy_observation);
 }
 
 void JengaGrasp::Reset() {

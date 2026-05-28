@@ -16,6 +16,16 @@
 
 namespace mppi_core {
 
+struct RolloutTrace {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  // states[0] is the initial rollout state. states[k + 1] is after actions[k].
+  std::vector<RobotRolloutState> states;
+  std::vector<Eigen::VectorXd> actions;
+  std::vector<double> step_costs;
+  double total_cost{0.0};
+};
+
 class MPPIOptimizer {
  public:
   MPPIOptimizer() = default;
@@ -25,6 +35,9 @@ class MPPIOptimizer {
                   std::shared_ptr<const CostTermBase> cost_term);
 
   GraspCommand Update(const GraspObservation& observation);
+  RolloutTrace PredictRollout(const GraspObservation& observation,
+                              const ActionSequence& actions) const;
+  RolloutTrace PredictNominalRollout(const GraspObservation& observation) const;
   void ResetNominalActions();
   void ShiftNominalTrajectory();
 

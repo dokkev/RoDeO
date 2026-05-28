@@ -9,8 +9,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include "mppi_core/contact/naritouch.hpp"
-
 namespace mppi_core {
 namespace {
 
@@ -30,6 +28,95 @@ bool IsFiniteAndNonnegative(double value) {
 
 double Clamp(double value, double lower, double upper) {
   return std::max(lower, std::min(value, upper));
+}
+
+double FiniteNonnegativeOrZero(double value) {
+  if (!std::isfinite(value)) {
+    return 0.0;
+  }
+  return std::max(0.0, value);
+}
+
+double TactileNormalForceN(const TactileState& tactile) {
+  if (!tactile.has_normal_force || !std::isfinite(tactile.normal_force_n)) {
+    return 0.0;
+  }
+  return std::max(0.0, tactile.normal_force_n);
+}
+
+double TactileSlipScore(const TactileState& tactile) {
+  const double provided_score = FiniteNonnegativeOrZero(tactile.slip_score);
+  if (provided_score > 0.0) {
+    return provided_score;
+  }
+
+  double squared_score = 0.0;
+  if (tactile.has_shear && tactile.shear_displacement_m.allFinite()) {
+    squared_score += tactile.shear_displacement_m.squaredNorm();
+  }
+  if (tactile.has_rotational_shear &&
+      std::isfinite(tactile.rotational_shear_rad)) {
+    squared_score += tactile.rotational_shear_rad *
+                     tactile.rotational_shear_rad;
+  }
+  return std::sqrt(squared_score);
+}
+
+double TactileSlipVelocityScore(const TactileState& tactile) {
+  const double provided_score =
+      FiniteNonnegativeOrZero(tactile.slip_velocity_score);
+  if (provided_score > 0.0) {
+    return provided_score;
+  }
+
+  double squared_score = 0.0;
+  if (tactile.has_shear_velocity &&
+      tactile.shear_velocity_mps.allFinite()) {
+    squared_score += tactile.shear_velocity_mps.squaredNorm();
+  }
+  if (tactile.has_rotational_shear_velocity &&
+      std::isfinite(tactile.rotational_shear_velocity_radps)) {
+    squared_score += tactile.rotational_shear_velocity_radps *
+                     tactile.rotational_shear_velocity_radps;
+  }
+  return std::sqrt(squared_score);
+}
+
+double TactileSlipRisk(const TactileState& tactile, double velocity_weight) {
+  const double computed_risk =
+      TactileSlipScore(tactile) +
+      std::max(0.0, velocity_weight) * TactileSlipVelocityScore(tactile);
+  return std::max(computed_risk,
+                  FiniteNonnegativeOrZero(tactile.incipient_slip_score));
+}
+
+bool TactileContactCentroidM(const TactileState& tactile,
+                             Eigen::Vector2d* centroid_m) {
+  if (centroid_m == nullptr || !tactile.has_centroid ||
+      !tactile.centroid_m.allFinite()) {
+    return false;
+  }
+  *centroid_m = tactile.centroid_m;
+  return true;
+}
+
+std::size_t ContactSupportCountFromForce(double normal_force_n,
+                                         double force_per_support_n,
+                                         std::size_t max_support_count) {
+  if (normal_force_n <= 0.0) {
+    return 0;
+  }
+
+  const double safe_force_per_support =
+      std::max(1.0e-9, force_per_support_n);
+  const auto count =
+      static_cast<std::size_t>(std::ceil(normal_force_n /
+                                         safe_force_per_support));
+  if (max_support_count > 0) {
+    return std::max<std::size_t>(
+        1, std::min<std::size_t>(count, max_support_count));
+  }
+  return std::max<std::size_t>(1, count);
 }
 
 }  // namespace
@@ -85,8 +172,17 @@ GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
       !IsFiniteAndNonnegative(config_.slip_prediction_decay) ||
       !IsFiniteAndNonnegative(config_.slip_prediction_margin_gain_per_n) ||
       !IsFiniteAndNonnegative(config_.centroid_slip_drift_gain_m_per_n) ||
+      !IsFiniteAndNonnegative(config_.slip_velocity_decay) ||
+      !IsFiniteAndNonnegative(config_.slip_velocity_margin_gain_per_nps) ||
+      !IsFiniteAndNonnegative(config_.action_slip_damping_gain_per_rad) ||
+      !IsFiniteAndNonnegative(config_.max_slip_velocity) ||
+      !IsFiniteAndNonnegative(config_.centroid_velocity_decay) ||
+      !IsFiniteAndNonnegative(config_.centroid_velocity_slip_gain) ||
+      !IsFiniteAndNonnegative(config_.max_centroid_velocity_mps) ||
       !IsFiniteAndNonnegative(config_.centroid_boundary_weight) ||
       !IsFiniteAndNonnegative(config_.contact_loss_weight) ||
+      !IsFiniteAndNonnegative(config_.contact_patch_target_node_count) ||
+      !IsFiniteAndNonnegative(config_.contact_patch_weight) ||
       !IsFiniteAndNonnegative(config_.tracking_weight) ||
       !IsFiniteAndNonnegative(config_.tracking_action_scale_weight) ||
       !IsFiniteAndNonnegative(config_.action_smoothness_weight) ||
@@ -102,6 +198,11 @@ GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
   if (config_.contact_patch_force_per_node_n <= 0.0) {
     throw std::invalid_argument(
         "GraspStabilityCost: contact_patch_force_per_node_n must be positive");
+  }
+  if (config_.max_slip_velocity <= 0.0 ||
+      config_.max_centroid_velocity_mps <= 0.0) {
+    throw std::invalid_argument(
+        "GraspStabilityCost: tactile velocity limits must be positive");
   }
   if (config_.joint_lower_bound.size() != 0 ||
       config_.joint_upper_bound.size() != 0) {
@@ -128,12 +229,12 @@ double GraspStabilityCost::Evaluate(
   }
 
   const auto& tactile =
-      state.tactile_initialized ? state.tactile : *context.rollout->tactile;
-  double slip_risk =
-      ComputeNariTouchSlipRisk(tactile, config_.slip_velocity_weight);
+      state.tactile.valid ? state.tactile : *context.rollout->tactile;
+  double slip_risk = TactileSlipRisk(tactile, config_.slip_velocity_weight);
 
   Eigen::Vector2d centroid_m = Eigen::Vector2d::Zero();
-  bool centroid_valid = ComputeNariTouchContactCentroidM(tactile, &centroid_m);
+  bool centroid_valid = TactileContactCentroidM(tactile, &centroid_m);
+  std::size_t contact_support_count = tactile.contact_support_count;
 
   double normal_force_proxy_n =
       NormalForceProxyN(tactile, state, action, *context.rollout);
@@ -143,21 +244,17 @@ double GraspStabilityCost::Evaluate(
       config_.friction_coefficient * normal_force_proxy_n -
       tangential_load_proxy_n;
 
-  if (state.contact.initialized) {
-    slip_risk = state.contact.slip_risk;
-    centroid_m = state.contact.centroid_m;
-    centroid_valid =
-        state.contact.centroid_valid && state.contact.contact_valid;
-    normal_force_proxy_n = state.contact.normal_force_n;
-    tangential_load_proxy_n = state.contact.tangential_load_n;
-    friction_margin_n = std::min(state.contact.friction_margin_n,
-                                 state.contact.friction_pyramid_margin_n);
+  if (contact_support_count == 0 && normal_force_proxy_n > 0.0) {
+    contact_support_count = ContactSupportCountFromForce(
+        normal_force_proxy_n, config_.contact_patch_force_per_node_n,
+        tactile.support_count);
   }
   const double force_min_n = MinimumForceN(*context.rollout);
 
   double robust_cost = ScenarioCost(
       normal_force_proxy_n, tangential_load_proxy_n, friction_margin_n,
-      slip_risk, centroid_m, centroid_valid, force_min_n);
+      slip_risk, centroid_m, centroid_valid, contact_support_count,
+      force_min_n);
 
   const auto* disturbances = context.rollout->tactile_disturbances;
   if (disturbances != nullptr) {
@@ -176,13 +273,18 @@ double GraspStabilityCost::Evaluate(
       const double disturbed_friction_margin_n =
           config_.friction_coefficient * disturbed_force_n -
           safe_disturbed_tangential_load_n;
+      const std::size_t disturbed_contact_support_count =
+          ContactSupportCountFromForce(
+              disturbed_force_n, config_.contact_patch_force_per_node_n,
+              tactile.support_count);
       const Eigen::Vector2d disturbed_centroid_m =
           centroid_m + disturbance.centroid_delta_m;
       robust_cost = std::max(
           robust_cost,
           ScenarioCost(disturbed_force_n, safe_disturbed_tangential_load_n,
                        disturbed_friction_margin_n, disturbed_slip,
-                       disturbed_centroid_m, centroid_valid, force_min_n));
+                       disturbed_centroid_m, centroid_valid,
+                       disturbed_contact_support_count, force_min_n));
     }
   }
 
@@ -236,10 +338,10 @@ double GraspStabilityCost::CumulativeClosingDelta(
 }
 
 double GraspStabilityCost::NormalForceProxyN(
-    const NariTouchState& tactile, const RobotRolloutState& state,
+    const TactileState& tactile, const RobotRolloutState& state,
     const Eigen::Ref<const Eigen::VectorXd>& action,
     const RolloutContext& rollout) const {
-  const double measured_force_n = ComputeNariTouchTotalNormalForceN(tactile);
+  const double measured_force_n = TactileNormalForceN(tactile);
   const double cumulative_closing_delta =
       CumulativeClosingDelta(state, action, rollout);
   const double predicted_force_n =
@@ -331,7 +433,7 @@ double GraspStabilityCost::ScenarioCost(
     double normal_force_proxy_n, double tangential_load_proxy_n,
     double friction_margin_n, double slip_risk,
     const Eigen::Vector2d& predicted_centroid_m, bool centroid_valid,
-    double force_min_n) const {
+    std::size_t contact_support_count, double force_min_n) const {
   double cost = 0.0;
   cost += config_.force_under_weight *
           Square(Relu(force_min_n - normal_force_proxy_n));
@@ -365,6 +467,13 @@ double GraspStabilityCost::ScenarioCost(
 
   cost += config_.contact_loss_weight *
           Square(Relu(force_min_n - normal_force_proxy_n));
+
+  if (config_.contact_patch_enabled) {
+    const double contact_patch_deficit =
+        Relu(config_.contact_patch_target_node_count -
+             static_cast<double>(contact_support_count));
+    cost += config_.contact_patch_weight * Square(contact_patch_deficit);
+  }
   return cost;
 }
 

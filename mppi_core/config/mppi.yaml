@@ -10,6 +10,6 @@ mppi:
 
   # Action is delta_q_ref per MPPI step. Scalars expand to all controlled joints.
   action:
-    lower_bound: -0.004
-    upper_bound: 0.004
-    noise_std: 0.0015
+    lower_bound: -0.002
+    upper_bound: 0.002
+    noise_std: 0.002

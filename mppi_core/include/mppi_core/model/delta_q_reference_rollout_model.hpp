@@ -28,6 +28,13 @@ struct ContactPredictionConfig {
   double slip_prediction_decay{0.9};
   double slip_prediction_margin_gain_per_n{0.2};
   double centroid_slip_drift_gain_m_per_n{0.0005};
+  double slip_velocity_decay{0.85};
+  double slip_velocity_margin_gain_per_nps{0.2};
+  double action_slip_damping_gain_per_rad{0.0};
+  double max_slip_velocity{100.0};
+  double centroid_velocity_decay{0.9};
+  double centroid_velocity_slip_gain{0.001};
+  double max_centroid_velocity_mps{0.05};
   Eigen::VectorXd closing_direction;
 };
 

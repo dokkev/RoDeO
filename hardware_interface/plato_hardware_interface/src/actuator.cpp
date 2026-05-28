@@ -37,6 +37,25 @@ uint16_t clamp_u16(uint32_t value)
 {
   return static_cast<uint16_t>(std::min<uint32_t>(value, std::numeric_limits<uint16_t>::max()));
 }
+
+float decode_packed_position_rad(uint16_t value)
+{
+  return static_cast<float>(value) * 25.0f / 65535.0f - 12.5f;
+}
+
+float decode_packed_velocity_rad_s(uint16_t value)
+{
+  constexpr float kTwoPi = 6.28318530717958647692f;
+  const float rpm = static_cast<float>(value) * 130.0f / 4095.0f - 65.0f;
+  return rpm * kTwoPi / 60.0f;
+}
+
+float decode_packed_torque_nm(uint16_t value, const StaticConfig & config)
+{
+  const float torque_scale = 450.0f * config.torque_constant * config.gear_ratio / 4095.0f;
+  const float torque_offset = 225.0f * config.torque_constant * config.gear_ratio;
+  return static_cast<float>(value) * torque_scale - torque_offset;
+}
 }  // namespace
 
 Actuator::Actuator(const Config & config)
@@ -205,6 +224,14 @@ bool Actuator::process_dynamixel_bridge_message_(const TPCANMsg & msg)
     success)
   {
     motor_enabled_ = false;
+  }
+
+  if (success && response->state) {
+    motor_position_ = decode_packed_position_rad(response->state->position);
+    state_.position = motor_position_;
+    state_.velocity = decode_packed_velocity_rad_s(response->state->velocity);
+    state_.torque = decode_packed_torque_nm(response->state->torque, static_config_);
+    is_initialized_ = true;
   }
 
   return true;

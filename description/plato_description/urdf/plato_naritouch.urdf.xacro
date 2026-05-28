@@ -4,8 +4,8 @@
   <xacro:arg name="fake_hardware" default="false"/>
   <xacro:arg name="zeroing" default="false"/>
 
-  <xacro:include filename="$(find plato_description)/urdf/xacro/plato_naritouch_description.xacro"/>
-  <xacro:include filename="$(find plato_description)/urdf/ros2_control/plato.ros2_control.xacro"/>
+  <xacro:include filename="xacro/plato_naritouch_description.xacro"/>
+  <xacro:include filename="ros2_control/plato.ros2_control.xacro"/>
 
   <xacro:plato_naritouch_description connector_link="world" xyz="0 0 0" rpy="0 0 0"/>
   <xacro:plato_ros2_control

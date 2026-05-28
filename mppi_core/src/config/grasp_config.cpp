@@ -193,6 +193,26 @@ GraspStabilityCostConfig ParseGraspConfig(const YAML::Node& params,
   defaults.centroid_slip_drift_gain_m_per_n =
       ReadDouble(tactile_prediction, "centroid_drift_gain_m_per_n",
                  defaults.centroid_slip_drift_gain_m_per_n);
+  defaults.slip_velocity_decay =
+      ReadDouble(tactile_prediction, "slip_velocity_decay",
+                 defaults.slip_velocity_decay);
+  defaults.slip_velocity_margin_gain_per_nps =
+      ReadDouble(tactile_prediction, "slip_velocity_margin_gain_per_nps",
+                 defaults.slip_velocity_margin_gain_per_nps);
+  defaults.action_slip_damping_gain_per_rad =
+      ReadDouble(tactile_prediction, "action_slip_damping_gain_per_rad",
+                 defaults.action_slip_damping_gain_per_rad);
+  defaults.max_slip_velocity = ReadDouble(
+      tactile_prediction, "max_slip_velocity", defaults.max_slip_velocity);
+  defaults.centroid_velocity_decay =
+      ReadDouble(tactile_prediction, "centroid_velocity_decay",
+                 defaults.centroid_velocity_decay);
+  defaults.centroid_velocity_slip_gain =
+      ReadDouble(tactile_prediction, "centroid_velocity_slip_gain",
+                 defaults.centroid_velocity_slip_gain);
+  defaults.max_centroid_velocity_mps =
+      ReadDouble(tactile_prediction, "max_centroid_velocity_mps",
+                 defaults.max_centroid_velocity_mps);
 
   const YAML::Node slip_risk = ReadSection(safe_params, "slip_risk");
   defaults.slip_threshold =
@@ -216,6 +236,15 @@ GraspStabilityCostConfig ParseGraspConfig(const YAML::Node& params,
       ReadDouble(contact_centroid, "y_min", defaults.centroid_y_min);
   defaults.centroid_y_max =
       ReadDouble(contact_centroid, "y_max", defaults.centroid_y_max);
+
+  const YAML::Node contact_patch = ReadSection(safe_params, "contact_patch");
+  defaults.contact_patch_enabled =
+      ReadBool(contact_patch, "enabled", defaults.contact_patch_enabled);
+  defaults.contact_patch_target_node_count =
+      ReadDouble(contact_patch, "target_node_count",
+                 defaults.contact_patch_target_node_count);
+  defaults.contact_patch_weight =
+      ReadDouble(contact_patch, "weight", defaults.contact_patch_weight);
 
   const YAML::Node tracking_guard = ReadSection(safe_params, "tracking_guard");
   defaults.tracking_weight =

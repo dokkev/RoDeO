@@ -76,4 +76,12 @@ install(TARGETS ${PROJECT_NAME}
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS} yaml-cpp)
 ament_export_libraries(${PROJECT_NAME})
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(plato_protocol_test test/plato_protocol_test.cpp)
+  target_link_libraries(plato_protocol_test ${PROJECT_NAME})
+endif()
+
 ament_package()

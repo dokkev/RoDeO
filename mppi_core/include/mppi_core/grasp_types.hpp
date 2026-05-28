@@ -10,9 +10,15 @@
 
 #include <Eigen/Core>
 
-#include "mppi_core/contact/naritouch.hpp"
+#include "mppi_core/tactile/tactile_state.hpp"
 
 namespace mppi_core {
+
+struct GraspRolloutConfig;
+struct ContactForceCorrectionState;
+struct ContactForceProjectionConfig;
+struct ContactForceRolloutConfig;
+struct PinocchioContactKinematicsContext;
 
 enum class ObjectShapeType {
   kUnknown = 0,
@@ -108,8 +114,14 @@ struct GraspObservation {
   Eigen::VectorXd v_measured;
   Eigen::VectorXd q_ref_current;
   Eigen::VectorXd v_ref_current;
+  Eigen::VectorXd measured_tau;
 
-  NariTouchState tactile;
+  TactileState tactile;
+  const PinocchioContactKinematicsContext* contact_kinematics{nullptr};
+  const GraspRolloutConfig* grasp_rollout_config{nullptr};
+  const ContactForceProjectionConfig* contact_force_projection_config{nullptr};
+  const ContactForceRolloutConfig* contact_force_rollout_config{nullptr};
+  const ContactForceCorrectionState* contact_force_correction_state{nullptr};
   bool has_gravity_context{false};
   Eigen::Vector3d gravity_in_sensor_frame{Eigen::Vector3d::Zero()};
 

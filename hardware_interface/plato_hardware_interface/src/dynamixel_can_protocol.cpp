@@ -100,7 +100,16 @@ std::optional<Response> decode_response(const TPCANMsg & frame)
     return std::nullopt;
   }
 
-  return Response{*command, frame.DATA[1], *result};
+  Response response{*command, frame.DATA[1], *result, std::nullopt};
+  if (frame.LEN >= kFeedbackResponseLength) {
+    Response::PackedState state;
+    state.position = (static_cast<uint16_t>(frame.DATA[4]) << 8) | frame.DATA[3];
+    state.velocity =
+      (static_cast<uint16_t>(frame.DATA[5]) << 4) | ((frame.DATA[6] & 0xF0) >> 4);
+    state.torque = ((frame.DATA[6] & 0x0F) << 8) | frame.DATA[7];
+    response.state = state;
+  }
+  return response;
 }
 
 std::optional<Response> decode_lifecycle_response(const TPCANMsg & frame)

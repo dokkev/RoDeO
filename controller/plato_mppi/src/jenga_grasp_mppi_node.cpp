@@ -22,10 +22,10 @@
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
-#include "mppi_core/contact/naritouch.hpp"
 #include "mppi_core/config/grasp_config.hpp"
 #include "mppi_core/config/mppi_config.hpp"
 #include "mppi_core/policies/jenga_grasp.hpp"
+#include "mppi_core/tactile/nari_touch_adapter.hpp"
 #include "pinocchio/spatial/se3.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sdr_grasp_msgs/msg/tactile.hpp"
@@ -135,6 +135,21 @@ std::vector<double> ToStdVector(const Eigen::VectorXd& value) {
 Eigen::Vector3d ClampVectorNorm(const Eigen::Vector3d& value, double max_norm) {
   if (!value.allFinite()) {
     return Eigen::Vector3d::Zero();
+  }
+  if (!std::isfinite(max_norm) || max_norm <= 0.0) {
+    return value;
+  }
+
+  const double norm = value.norm();
+  if (norm <= max_norm || norm <= 0.0) {
+    return value;
+  }
+  return value * (max_norm / norm);
+}
+
+Eigen::Vector2d ClampVectorNorm(const Eigen::Vector2d& value, double max_norm) {
+  if (!value.allFinite()) {
+    return Eigen::Vector2d::Zero();
   }
   if (!std::isfinite(max_norm) || max_norm <= 0.0) {
     return value;
@@ -277,14 +292,14 @@ mppi_core::NariTouchState ConvertTactile(
   tactile.force_z = msg.force.z;
   tactile.contact_state = ConvertContactState(msg.contact_state);
 
-  const std::size_t count = std::min(tactile.nodes.size(), msg.units.size());
+  const std::size_t count = std::min(tactile.units.size(), msg.units.size());
   for (std::size_t i = 0; i < count; ++i) {
     const auto& unit = msg.units[i];
-    auto& node = tactile.nodes[i];
-    node.contact = unit.contact;
-    node.cop = Eigen::Vector2d{unit.cop.x * cop_to_m_scale,
-                               unit.cop.y * cop_to_m_scale};
-    node.normal_force = unit.normal_force;
+    auto& state_unit = tactile.units[i];
+    state_unit.contact = unit.contact;
+    state_unit.cop = Eigen::Vector2d{unit.cop.x * cop_to_m_scale,
+                                     unit.cop.y * cop_to_m_scale};
+    state_unit.normal_force = unit.normal_force;
   }
   return tactile;
 }
@@ -358,17 +373,42 @@ class JengaGraspMppiNode final : public rclcpp::Node {
         declare_parameter<double>("slip_velocity_filter_alpha", 0.25);
     slip_velocity_max_norm_ =
         declare_parameter<double>("slip_velocity_max_norm", 100.0);
+    centroid_velocity_filter_alpha_ =
+        declare_parameter<double>("centroid_velocity_filter_alpha", 0.25);
+    centroid_velocity_max_norm_mps_ =
+        declare_parameter<double>("centroid_velocity_max_norm_mps", 0.2);
     if (slip_velocity_filter_alpha_ < 0.0 ||
         slip_velocity_filter_alpha_ > 1.0) {
       throw std::invalid_argument(
           "'slip_velocity_filter_alpha' must be in [0, 1]");
     }
+    if (centroid_velocity_filter_alpha_ < 0.0 ||
+        centroid_velocity_filter_alpha_ > 1.0) {
+      throw std::invalid_argument(
+          "'centroid_velocity_filter_alpha' must be in [0, 1]");
+    }
     if (!std::isfinite(slip_velocity_max_norm_) ||
         slip_velocity_max_norm_ <= 0.0) {
       throw std::invalid_argument("'slip_velocity_max_norm' must be positive");
     }
+    if (!std::isfinite(centroid_velocity_max_norm_mps_) ||
+        centroid_velocity_max_norm_mps_ <= 0.0) {
+      throw std::invalid_argument(
+          "'centroid_velocity_max_norm_mps' must be positive");
+    }
     publish_hold_without_tactile_ =
         declare_parameter<bool>("publish_hold_without_tactile", true);
+    activation_requires_all_tactile_enough_contact_ = declare_parameter<bool>(
+        "activation_requires_all_tactile_enough_contact", true);
+    activation_contact_state_threshold_ =
+        declare_parameter<int>("activation_contact_state_threshold", 2);
+    if (activation_contact_state_threshold_ < 0 ||
+        activation_contact_state_threshold_ >
+            static_cast<int>(
+                mppi_core::NariTouchContactState::kEnoughContacts)) {
+      throw std::invalid_argument(
+          "'activation_contact_state_threshold' must be in [0, 2]");
+    }
 
     stiffness_ =
         ReadVectorParameter(this, "stiffness", command_joint_dim_, 4.0);
@@ -399,9 +439,14 @@ class JengaGraspMppiNode final : public rclcpp::Node {
                                          Eigen::Vector3d::Zero());
     filtered_slip_velocity_states_.assign(tactile_topics_.size(),
                                           Eigen::Vector3d::Zero());
+    previous_tactile_centroids_.assign(tactile_topics_.size(),
+                                       Eigen::Vector2d::Zero());
+    filtered_centroid_velocity_mps_.assign(tactile_topics_.size(),
+                                           Eigen::Vector2d::Zero());
     previous_tactile_sample_time_.assign(tactile_topics_.size(),
                                          rclcpp::Time(0, 0));
     slip_velocity_initialized_.assign(tactile_topics_.size(), false);
+    centroid_velocity_initialized_.assign(tactile_topics_.size(), false);
 
     joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
         joint_state_topic_, rclcpp::SensorDataQoS(),
@@ -575,6 +620,8 @@ class JengaGraspMppiNode final : public rclcpp::Node {
           cost_yaml_path, joint_dim_, config.grasp_stability_cost);
     }
 
+    tactile_adapter_config_.slip_velocity_weight =
+        config.grasp_stability_cost.slip_velocity_weight;
     policy_.Initialize(joint_dim_, std::move(config));
   }
 
@@ -634,7 +681,7 @@ class JengaGraspMppiNode final : public rclcpp::Node {
       return;
     }
     auto tactile = ConvertTactile(*msg, cop_to_m_scale_);
-    UpdateSlipVelocityFeature(index, TactileSampleTime(*msg), &tactile);
+    UpdateTactileDerivativeFeatures(index, TactileSampleTime(*msg), &tactile);
     tactile_states_[index] = tactile;
     tactile_received_[index] = true;
     last_tactile_time_[index] = now();
@@ -647,9 +694,9 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     return rclcpp::Time(msg.header.stamp);
   }
 
-  void UpdateSlipVelocityFeature(std::size_t index,
-                                 const rclcpp::Time& sample_time,
-                                 mppi_core::NariTouchState* tactile) {
+  void UpdateTactileDerivativeFeatures(
+      std::size_t index, const rclcpp::Time& sample_time,
+      mppi_core::NariTouchState* tactile) {
     if (tactile == nullptr || index >= previous_tactile_slip_states_.size()) {
       return;
     }
@@ -658,12 +705,19 @@ class JengaGraspMppiNode final : public rclcpp::Node {
       tactile->slip_velocity_state.setZero();
       previous_tactile_slip_states_[index] = tactile->slip_state;
       filtered_slip_velocity_states_[index].setZero();
+      previous_tactile_centroids_[index].setZero();
+      filtered_centroid_velocity_mps_[index].setZero();
       previous_tactile_sample_time_[index] = sample_time;
       slip_velocity_initialized_[index] = true;
+      centroid_velocity_initialized_[index] = false;
       return;
     }
 
     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
+    Eigen::Vector2d centroid = Eigen::Vector2d::Zero();
+    const bool centroid_valid =
+        mppi_core::ComputeNariTouchContactCentroidM(*tactile, &centroid);
+    Eigen::Vector2d centroid_velocity = Eigen::Vector2d::Zero();
     if (slip_velocity_initialized_[index]) {
       const double dt =
           (sample_time - previous_tactile_sample_time_[index]).seconds();
@@ -674,12 +728,31 @@ class JengaGraspMppiNode final : public rclcpp::Node {
         velocity = slip_velocity_filter_alpha_ * velocity +
                    (1.0 - slip_velocity_filter_alpha_) *
                        filtered_slip_velocity_states_[index];
+        if (centroid_valid && centroid_velocity_initialized_[index]) {
+          centroid_velocity =
+              (centroid - previous_tactile_centroids_[index]) / dt;
+          centroid_velocity = ClampVectorNorm(
+              centroid_velocity, centroid_velocity_max_norm_mps_);
+          centroid_velocity =
+              centroid_velocity_filter_alpha_ * centroid_velocity +
+              (1.0 - centroid_velocity_filter_alpha_) *
+                  filtered_centroid_velocity_mps_[index];
+        }
       }
     }
 
     tactile->slip_velocity_state = velocity;
+    tactile->centroid_velocity_mps = centroid_velocity;
     previous_tactile_slip_states_[index] = tactile->slip_state;
     filtered_slip_velocity_states_[index] = velocity;
+    if (centroid_valid) {
+      previous_tactile_centroids_[index] = centroid;
+      filtered_centroid_velocity_mps_[index] = centroid_velocity;
+      centroid_velocity_initialized_[index] = true;
+    } else {
+      filtered_centroid_velocity_mps_[index].setZero();
+      centroid_velocity_initialized_[index] = false;
+    }
     previous_tactile_sample_time_[index] = sample_time;
     slip_velocity_initialized_[index] = true;
   }
@@ -724,6 +797,26 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     *tactile = tactile_states_[best_index];
     if (selected_index != nullptr) {
       *selected_index = best_index;
+    }
+    return true;
+  }
+
+  bool AllTactileActivationContactsReady() const {
+    if (tactile_states_.empty()) {
+      return false;
+    }
+
+    for (std::size_t i = 0; i < tactile_states_.size(); ++i) {
+      if (!tactile_received_[i]) {
+        return false;
+      }
+      if ((now() - last_tactile_time_[i]).seconds() > tactile_timeout_s_) {
+        return false;
+      }
+      if (ToContactRank(tactile_states_[i].contact_state) <
+          activation_contact_state_threshold_) {
+        return false;
+      }
     }
     return true;
   }
@@ -879,13 +972,43 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     }
     MaybeLogSelectedTactile(selected_tactile_index);
 
+    if (activation_requires_all_tactile_enough_contact_ && !mppi_active_) {
+      if (!AllTactileActivationContactsReady()) {
+        RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 1000,
+            "Waiting to activate MPPI: all tactile topics must be fresh with "
+            "contact_state >= %d",
+            activation_contact_state_threshold_);
+        if (publish_hold_without_tactile_) {
+          PublishCommand(command_q_ref_,
+                         Eigen::VectorXd::Zero(command_q_ref_.size()));
+        }
+        return;
+      }
+
+      mppi_active_ = true;
+      RCLCPP_INFO(get_logger(),
+                  "Activated MPPI: all %zu tactile topics reached "
+                  "contact_state >= %d",
+                  tactile_topics_.size(), activation_contact_state_threshold_);
+    }
+
     mppi_core::GraspObservation observation;
     observation.q_measured = q_measured_;
     observation.v_measured = v_measured_;
     observation.q_ref_current = q_ref_;
     observation.v_ref_current =
         Eigen::VectorXd::Zero(static_cast<Eigen::Index>(joint_dim_));
-    observation.tactile = tactile;
+    const std::string tactile_frame =
+        selected_tactile_index < tactile_frame_names_.size()
+            ? tactile_frame_names_[selected_tactile_index]
+            : std::string{};
+    const double tactile_stamp =
+        selected_tactile_index < last_tactile_time_.size()
+            ? last_tactile_time_[selected_tactile_index].seconds()
+            : now().seconds();
+    observation.tactile = mppi_core::ConvertNariTouchToTactileState(
+        tactile, tactile_frame, tactile_stamp, tactile_adapter_config_);
     observation.time_s = now().seconds();
 
     const Eigen::VectorXd old_q_ref = q_ref_;
@@ -952,8 +1075,13 @@ class JengaGraspMppiNode final : public rclcpp::Node {
   double cop_to_m_scale_{1.0e-3};
   double slip_velocity_filter_alpha_{0.25};
   double slip_velocity_max_norm_{100.0};
+  double centroid_velocity_filter_alpha_{0.25};
+  double centroid_velocity_max_norm_mps_{0.2};
   bool publish_hold_without_tactile_{true};
   bool publish_tactile_frame_poses_{true};
+  bool activation_requires_all_tactile_enough_contact_{true};
+  bool mppi_active_{false};
+  int activation_contact_state_threshold_{2};
 
   Eigen::VectorXd q_measured_;
   Eigen::VectorXd v_measured_;
@@ -977,8 +1105,12 @@ class JengaGraspMppiNode final : public rclcpp::Node {
   std::vector<rclcpp::Time> last_tactile_time_;
   std::vector<Eigen::Vector3d> previous_tactile_slip_states_;
   std::vector<Eigen::Vector3d> filtered_slip_velocity_states_;
+  std::vector<Eigen::Vector2d> previous_tactile_centroids_;
+  std::vector<Eigen::Vector2d> filtered_centroid_velocity_mps_;
   std::vector<rclcpp::Time> previous_tactile_sample_time_;
   std::vector<bool> slip_velocity_initialized_;
+  std::vector<bool> centroid_velocity_initialized_;
+  mppi_core::NariTouchAdapterConfig tactile_adapter_config_;
 
   bool robot_system_enabled_{false};
   bool robot_q_valid_{false};

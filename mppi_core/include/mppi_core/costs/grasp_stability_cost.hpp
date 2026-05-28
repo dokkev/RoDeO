@@ -8,8 +8,8 @@
 
 #include <Eigen/Core>
 
-#include "mppi_core/contact/naritouch.hpp"
 #include "mppi_core/costs/cost_term_base.hpp"
+#include "mppi_core/tactile/tactile_state.hpp"
 
 namespace mppi_core {
 
@@ -46,6 +46,13 @@ struct GraspStabilityCostConfig {
   double slip_prediction_decay{0.9};
   double slip_prediction_margin_gain_per_n{0.2};
   double centroid_slip_drift_gain_m_per_n{0.0005};
+  double slip_velocity_decay{0.85};
+  double slip_velocity_margin_gain_per_nps{0.2};
+  double action_slip_damping_gain_per_rad{0.0};
+  double max_slip_velocity{100.0};
+  double centroid_velocity_decay{0.9};
+  double centroid_velocity_slip_gain{0.001};
+  double max_centroid_velocity_mps{0.05};
 
   bool contact_centroid_enabled{true};
   double centroid_boundary_weight{20.0};
@@ -54,6 +61,9 @@ struct GraspStabilityCostConfig {
   double centroid_y_min{-0.008};
   double centroid_y_max{0.008};
   double contact_loss_weight{15.0};
+  bool contact_patch_enabled{true};
+  double contact_patch_target_node_count{6.0};
+  double contact_patch_weight{2.0};
 
   double tracking_weight{5.0};
   double tracking_action_scale_weight{20.0};
@@ -78,7 +88,7 @@ class GraspStabilityCost final : public CostTermBase {
   double CumulativeClosingDelta(const RobotRolloutState& state,
                                 const Eigen::Ref<const Eigen::VectorXd>& action,
                                 const RolloutContext& rollout) const;
-  double NormalForceProxyN(const NariTouchState& tactile,
+  double NormalForceProxyN(const TactileState& tactile,
                            const RobotRolloutState& state,
                            const Eigen::Ref<const Eigen::VectorXd>& action,
                            const RolloutContext& rollout) const;
@@ -93,7 +103,8 @@ class GraspStabilityCost final : public CostTermBase {
                       double tangential_load_proxy_n, double friction_margin_n,
                       double slip_risk,
                       const Eigen::Vector2d& predicted_centroid_m,
-                      bool centroid_valid, double force_min_n) const;
+                      bool centroid_valid, std::size_t contact_support_count,
+                      double force_min_n) const;
 
   GraspStabilityCostConfig config_;
 };

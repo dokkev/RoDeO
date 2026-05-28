@@ -12,33 +12,25 @@ increment. The rollout integrates that into the next `q_ref`; any `v_des`
 feedforward is derived from `delta_q_ref / dt` and is not the primary tracking
 objective.
 
-The first implemented tactile surface is explicitly NariTouch-shaped. It keeps
-only the signals MPPI needs early on:
+The planner-facing tactile surface is `mppi_core::TactileState`. It is
+hardware-agnostic and keeps only the physical/contact features MPPI needs:
+contact presence, normal force, contact centroid and centroid velocity,
+translational shear, rotational shear, scalar slip scores, support counts, and
+optional geometry quality terms.
 
-- `slip_state`: 3D slip/shear state.
-- `slip_velocity_state`: derived 3D slip velocity, normally computed by the
-  ROS adapter from consecutive shear-displacement samples.
-- `force_z`: tactile normal-axis force estimate.
-- `contact_state`: contact mode enum with values `0`, `1`, and `2`.
-- `nodes[8]`: per-hemisphere position, contact, center of pressure, and normal
-  force.
-
-For NariTouch `sdr_grasp_msgs/msg/Tactile`, a ROS adapter can map
-`shear_displacement.x/y/theta` into `slip_state`, `force.z` into `force_z`, and
-`contact_state` into `mppi_core::NariTouchContactState`. The message `units`
-array maps to `NariTouchState::nodes`, where each NariTouch hemisphere
-contributes `contact`, `cop`, and `normal_force`. The node `position_m` should
-come from the sensor-local hemisphere layout; `NariTouchState` initializes the
-NariTouch 4-by-2 hemisphere positions from `area_pos_ofs_x/y * 1e-3`. Rollout
-models can use `NariTouchNodeSensorPosition` directly as local prediction data
-in the tactile sensor frame. Raw pressure grids, sensor array metadata,
-TF/world poses, and node indices should stay outside `mppi_core` until a cost
-explicitly needs them.
+NariTouch remains a hardware-specific input representation in
+`mppi_core::NariTouchState`. For `sdr_grasp_msgs/msg/Tactile`, the ROS adapter
+maps `shear_displacement.x/y/theta` into NariTouch `slip_state`, `force.z` into
+`force_z`, `contact_state` into `mppi_core::NariTouchContactState`, and message
+`units` into `NariTouchState::units`. The adapter then calls
+`ConvertNariTouchToTactileState(...)`, where NariTouch `slip_state.x/y` becomes
+generic translational shear and `slip_state.z` becomes rotational shear. Raw
+pressure grids, sensor array metadata, TF/world poses, and raw sensing node
+indices should stay outside planner code until a cost explicitly needs them.
 
 NariTouch messages expose shear displacement rather than slip velocity. The
-hardware-facing adapter should derive `slip_velocity_state` with a timestamped
-finite difference and light filtering before passing the state into
-`mppi_core`.
+hardware-facing adapter derives `slip_velocity_state` with a timestamped finite
+difference and light filtering before converting to `TactileState`.
 
 Object information enters MPPI as a lightweight prior rather than an object
 state rollout. For a Jenga-sized block, use:
@@ -49,16 +41,16 @@ const auto object = mppi_core::MakeJengaBlockObjectPrior();
 
 The first Jenga policy is intentionally a contact-local tactile-risk governor,
 not a full object dynamics simulator. The rollout state is a `GraspState`: it
-carries the candidate joint reference, a predicted `NariTouchState`, and
+carries the candidate joint reference, a predicted `TactileState`, and
 predicted normal force, tangential load, slip risk, contact centroid, and
 friction margin.
 
-The predicted `NariTouchState` also carries a local contact patch. Each rollout
-step estimates how many hemispheres should be active from normal force, picks
-the nodes closest to the predicted centroid, and increases slip state when the
-friction margin goes negative. The friction margin mirrors the linearized
-friction-pyramid convention used by `wbc_core` contacts, but it is used as a
-soft prediction feature rather than an HQP constraint.
+The predicted `TactileState` also carries a local contact support proxy. Each
+rollout step estimates support count from normal force and increases
+translational/rotational shear when the friction margin goes negative. The
+friction margin mirrors the linearized friction-pyramid convention used by
+`wbc_core` contacts, but it is used as a soft prediction feature rather than an
+HQP constraint.
 
 ```cpp
 auto config = mppi_core::MakeDefaultJengaGraspConfig(joint_dim);
@@ -71,7 +63,7 @@ obs.q_measured = q_measured;
 obs.v_measured = v_measured;
 obs.q_ref_current = q_ref_current;
 obs.v_ref_current = v_ref_current;
-obs.tactile = naritouch_state;
+obs.tactile = tactile_state;
 
 const auto command = policy.Update(obs);
 // command.q_des is safe to send downstream; command.delta_q_ref is the raw MPPI
@@ -84,6 +76,20 @@ The policy rolls out `delta_q_ref` candidates with
 scenarios, such as normal-force drops/spikes, slip bumps, and contact-centroid
 drift. This keeps the v1 controller focused on stabilizing contact quality
 without pretending to predict full Jenga block motion.
+
+For debugging, the optimizer can roll out any candidate `ActionSequence` and
+return a `RolloutTrace`. This is the main way to inspect whether a proposed
+control input makes sense: `states[k + 1]` contains the predicted joint
+reference, tactile contact patch, slip risk, force proxy, and friction margin
+after `actions[k]`.
+
+```cpp
+mppi_core::ActionSequence candidate(joint_dim, horizon_steps);
+candidate.setAction(0, delta_q_ref);
+
+const auto trace = policy.PredictRollout(obs, candidate);
+const auto& predicted = trace.states[1];
+```
 
 The optimizer sampling budget and action bounds live in `config/mppi.yaml`:
 
@@ -112,8 +118,8 @@ grasp:
   normal_force_window:
     min_n: 0.5
     max_n: 2.5
-    under_weight: 20.0
-    over_weight: 40.0
+    under_weight: 5.0
+    over_weight: 30.0
 
   friction_margin:
     enabled: true
@@ -136,6 +142,8 @@ grasp:
 
 The YAML loader is not part of the rollout hot loop. It updates
 `MPPIConfig` and `GraspStabilityCostConfig` once during policy initialization.
+See [`docs/grasp_tuning.md`](docs/grasp_tuning.md) for the current hardware
+tuning knobs and symptom-based adjustment guide.
 
 ```cpp
 #include "mppi_core/config/grasp_config.hpp"

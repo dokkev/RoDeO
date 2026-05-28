@@ -161,6 +161,99 @@ GraspCommand MPPIOptimizer::Update(const GraspObservation& observation) {
   return command;
 }
 
+RolloutTrace MPPIOptimizer::PredictRollout(
+    const GraspObservation& observation, const ActionSequence& actions) const {
+  if (!initialized_) {
+    throw std::logic_error(
+        "MPPIOptimizer::PredictRollout: optimizer is not initialized");
+  }
+  if (actions.actionDim() != config_.action_dim) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::PredictRollout: action dimension mismatch");
+  }
+  if (actions.horizonSteps() == 0) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::PredictRollout: action horizon is zero");
+  }
+  if (observation.q_ref_current.size() !=
+      static_cast<Eigen::Index>(config_.action_dim)) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::PredictRollout: q_ref_current dimension mismatch");
+  }
+
+  Eigen::VectorXd dq_ref_current;
+  if (observation.v_ref_current.size() == observation.q_ref_current.size()) {
+    dq_ref_current = observation.v_ref_current;
+  } else {
+    dq_ref_current = Eigen::VectorXd::Zero(observation.q_ref_current.size());
+  }
+  RobotRolloutState state =
+      observation.measured_tau.size() == dq_ref_current.size()
+          ? MakeGraspState(observation.q_ref_current, dq_ref_current,
+                           observation.measured_tau, observation.tactile)
+          : MakeGraspState(observation.q_ref_current, dq_ref_current,
+                           observation.tactile);
+
+  RobotRolloutState measured_state = MakeGraspState(
+      observation.q_measured, observation.v_measured, TactileState{});
+
+  const RobotRolloutState initial_reference_state = state;
+  RolloutContext rollout_context;
+  rollout_context.tactile = &observation.tactile;
+  rollout_context.object = observation.object;
+  rollout_context.tactile_disturbances =
+      observation.tactile_disturbances.empty()
+          ? nullptr
+          : &observation.tactile_disturbances;
+  rollout_context.measured_state = &measured_state;
+  rollout_context.initial_reference_state = &initial_reference_state;
+  rollout_context.contact_kinematics = observation.contact_kinematics;
+  rollout_context.grasp_rollout_config = observation.grasp_rollout_config;
+  rollout_context.contact_force_projection_config =
+      observation.contact_force_projection_config;
+  rollout_context.contact_force_rollout_config =
+      observation.contact_force_rollout_config;
+  rollout_context.contact_force_correction_state =
+      observation.contact_force_correction_state;
+  rollout_context.has_gravity_context = observation.has_gravity_context;
+  rollout_context.gravity_in_sensor_frame = observation.gravity_in_sensor_frame;
+
+  RolloutTrace trace;
+  trace.states.reserve(actions.horizonSteps() + 1);
+  trace.actions.reserve(actions.horizonSteps());
+  trace.step_costs.reserve(actions.horizonSteps());
+  trace.states.push_back(state);
+
+  RobotRolloutState next_state = state;
+  for (std::size_t step = 0; step < actions.horizonSteps(); ++step) {
+    const auto action = actions.values().col(static_cast<Eigen::Index>(step));
+    model_->Step(state, action, rollout_context, config_.dt, &next_state);
+
+    CostContext cost_context;
+    cost_context.rollout = &rollout_context;
+    cost_context.step_index = step;
+    cost_context.time_s = observation.time_s + config_.dt * step;
+
+    double step_cost = 0.0;
+    if (cost_term_) {
+      step_cost =
+          SanitizeCost(cost_term_->Evaluate(next_state, action, cost_context));
+    }
+    trace.total_cost = SanitizeCost(trace.total_cost + step_cost);
+    trace.actions.emplace_back(action);
+    trace.step_costs.push_back(step_cost);
+    trace.states.push_back(next_state);
+    state = next_state;
+  }
+
+  return trace;
+}
+
+RolloutTrace MPPIOptimizer::PredictNominalRollout(
+    const GraspObservation& observation) const {
+  return PredictRollout(observation, nominal_actions_);
+}
+
 void MPPIOptimizer::ResetNominalActions() {
   nominal_actions_.SetZero();
 }
@@ -204,19 +297,21 @@ double MPPIOptimizer::EvaluateRollout(const GraspObservation& observation,
         "MPPIOptimizer::EvaluateRollout: q_ref_current dimension mismatch");
   }
 
-  RobotRolloutState state;
-  state.q = observation.q_ref_current;
-  if (observation.v_ref_current.size() == state.q.size()) {
-    state.v = observation.v_ref_current;
+  Eigen::VectorXd dq_ref_current;
+  if (observation.v_ref_current.size() == observation.q_ref_current.size()) {
+    dq_ref_current = observation.v_ref_current;
   } else {
-    state.v = Eigen::VectorXd::Zero(state.q.size());
+    dq_ref_current = Eigen::VectorXd::Zero(observation.q_ref_current.size());
   }
-  state.tactile = observation.tactile;
-  state.tactile_initialized = true;
+  RobotRolloutState state =
+      observation.measured_tau.size() == dq_ref_current.size()
+          ? MakeGraspState(observation.q_ref_current, dq_ref_current,
+                           observation.measured_tau, observation.tactile)
+          : MakeGraspState(observation.q_ref_current, dq_ref_current,
+                           observation.tactile);
 
-  RobotRolloutState measured_state;
-  measured_state.q = observation.q_measured;
-  measured_state.v = observation.v_measured;
+  RobotRolloutState measured_state = MakeGraspState(
+      observation.q_measured, observation.v_measured, TactileState{});
 
   const RobotRolloutState initial_reference_state = state;
   RobotRolloutState next_state = state;
@@ -229,6 +324,14 @@ double MPPIOptimizer::EvaluateRollout(const GraspObservation& observation,
           : &observation.tactile_disturbances;
   rollout_context.measured_state = &measured_state;
   rollout_context.initial_reference_state = &initial_reference_state;
+  rollout_context.contact_kinematics = observation.contact_kinematics;
+  rollout_context.grasp_rollout_config = observation.grasp_rollout_config;
+  rollout_context.contact_force_projection_config =
+      observation.contact_force_projection_config;
+  rollout_context.contact_force_rollout_config =
+      observation.contact_force_rollout_config;
+  rollout_context.contact_force_correction_state =
+      observation.contact_force_correction_state;
   rollout_context.has_gravity_context = observation.has_gravity_context;
   rollout_context.gravity_in_sensor_frame = observation.gravity_in_sensor_frame;
 

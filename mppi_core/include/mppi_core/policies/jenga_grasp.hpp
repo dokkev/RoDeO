@@ -31,6 +31,9 @@ class JengaGrasp {
   void Initialize(std::size_t joint_dim, JengaGraspConfig config);
 
   GraspCommand Update(const GraspObservation& observation);
+  RolloutTrace PredictRollout(const GraspObservation& observation,
+                              const ActionSequence& actions) const;
+  RolloutTrace PredictNominalRollout(const GraspObservation& observation) const;
   void Reset();
 
   const MPPIOptimizer& optimizer() const { return optimizer_; }
