@@ -453,16 +453,19 @@ double GraspStabilityCost::ScenarioCost(
   cost += config_.slip_risk_weight *
           Square(Relu(slip_risk - config_.slip_threshold));
 
-  if (config_.contact_centroid_enabled && centroid_valid) {
-    const double x = predicted_centroid_m.x();
-    const double y = predicted_centroid_m.y();
-    const double boundary_violation = Square(Relu(config_.centroid_x_min - x)) +
-                                      Square(Relu(x - config_.centroid_x_max)) +
-                                      Square(Relu(config_.centroid_y_min - y)) +
-                                      Square(Relu(y - config_.centroid_y_max));
-    cost += config_.centroid_boundary_weight * boundary_violation;
-  } else {
-    cost += config_.contact_loss_weight;
+  if (config_.contact_centroid_enabled) {
+    if (centroid_valid) {
+      const double x = predicted_centroid_m.x();
+      const double y = predicted_centroid_m.y();
+      const double boundary_violation =
+          Square(Relu(config_.centroid_x_min - x)) +
+          Square(Relu(x - config_.centroid_x_max)) +
+          Square(Relu(config_.centroid_y_min - y)) +
+          Square(Relu(y - config_.centroid_y_max));
+      cost += config_.centroid_boundary_weight * boundary_violation;
+    } else {
+      cost += config_.contact_loss_weight;
+    }
   }
 
   cost += config_.contact_loss_weight *

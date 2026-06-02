@@ -114,7 +114,7 @@ struct GraspObservation {
   Eigen::VectorXd v_measured;
   Eigen::VectorXd q_ref_current;
   Eigen::VectorXd v_ref_current;
-  Eigen::VectorXd measured_tau;
+  Eigen::VectorXd tau;
 
   TactileState tactile;
   const PinocchioContactKinematicsContext* contact_kinematics{nullptr};

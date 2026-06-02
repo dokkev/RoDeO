@@ -63,6 +63,7 @@ obs.q_measured = q_measured;
 obs.v_measured = v_measured;
 obs.q_ref_current = q_ref_current;
 obs.v_ref_current = v_ref_current;
+obs.tau = measured_joint_torque;
 obs.tactile = tactile_state;
 
 const auto command = policy.Update(obs);

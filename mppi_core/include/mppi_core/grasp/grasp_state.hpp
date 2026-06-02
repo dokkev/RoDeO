@@ -18,10 +18,9 @@ struct GraspState {
   Eigen::VectorXd q;
   Eigen::VectorXd dq;
 
-  // Optional measured or commanded joint torque used by force-aware rollout
-  // paths. GraspState remains generic and does not own sensor-specific logic.
-  bool has_measured_tau{false};
-  Eigen::VectorXd measured_tau;
+  // Always available. For measured states this is measured joint torque; for
+  // rollout states this is predicted/commanded torque from the rollout model.
+  Eigen::VectorXd tau;
 
   // TactileState may be measured or predicted inside rollout.
   TactileState tactile;
@@ -29,23 +28,15 @@ struct GraspState {
 
 inline GraspState MakeGraspState(const Eigen::VectorXd& q,
                                  const Eigen::VectorXd& dq,
+                                 const Eigen::VectorXd& tau,
                                  const TactileState& tactile) {
   GraspState state;
-  state.valid = tactile.valid && q.size() == dq.size();
+  state.valid = tactile.valid && dq.size() == tau.size() && q.allFinite() &&
+                dq.allFinite() && tau.allFinite();
   state.q = q;
   state.dq = dq;
+  state.tau = tau;
   state.tactile = tactile;
-  return state;
-}
-
-inline GraspState MakeGraspState(const Eigen::VectorXd& q,
-                                 const Eigen::VectorXd& dq,
-                                 const Eigen::VectorXd& measured_tau,
-                                 const TactileState& tactile) {
-  GraspState state = MakeGraspState(q, dq, tactile);
-  state.has_measured_tau = measured_tau.size() == dq.size();
-  state.measured_tau = measured_tau;
-  state.valid = state.valid && state.has_measured_tau;
   return state;
 }
 

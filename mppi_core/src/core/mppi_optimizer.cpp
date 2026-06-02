@@ -9,6 +9,10 @@
 #include <limits>
 #include <stdexcept>
 
+#include <pinocchio/algorithm/joint-configuration.hpp>
+
+#include "mppi_core/grasp/grasp_contact_kinematics.hpp"
+
 namespace mppi_core {
 namespace {
 
@@ -57,6 +61,53 @@ bool IsFiniteAndNonnegative(const Eigen::VectorXd& value) {
     }
   }
   return true;
+}
+
+bool HasPinocchioConfigurationSpace(const GraspObservation& observation,
+                                    std::size_t action_dim) {
+  return observation.contact_kinematics != nullptr &&
+         IsValidContactKinematicsContext(*observation.contact_kinematics) &&
+         observation.q_ref_current.size() ==
+             static_cast<Eigen::Index>(
+                 observation.contact_kinematics->model->nq) &&
+         static_cast<Eigen::Index>(action_dim) ==
+             static_cast<Eigen::Index>(
+                 observation.contact_kinematics->model->nv);
+}
+
+bool HasCompatibleReferenceConfiguration(const GraspObservation& observation,
+                                         std::size_t action_dim) {
+  return observation.q_ref_current.size() ==
+             static_cast<Eigen::Index>(action_dim) ||
+         HasPinocchioConfigurationSpace(observation, action_dim);
+}
+
+Eigen::VectorXd ReferenceVelocityOrZero(const GraspObservation& observation,
+                                        std::size_t action_dim) {
+  if (observation.v_ref_current.size() ==
+      static_cast<Eigen::Index>(action_dim)) {
+    if (!observation.v_ref_current.allFinite()) {
+      throw std::invalid_argument(
+          "MPPIOptimizer: v_ref_current must be finite when provided");
+    }
+    return observation.v_ref_current;
+  }
+  return Eigen::VectorXd::Zero(static_cast<Eigen::Index>(action_dim));
+}
+
+Eigen::VectorXd IntegrateCommandReference(
+    const GraspObservation& observation,
+    const Eigen::Ref<const Eigen::VectorXd>& delta_q_ref) {
+  if (HasPinocchioConfigurationSpace(
+          observation, static_cast<std::size_t>(delta_q_ref.size()))) {
+    return pinocchio::integrate(*observation.contact_kinematics->model,
+                                observation.q_ref_current, delta_q_ref);
+  }
+  if (observation.q_ref_current.size() == delta_q_ref.size()) {
+    return observation.q_ref_current + delta_q_ref;
+  }
+  throw std::invalid_argument(
+      "MPPIOptimizer::MakeCommand: q_ref_current dimension mismatch");
 }
 
 void CheckConfig(const MPPIConfig& config) {
@@ -175,27 +226,27 @@ RolloutTrace MPPIOptimizer::PredictRollout(
     throw std::invalid_argument(
         "MPPIOptimizer::PredictRollout: action horizon is zero");
   }
-  if (observation.q_ref_current.size() !=
-      static_cast<Eigen::Index>(config_.action_dim)) {
+  if (!HasCompatibleReferenceConfiguration(observation, config_.action_dim) ||
+      !observation.q_ref_current.allFinite()) {
     throw std::invalid_argument(
-        "MPPIOptimizer::PredictRollout: q_ref_current dimension mismatch");
+        "MPPIOptimizer::PredictRollout: q_ref_current dimension mismatch or "
+        "nonfinite");
+  }
+  if (observation.tau.size() != static_cast<Eigen::Index>(config_.action_dim) ||
+      !observation.tau.allFinite()) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::PredictRollout: tau dimension mismatch or nonfinite");
   }
 
-  Eigen::VectorXd dq_ref_current;
-  if (observation.v_ref_current.size() == observation.q_ref_current.size()) {
-    dq_ref_current = observation.v_ref_current;
-  } else {
-    dq_ref_current = Eigen::VectorXd::Zero(observation.q_ref_current.size());
-  }
-  RobotRolloutState state =
-      observation.measured_tau.size() == dq_ref_current.size()
-          ? MakeGraspState(observation.q_ref_current, dq_ref_current,
-                           observation.measured_tau, observation.tactile)
-          : MakeGraspState(observation.q_ref_current, dq_ref_current,
-                           observation.tactile);
+  Eigen::VectorXd dq_ref_current =
+      ReferenceVelocityOrZero(observation, config_.action_dim);
+  RobotRolloutState state = MakeGraspState(
+      observation.q_ref_current, dq_ref_current, observation.tau,
+      observation.tactile);
 
   RobotRolloutState measured_state = MakeGraspState(
-      observation.q_measured, observation.v_measured, TactileState{});
+      observation.q_measured, observation.v_measured, observation.tau,
+      TactileState{});
 
   const RobotRolloutState initial_reference_state = state;
   RolloutContext rollout_context;
@@ -291,27 +342,27 @@ void MPPIOptimizer::SampleActionSequences() {
 
 double MPPIOptimizer::EvaluateRollout(const GraspObservation& observation,
                                       const ActionSequence& actions) const {
-  if (observation.q_ref_current.size() !=
-      static_cast<Eigen::Index>(config_.action_dim)) {
+  if (!HasCompatibleReferenceConfiguration(observation, config_.action_dim) ||
+      !observation.q_ref_current.allFinite()) {
     throw std::invalid_argument(
-        "MPPIOptimizer::EvaluateRollout: q_ref_current dimension mismatch");
+        "MPPIOptimizer::EvaluateRollout: q_ref_current dimension mismatch or "
+        "nonfinite");
+  }
+  if (observation.tau.size() != static_cast<Eigen::Index>(config_.action_dim) ||
+      !observation.tau.allFinite()) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::EvaluateRollout: tau dimension mismatch or nonfinite");
   }
 
-  Eigen::VectorXd dq_ref_current;
-  if (observation.v_ref_current.size() == observation.q_ref_current.size()) {
-    dq_ref_current = observation.v_ref_current;
-  } else {
-    dq_ref_current = Eigen::VectorXd::Zero(observation.q_ref_current.size());
-  }
-  RobotRolloutState state =
-      observation.measured_tau.size() == dq_ref_current.size()
-          ? MakeGraspState(observation.q_ref_current, dq_ref_current,
-                           observation.measured_tau, observation.tactile)
-          : MakeGraspState(observation.q_ref_current, dq_ref_current,
-                           observation.tactile);
+  Eigen::VectorXd dq_ref_current =
+      ReferenceVelocityOrZero(observation, config_.action_dim);
+  RobotRolloutState state = MakeGraspState(
+      observation.q_ref_current, dq_ref_current, observation.tau,
+      observation.tactile);
 
   RobotRolloutState measured_state = MakeGraspState(
-      observation.q_measured, observation.v_measured, TactileState{});
+      observation.q_measured, observation.v_measured, observation.tau,
+      TactileState{});
 
   const RobotRolloutState initial_reference_state = state;
   RobotRolloutState next_state = state;
@@ -358,11 +409,27 @@ GraspCommand MPPIOptimizer::MakeCommand(
     const GraspObservation& observation,
     const Eigen::VectorXd& delta_q_ref) const {
   GraspCommand command;
+  if (delta_q_ref.size() != static_cast<Eigen::Index>(config_.action_dim) ||
+      !delta_q_ref.allFinite()) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::MakeCommand: delta_q_ref dimension mismatch or nonfinite");
+  }
+  if (!HasCompatibleReferenceConfiguration(observation, config_.action_dim) ||
+      !observation.q_ref_current.allFinite()) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::MakeCommand: q_ref_current dimension mismatch or nonfinite");
+  }
+  if (observation.tau.size() != static_cast<Eigen::Index>(config_.action_dim) ||
+      !observation.tau.allFinite()) {
+    throw std::invalid_argument(
+        "MPPIOptimizer::MakeCommand: tau dimension mismatch or nonfinite");
+  }
+
   command.delta_q_ref = delta_q_ref;
   command.dt = config_.dt;
-
-  if (observation.q_ref_current.size() == delta_q_ref.size()) {
-    command.q_des = observation.q_ref_current + delta_q_ref;
+  command.q_des = IntegrateCommandReference(observation, delta_q_ref);
+  if (!command.q_des.allFinite()) {
+    throw std::invalid_argument("MPPIOptimizer::MakeCommand: q_des nonfinite");
   }
   if (config_.dt > 0.0) {
     command.v_des = delta_q_ref / config_.dt;

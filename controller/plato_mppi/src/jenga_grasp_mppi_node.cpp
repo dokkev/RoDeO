@@ -424,9 +424,12 @@ class JengaGraspMppiNode final : public rclcpp::Node {
 
     q_measured_.setZero(static_cast<Eigen::Index>(joint_dim_));
     v_measured_.setZero(static_cast<Eigen::Index>(joint_dim_));
+    tau_measured_.setZero(static_cast<Eigen::Index>(joint_dim_));
     q_ref_.setZero(static_cast<Eigen::Index>(joint_dim_));
     command_q_measured_.setZero(static_cast<Eigen::Index>(command_joint_dim_));
     command_v_measured_.setZero(static_cast<Eigen::Index>(command_joint_dim_));
+    command_tau_measured_.setZero(
+        static_cast<Eigen::Index>(command_joint_dim_));
     command_q_ref_.setZero(static_cast<Eigen::Index>(command_joint_dim_));
 
     InitializeRobotSystem();
@@ -633,6 +636,8 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     Eigen::VectorXd command_q(static_cast<Eigen::Index>(command_joint_dim_));
     Eigen::VectorXd command_v =
         Eigen::VectorXd::Zero(static_cast<Eigen::Index>(command_joint_dim_));
+    Eigen::VectorXd command_tau =
+        Eigen::VectorXd::Zero(static_cast<Eigen::Index>(command_joint_dim_));
 
     for (std::size_t i = 0; i < command_joint_dim_; ++i) {
       const std::size_t msg_index =
@@ -647,22 +652,30 @@ class JengaGraspMppiNode final : public rclcpp::Node {
       if (msg_index < msg->velocity.size()) {
         command_v[static_cast<Eigen::Index>(i)] = msg->velocity[msg_index];
       }
+      if (msg_index < msg->effort.size()) {
+        command_tau[static_cast<Eigen::Index>(i)] = msg->effort[msg_index];
+      }
     }
 
     command_q_measured_ = command_q;
     command_v_measured_ = command_v;
+    command_tau_measured_ = command_tau;
     Eigen::VectorXd q(static_cast<Eigen::Index>(joint_dim_));
     Eigen::VectorXd v =
+        Eigen::VectorXd::Zero(static_cast<Eigen::Index>(joint_dim_));
+    Eigen::VectorXd tau =
         Eigen::VectorXd::Zero(static_cast<Eigen::Index>(joint_dim_));
     for (std::size_t i = 0; i < joint_dim_; ++i) {
       const Eigen::Index command_index =
           static_cast<Eigen::Index>(controlled_command_indices_[i]);
       q[static_cast<Eigen::Index>(i)] = command_q[command_index];
       v[static_cast<Eigen::Index>(i)] = command_v[command_index];
+      tau[static_cast<Eigen::Index>(i)] = command_tau[command_index];
     }
 
     q_measured_ = q;
     v_measured_ = v;
+    tau_measured_ = tau;
     last_joint_state_time_ = now();
     have_joint_state_ = true;
     UpdateRobotSystemConfiguration(command_q_measured_);
@@ -999,6 +1012,7 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     observation.q_ref_current = q_ref_;
     observation.v_ref_current =
         Eigen::VectorXd::Zero(static_cast<Eigen::Index>(joint_dim_));
+    observation.tau = tau_measured_;
     const std::string tactile_frame =
         selected_tactile_index < tactile_frame_names_.size()
             ? tactile_frame_names_[selected_tactile_index]
@@ -1085,9 +1099,11 @@ class JengaGraspMppiNode final : public rclcpp::Node {
 
   Eigen::VectorXd q_measured_;
   Eigen::VectorXd v_measured_;
+  Eigen::VectorXd tau_measured_;
   Eigen::VectorXd q_ref_;
   Eigen::VectorXd command_q_measured_;
   Eigen::VectorXd command_v_measured_;
+  Eigen::VectorXd command_tau_measured_;
   Eigen::VectorXd command_q_ref_;
   Eigen::VectorXd fixed_joint_positions_;
   Eigen::VectorXd q_lower_bound_;

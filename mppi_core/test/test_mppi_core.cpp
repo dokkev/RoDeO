@@ -14,6 +14,7 @@
 #include <pinocchio/multibody/frame.hpp>
 #include <pinocchio/multibody/joint/joint-prismatic.hpp>
 #include <pinocchio/multibody/joint/joint-revolute.hpp>
+#include <pinocchio/multibody/joint/joint-revolute-unbounded.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/spatial/se3.hpp>
 #include <yaml-cpp/yaml.h>
@@ -40,12 +41,9 @@ constexpr double kTolerance = 1.0e-9;
 
 mppi_core::RobotRolloutState MakeState(std::size_t dim,
                                        const mppi_core::TactileState& tactile) {
-  mppi_core::RobotRolloutState state;
-  state.q = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(dim));
-  state.dq = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(dim));
-  state.tactile = tactile;
-  state.valid = tactile.valid;
-  return state;
+  const Eigen::VectorXd zero =
+      Eigen::VectorXd::Zero(static_cast<Eigen::Index>(dim));
+  return mppi_core::MakeGraspState(zero, zero, zero, tactile);
 }
 
 mppi_core::TactileState ToTestTactileState(
@@ -81,9 +79,21 @@ TestPinocchioSensorModel MakeSinglePrismaticZSensorModel() {
   return out;
 }
 
+TestPinocchioSensorModel MakeSingleUnboundedRevoluteZSensorModel() {
+  TestPinocchioSensorModel out;
+  const auto joint_id = out.model.addJoint(
+      0, pinocchio::JointModelRUBZ(), pinocchio::SE3::Identity(),
+      "finger_rubz");
+  out.sensor_frame_id = out.model.addFrame(
+      pinocchio::Frame("tactile_sensor", joint_id, 0,
+                       pinocchio::SE3::Identity(), pinocchio::OP_FRAME));
+  return out;
+}
+
 mppi_core::GraspState MakeContactKinematicsState(
     const pinocchio::Model& model, const mppi_core::TactileState& tactile) {
-  return mppi_core::MakeGraspState(Eigen::VectorXd::Zero(model.nq),
+  return mppi_core::MakeGraspState(pinocchio::neutral(model),
+                                   Eigen::VectorXd::Zero(model.nv),
                                    Eigen::VectorXd::Zero(model.nv), tactile);
 }
 
@@ -124,40 +134,67 @@ TEST(GraspStateTest, MakeGraspStateValidatesDimensionsAndTactileValidity) {
 
   const Eigen::VectorXd q = Eigen::VectorXd::Constant(2, 0.25);
   const Eigen::VectorXd dq = Eigen::VectorXd::Constant(2, -0.5);
+  const Eigen::VectorXd tau = Eigen::VectorXd::Constant(2, 1.25);
 
-  const auto valid_state = mppi_core::MakeGraspState(q, dq, tactile);
+  const auto valid_state = mppi_core::MakeGraspState(q, dq, tau, tactile);
   EXPECT_TRUE(valid_state.valid);
   EXPECT_EQ(valid_state.q.size(), 2);
   EXPECT_EQ(valid_state.dq.size(), 2);
+  EXPECT_EQ(valid_state.tau.size(), 2);
   EXPECT_NEAR(valid_state.q[0], 0.25, kTolerance);
   EXPECT_NEAR(valid_state.dq[1], -0.5, kTolerance);
+  EXPECT_NEAR(valid_state.tau[0], 1.25, kTolerance);
   EXPECT_TRUE(valid_state.tactile.valid);
   EXPECT_NEAR(valid_state.tactile.normal_force_n, 1.0, kTolerance);
 
   tactile.valid = false;
-  const auto invalid_tactile_state = mppi_core::MakeGraspState(q, dq, tactile);
+  const auto invalid_tactile_state =
+      mppi_core::MakeGraspState(q, dq, tau, tactile);
   EXPECT_FALSE(invalid_tactile_state.valid);
 
   tactile.valid = true;
   const Eigen::VectorXd mismatched_dq = Eigen::VectorXd::Zero(3);
   const auto mismatched_state =
-      mppi_core::MakeGraspState(q, mismatched_dq, tactile);
+      mppi_core::MakeGraspState(q, mismatched_dq, tau, tactile);
   EXPECT_FALSE(mismatched_state.valid);
   EXPECT_EQ(mismatched_state.q.size(), 2);
   EXPECT_EQ(mismatched_state.dq.size(), 3);
-
-  const Eigen::VectorXd measured_tau = Eigen::VectorXd::Constant(2, 1.25);
-  const auto torque_state =
-      mppi_core::MakeGraspState(q, dq, measured_tau, tactile);
-  EXPECT_TRUE(torque_state.valid);
-  EXPECT_TRUE(torque_state.has_measured_tau);
-  EXPECT_NEAR(torque_state.measured_tau[0], 1.25, kTolerance);
 
   const Eigen::VectorXd wrong_tau = Eigen::VectorXd::Zero(3);
   const auto bad_torque_state =
       mppi_core::MakeGraspState(q, dq, wrong_tau, tactile);
   EXPECT_FALSE(bad_torque_state.valid);
-  EXPECT_FALSE(bad_torque_state.has_measured_tau);
+
+  const Eigen::VectorXd q_nq_not_nv = Eigen::VectorXd::Constant(3, 0.2);
+  const auto pinocchio_shaped_state =
+      mppi_core::MakeGraspState(q_nq_not_nv, dq, tau, tactile);
+  EXPECT_TRUE(pinocchio_shaped_state.valid);
+  EXPECT_EQ(pinocchio_shaped_state.q.size(), 3);
+  EXPECT_EQ(pinocchio_shaped_state.dq.size(), 2);
+  EXPECT_EQ(pinocchio_shaped_state.tau.size(), 2);
+}
+
+TEST(GraspStateTest, MakeGraspStateRejectsNonFiniteJointVectors) {
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
+
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
+  Eigen::VectorXd dq = Eigen::VectorXd::Zero(2);
+  Eigen::VectorXd tau = Eigen::VectorXd::Zero(2);
+
+  q[0] = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_FALSE(mppi_core::MakeGraspState(q, dq, tau, tactile).valid);
+
+  q[0] = 0.0;
+  dq[1] = std::numeric_limits<double>::infinity();
+  EXPECT_FALSE(mppi_core::MakeGraspState(q, dq, tau, tactile).valid);
+
+  dq[1] = 0.0;
+  tau[0] = std::numeric_limits<double>::quiet_NaN();
+  const auto bad_torque_state =
+      mppi_core::MakeGraspState(q, dq, tau, tactile);
+  EXPECT_FALSE(bad_torque_state.valid);
 }
 
 TEST(GraspContactKinematicsTest, EmptyOrInactiveContactPointsReturnEmpty) {
@@ -349,7 +386,8 @@ TEST(GraspContactKinematicsTest, InvalidDimensionsReturnEmpty) {
   tactile.contact_points.push_back(point);
 
   const auto state = mppi_core::MakeGraspState(
-      Eigen::VectorXd::Zero(2), Eigen::VectorXd::Zero(2), tactile);
+      Eigen::VectorXd::Zero(2), Eigen::VectorXd::Zero(2),
+      Eigen::VectorXd::Zero(2), tactile);
   const Eigen::VectorXd delta_q = Eigen::VectorXd::Zero(1);
   mppi_core::PinocchioContactKinematicsContext context;
   context.model = &sensor_model.model;
@@ -1513,7 +1551,8 @@ TEST(GraspRolloutTest, StepGraspTactilePatchUpdatesRobotAndTactileState) {
 
   const Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
   const Eigen::VectorXd dq = Eigen::VectorXd::Zero(2);
-  const auto state = mppi_core::MakeGraspState(q, dq, tactile);
+  const Eigen::VectorXd tau = Eigen::VectorXd::Zero(2);
+  const auto state = mppi_core::MakeGraspState(q, dq, tau, tactile);
 
   mppi_core::ContactPointMotion motion;
   motion.position_sensor_m = Eigen::Vector3d::Zero();
@@ -1521,19 +1560,20 @@ TEST(GraspRolloutTest, StepGraspTactilePatchUpdatesRobotAndTactileState) {
 
   const Eigen::VectorXd next_q = Eigen::VectorXd::Constant(2, 0.2);
   const Eigen::VectorXd next_dq = Eigen::VectorXd::Constant(2, 0.3);
+  const Eigen::VectorXd next_tau = Eigen::VectorXd::Constant(2, 0.4);
   const auto next = mppi_core::StepGraspTactilePatch(
-      state, next_q, next_dq,
+      state, next_q, next_dq, next_tau,
       std::vector<mppi_core::ContactPointMotion>{motion}, 0.01);
 
   EXPECT_TRUE(next.valid);
   EXPECT_NEAR(next.q[0], 0.2, kTolerance);
   EXPECT_NEAR(next.dq[1], 0.3, kTolerance);
+  EXPECT_NEAR(next.tau[0], 0.4, kTolerance);
   ASSERT_TRUE(next.tactile.has_centroid);
   EXPECT_GT(next.tactile.centroid_m.x(), 0.0);
 }
 
-TEST(DeltaQReferenceRolloutModelTest,
-     MeasuredTorqueResidualUsesForceAwareTactileRollout) {
+TEST(DeltaQReferenceRolloutModelTest, StateTauDrivesForceAwareTactileRollout) {
   const auto sensor_model = MakeSinglePrismaticZSensorModel();
   pinocchio::Data data(sensor_model.model);
 
@@ -1576,8 +1616,8 @@ TEST(DeltaQReferenceRolloutModelTest,
   mppi_core::DeltaQReferenceRolloutModel model(1);
   const Eigen::VectorXd q = Eigen::VectorXd::Zero(1);
   const Eigen::VectorXd dq = Eigen::VectorXd::Zero(1);
-  const Eigen::VectorXd measured_tau = Eigen::VectorXd::Constant(1, 1.0);
-  const auto state = mppi_core::MakeGraspState(q, dq, measured_tau, tactile);
+  const Eigen::VectorXd tau = Eigen::VectorXd::Constant(1, 1.0);
+  const auto state = mppi_core::MakeGraspState(q, dq, tau, tactile);
   const Eigen::VectorXd action = Eigen::VectorXd::Zero(1);
   mppi_core::RobotRolloutState next_state;
 
@@ -1589,14 +1629,31 @@ TEST(DeltaQReferenceRolloutModelTest,
             mppi_core::ContactPresence::kStableContact);
   EXPECT_EQ(next_state.tactile.contact_support_count, 1U);
   EXPECT_NEAR(next_state.q[0], 0.0, kTolerance);
-  EXPECT_FALSE(next_state.has_measured_tau);
+  EXPECT_NEAR(next_state.tau[0], 0.0, kTolerance);
 }
 
-TEST(DeltaQReferenceRolloutModelTest,
-     ImpedanceTorqueProxyCanDriveForceAwarePrediction) {
-  const auto sensor_model = MakeSinglePrismaticZSensorModel();
-  pinocchio::Data data(sensor_model.model);
+TEST(DeltaQReferenceRolloutModelTest, RejectsNonFiniteAction) {
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
+  tactile.has_normal_force = true;
+  tactile.normal_force_n = 1.0;
 
+  const auto state = mppi_core::MakeGraspState(
+      Eigen::VectorXd::Zero(1), Eigen::VectorXd::Zero(1),
+      Eigen::VectorXd::Zero(1), tactile);
+  Eigen::VectorXd action = Eigen::VectorXd::Zero(1);
+  action[0] = std::numeric_limits<double>::quiet_NaN();
+
+  mppi_core::DeltaQReferenceRolloutModel model(1);
+  mppi_core::RolloutContext context;
+  mppi_core::RobotRolloutState next_state;
+
+  EXPECT_THROW(model.Step(state, action, context, 0.01, &next_state),
+               std::invalid_argument);
+}
+
+TEST(DeltaQReferenceRolloutModelTest, RolloutTorqueModelAssignsFutureTau) {
   mppi_core::TactileState tactile;
   tactile.valid = true;
   tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
@@ -1610,38 +1667,74 @@ TEST(DeltaQReferenceRolloutModelTest,
   point.position_sensor_m = Eigen::Vector3d::Zero();
   tactile.contact_points.push_back(point);
 
-  mppi_core::PinocchioContactKinematicsContext kinematics;
-  kinematics.model = &sensor_model.model;
-  kinematics.data = &data;
-  kinematics.sensor_frame_id = sensor_model.sensor_frame_id;
-
-  mppi_core::ContactForceProjectionConfig projection_config;
-  projection_config.regularization = 1.0e-9;
-  projection_config.tactile_prior_weight = 0.0;
   mppi_core::ContactForceRolloutConfig force_rollout_config;
-  force_rollout_config.force_lowpass_alpha = 1.0;
-  force_rollout_config.min_stable_support_count = 1;
-  force_rollout_config.impedance_stiffness_nm_per_rad = 100.0;
-  force_rollout_config.impedance_damping_nms_per_rad = 0.0;
+  force_rollout_config.rollout_torque_stiffness_nm_per_rad = 100.0;
+  force_rollout_config.rollout_torque_damping_nms_per_rad = 0.5;
 
   mppi_core::RolloutContext context;
   context.tactile = &tactile;
-  context.contact_kinematics = &kinematics;
-  context.contact_force_projection_config = &projection_config;
   context.contact_force_rollout_config = &force_rollout_config;
 
   mppi_core::DeltaQReferenceRolloutModel model(1);
-  const auto state = MakeContactKinematicsState(sensor_model.model, tactile);
+  const Eigen::VectorXd q = Eigen::VectorXd::Zero(1);
+  const Eigen::VectorXd dq = Eigen::VectorXd::Constant(1, 0.4);
+  const Eigen::VectorXd tau = Eigen::VectorXd::Zero(1);
+  const auto state = mppi_core::MakeGraspState(q, dq, tau, tactile);
   const Eigen::VectorXd action = Eigen::VectorXd::Constant(1, 0.02);
   mppi_core::RobotRolloutState next_state;
 
   model.Step(state, action, context, 0.1, &next_state);
 
   EXPECT_TRUE(next_state.valid);
-  EXPECT_NEAR(next_state.tactile.normal_force_n, 2.0, 1.0e-6);
-  EXPECT_EQ(next_state.tactile.contact_presence,
-            mppi_core::ContactPresence::kStableContact);
   EXPECT_NEAR(next_state.q[0], 0.02, kTolerance);
+  EXPECT_NEAR(next_state.dq[0], 0.2, kTolerance);
+  EXPECT_NEAR(next_state.tau[0], 100.0 * 0.02 - 0.5 * 0.4, kTolerance);
+}
+
+TEST(DeltaQReferenceRolloutModelTest, PinocchioRolloutAllowsNqDifferentFromNv) {
+  const auto sensor_model = MakeSingleUnboundedRevoluteZSensorModel();
+  ASSERT_EQ(sensor_model.model.nq, 2);
+  ASSERT_EQ(sensor_model.model.nv, 1);
+  pinocchio::Data data(sensor_model.model);
+
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
+  tactile.has_normal_force = true;
+  tactile.normal_force_n = 1.0;
+  tactile.has_centroid = true;
+  tactile.centroid_m = Eigen::Vector2d::Zero();
+  tactile.contact_support_count = 1;
+  tactile.support_count = 1;
+  tactile.confidence = 1.0;
+  mppi_core::TactileContactPoint point;
+  point.active = true;
+  point.position_sensor_m = Eigen::Vector3d{1.0, 0.0, 0.0};
+  tactile.contact_points.push_back(point);
+
+  mppi_core::PinocchioContactKinematicsContext kinematics;
+  kinematics.model = &sensor_model.model;
+  kinematics.data = &data;
+  kinematics.sensor_frame_id = sensor_model.sensor_frame_id;
+
+  mppi_core::RolloutContext context;
+  context.tactile = &tactile;
+  context.contact_kinematics = &kinematics;
+
+  mppi_core::DeltaQReferenceRolloutModel model(1);
+  const auto state = MakeContactKinematicsState(sensor_model.model, tactile);
+  const Eigen::VectorXd action = Eigen::VectorXd::Constant(1, 0.2);
+  mppi_core::RobotRolloutState next_state;
+
+  model.Step(state, action, context, 0.1, &next_state);
+
+  EXPECT_TRUE(next_state.valid);
+  EXPECT_EQ(next_state.q.size(), 2);
+  EXPECT_EQ(next_state.dq.size(), 1);
+  EXPECT_EQ(next_state.tau.size(), 1);
+  EXPECT_TRUE(next_state.q.allFinite());
+  EXPECT_NEAR(next_state.dq[0], 2.0, kTolerance);
+  EXPECT_NEAR(next_state.tau[0], 0.2, kTolerance);
 }
 
 TEST(DeltaQReferenceRolloutModelTest,
@@ -1725,11 +1818,14 @@ TEST(DeltaQReferenceRolloutModelTest,
   rollout_config.tangential_confidence_loss_per_m = 0.0;
   rollout_config.edge_confidence_loss_gain = 0.0;
   rollout_config.shear_ref_m = 1.0;
+  mppi_core::ContactForceProjectionConfig projection_config;
+  projection_config.enabled = false;
 
   mppi_core::RolloutContext context;
   context.tactile = &tactile;
   context.contact_kinematics = &kinematics;
   context.grasp_rollout_config = &rollout_config;
+  context.contact_force_projection_config = &projection_config;
 
   mppi_core::DeltaQReferenceRolloutModel model(1);
   const auto state = MakeState(1, tactile);
@@ -1777,11 +1873,14 @@ TEST(DeltaQReferenceRolloutModelTest,
   rollout_config.tangential_confidence_loss_per_m = 0.0;
   rollout_config.edge_confidence_loss_gain = 0.0;
   rollout_config.shear_ref_m = 1.0;
+  mppi_core::ContactForceProjectionConfig projection_config;
+  projection_config.enabled = false;
 
   mppi_core::RolloutContext context;
   context.tactile = &tactile;
   context.contact_kinematics = &kinematics;
   context.grasp_rollout_config = &rollout_config;
+  context.contact_force_projection_config = &projection_config;
 
   mppi_core::DeltaQReferenceRolloutModel model(1);
   const auto state = MakeState(1, tactile);
@@ -1826,11 +1925,14 @@ TEST(DeltaQReferenceRolloutModelTest,
   rollout_config.tangential_confidence_loss_per_m = 0.0;
   rollout_config.edge_confidence_loss_gain = 0.0;
   rollout_config.shear_ref_m = 1.0;
+  mppi_core::ContactForceProjectionConfig projection_config;
+  projection_config.enabled = false;
 
   mppi_core::RolloutContext context;
   context.tactile = &tactile;
   context.contact_kinematics = &kinematics;
   context.grasp_rollout_config = &rollout_config;
+  context.contact_force_projection_config = &projection_config;
 
   mppi_core::DeltaQReferenceRolloutModel model(1);
   const auto state = MakeState(1, tactile);
@@ -1899,6 +2001,45 @@ TEST(DeltaQReferenceRolloutModelTest,
   EXPECT_TRUE(next_state.valid);
   EXPECT_EQ(next_state.tactile.contact_presence,
             mppi_core::ContactPresence::kStableContact);
+  EXPECT_EQ(next_state.tactile.activeContactPointCount(), 0U);
+}
+
+TEST(DeltaQReferenceRolloutModelTest,
+     GenericContactLossDeactivatesSparseContactPoints) {
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
+  tactile.has_normal_force = true;
+  tactile.normal_force_n = 0.1;
+  tactile.contact_support_count = 1;
+  tactile.support_count = 1;
+  tactile.confidence = 1.0;
+  mppi_core::TactileContactPoint point;
+  point.active = true;
+  point.support_index = 0;
+  point.position_sensor_m = Eigen::Vector3d::Zero();
+  tactile.contact_points.push_back(point);
+
+  mppi_core::ContactPredictionConfig config;
+  config.closing_force_gain_n_per_rad = 0.0;
+  config.opening_force_gain_n_per_rad = 100.0;
+  config.force_proxy_max_n = 5.0;
+  config.contact_patch_force_per_node_n = 0.25;
+
+  mppi_core::DeltaQReferenceRolloutModel model(1, config);
+  const auto state = MakeState(1, tactile);
+  const Eigen::VectorXd action = Eigen::VectorXd::Constant(1, -0.01);
+  mppi_core::RolloutContext context;
+  mppi_core::RobotRolloutState next_state;
+
+  model.Step(state, action, context, 0.1, &next_state);
+
+  EXPECT_TRUE(next_state.valid);
+  EXPECT_EQ(next_state.tactile.contact_presence,
+            mppi_core::ContactPresence::kNoContact);
+  EXPECT_EQ(next_state.tactile.contact_support_count, 0U);
+  ASSERT_EQ(next_state.tactile.contact_points.size(), 1U);
+  EXPECT_FALSE(next_state.tactile.contact_points[0].active);
   EXPECT_EQ(next_state.tactile.activeContactPointCount(), 0U);
 }
 
@@ -2065,6 +2206,46 @@ TEST(GraspStabilityCostTest, PenalizesSmallPredictedContactPatch) {
   EXPECT_NEAR(wide_patch_cost, 0.0, kTolerance);
 }
 
+TEST(GraspStabilityCostTest, DisablingCentroidCostDoesNotAddContactLossCost) {
+  mppi_core::GraspStabilityCostConfig config;
+  config.force_min_n = 0.0;
+  config.force_max_n = 10.0;
+  config.force_under_weight = 0.0;
+  config.force_over_weight = 0.0;
+  config.use_object_weight_lower_bound = false;
+  config.friction_margin_enabled = false;
+  config.required_force_weight = 0.0;
+  config.slip_risk_weight = 0.0;
+  config.contact_centroid_enabled = false;
+  config.centroid_boundary_weight = 0.0;
+  config.contact_loss_weight = 10.0;
+  config.contact_patch_enabled = false;
+  config.tracking_weight = 0.0;
+  config.tracking_action_scale_weight = 0.0;
+  config.action_smoothness_weight = 0.0;
+  config.joint_limit_weight = 0.0;
+
+  mppi_core::GraspStabilityCost cost(config);
+
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kStableContact;
+  tactile.has_normal_force = true;
+  tactile.normal_force_n = 1.0;
+  tactile.has_centroid = false;
+  tactile.contact_support_count = 1;
+  tactile.support_count = 1;
+
+  auto state = MakeState(1, tactile);
+  mppi_core::RolloutContext rollout;
+  rollout.tactile = &tactile;
+  mppi_core::CostContext context;
+  context.rollout = &rollout;
+  const Eigen::VectorXd action = Eigen::VectorXd::Zero(1);
+
+  EXPECT_NEAR(cost.Evaluate(state, action, context), 0.0, kTolerance);
+}
+
 TEST(GraspConfigTest, ParsesTactilePredictionAndSlipVelocityWeight) {
   const YAML::Node root = YAML::Load(R"(
 grasp:
@@ -2183,6 +2364,7 @@ TEST(MPPIOptimizerTest, PredictRolloutRecordsActionsStatesAndStepCosts) {
   observation.v_ref_current = Eigen::VectorXd::Zero(1);
   observation.q_measured = observation.q_ref_current;
   observation.v_measured = observation.v_ref_current;
+  observation.tau = Eigen::VectorXd::Zero(1);
   observation.tactile = tactile;
 
   mppi_core::ActionSequence actions(1, 2);
@@ -2202,4 +2384,56 @@ TEST(MPPIOptimizerTest, PredictRolloutRecordsActionsStatesAndStepCosts) {
   EXPECT_NEAR(trace.actions[1][0], -0.05, kTolerance);
   EXPECT_TRUE(trace.states[1].valid);
   EXPECT_TRUE(trace.states[1].tactile.valid);
+}
+
+TEST(MPPIOptimizerTest, PredictRolloutAllowsPinocchioNqDifferentFromNv) {
+  const auto sensor_model = MakeSingleUnboundedRevoluteZSensorModel();
+  pinocchio::Data data(sensor_model.model);
+
+  mppi_core::MPPIConfig config;
+  config.horizon_steps = 1;
+  config.num_rollouts = 1;
+  config.action_dim = sensor_model.model.nv;
+  config.dt = 0.1;
+  config.temperature = 1.0;
+  config.action_lower_bound =
+      Eigen::VectorXd::Constant(sensor_model.model.nv, -1.0);
+  config.action_upper_bound =
+      Eigen::VectorXd::Constant(sensor_model.model.nv, 1.0);
+  config.action_noise_std = Eigen::VectorXd::Zero(sensor_model.model.nv);
+
+  auto model = std::make_shared<mppi_core::DeltaQReferenceRolloutModel>(
+      sensor_model.model.nv);
+  mppi_core::MPPIOptimizer optimizer;
+  optimizer.Initialize(config, model, nullptr);
+
+  mppi_core::TactileState tactile;
+  tactile.valid = true;
+  tactile.contact_presence = mppi_core::ContactPresence::kNoContact;
+
+  mppi_core::PinocchioContactKinematicsContext kinematics;
+  kinematics.model = &sensor_model.model;
+  kinematics.data = &data;
+  kinematics.sensor_frame_id = sensor_model.sensor_frame_id;
+
+  mppi_core::GraspObservation observation;
+  observation.q_ref_current = pinocchio::neutral(sensor_model.model);
+  observation.v_ref_current = Eigen::VectorXd::Zero(sensor_model.model.nv);
+  observation.q_measured = observation.q_ref_current;
+  observation.v_measured = observation.v_ref_current;
+  observation.tau = Eigen::VectorXd::Zero(sensor_model.model.nv);
+  observation.tactile = tactile;
+  observation.contact_kinematics = &kinematics;
+
+  mppi_core::ActionSequence actions(sensor_model.model.nv, 1);
+  actions.setAction(0, Eigen::VectorXd::Constant(sensor_model.model.nv, 0.2));
+
+  const auto trace = optimizer.PredictRollout(observation, actions);
+
+  ASSERT_EQ(trace.states.size(), 2U);
+  EXPECT_TRUE(trace.states[1].valid);
+  EXPECT_EQ(trace.states[1].q.size(), sensor_model.model.nq);
+  EXPECT_EQ(trace.states[1].dq.size(), sensor_model.model.nv);
+  EXPECT_EQ(trace.states[1].tau.size(), sensor_model.model.nv);
+  EXPECT_TRUE(trace.states[1].q.allFinite());
 }

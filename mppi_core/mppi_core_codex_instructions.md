@@ -750,6 +750,10 @@ struct GraspObservation {
   Eigen::VectorXd q_ref_current;
   Eigen::VectorXd v_ref_current;
 
+  // Measured torque for the current observation. Rollout states carry
+  // predicted/commanded torque produced by the rollout model.
+  Eigen::VectorXd tau;
+
   NariTouchState tactile;
 
   bool has_gravity_context{false};
@@ -813,6 +817,7 @@ Preferred v1 action semantics:
 action_k = delta_q_ref_cmd_k
 q_ref_{k+1} = pinocchio::integrate(q_ref_k, action_k)
 qdot_ff_{k+1} = action_k / dt   # optional feedforward only
+tau_{k+1} = Kp * action_k - Kd * qdot_k
 ```
 
 This avoids making multi-finger velocity tracking the core control problem.

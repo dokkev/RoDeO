@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <Eigen/Geometry>
+#include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
 
 #include "mppi_core/grasp/contact_force_correction.hpp"
@@ -285,46 +286,47 @@ bool HasActiveTactileContactPoint(const TactileState& tactile) {
   return false;
 }
 
-bool HasValidMeasuredTau(const RobotRolloutState& state,
-                         Eigen::Index tangent_dim) {
-  return state.has_measured_tau && state.measured_tau.size() == tangent_dim &&
-         state.measured_tau.allFinite();
+Eigen::VectorXd ComputeRolloutPredictedTorque(
+    const Eigen::Ref<const Eigen::VectorXd>& action,
+    const Eigen::Ref<const Eigen::VectorXd>& dq,
+    const ContactForceRolloutConfig& config) {
+  const double stiffness =
+      std::isfinite(config.rollout_torque_stiffness_nm_per_rad)
+          ? config.rollout_torque_stiffness_nm_per_rad
+          : 0.0;
+  const double damping =
+      std::isfinite(config.rollout_torque_damping_nms_per_rad)
+          ? config.rollout_torque_damping_nms_per_rad
+          : 0.0;
+  return stiffness * action - damping * dq;
 }
 
-bool BuildForceAwareTorqueSource(
+bool CanIntegrateWithPinocchio(
     const RobotRolloutState& state,
     const Eigen::Ref<const Eigen::VectorXd>& action,
-    const ContactForceRolloutConfig& config, bool allow_impedance_proxy,
-    Eigen::Index tangent_dim, Eigen::VectorXd* tau_source) {
-  if (tau_source == nullptr) {
-    return false;
-  }
+    const PinocchioContactKinematicsContext* context) {
+  return context != nullptr && IsValidContactKinematicsContext(*context) &&
+         state.q.size() == static_cast<Eigen::Index>(context->model->nq) &&
+         action.size() == static_cast<Eigen::Index>(context->model->nv);
+}
 
-  if (HasValidMeasuredTau(state, tangent_dim)) {
-    *tau_source = state.measured_tau;
-    return true;
+Eigen::VectorXd IntegrateReference(
+    const RobotRolloutState& state,
+    const Eigen::Ref<const Eigen::VectorXd>& action,
+    const PinocchioContactKinematicsContext* context) {
+  if (CanIntegrateWithPinocchio(state, action, context)) {
+    return pinocchio::integrate(*context->model, state.q, action);
   }
-
-  if (!allow_impedance_proxy || !config.enable_impedance_torque_proxy ||
-      action.size() != tangent_dim || state.dq.size() != tangent_dim ||
-      !action.allFinite() || !state.dq.allFinite()) {
-    return false;
+  if (state.q.size() != action.size()) {
+    throw std::invalid_argument(
+        "DeltaQReferenceRolloutModel::Step: q and action dimension mismatch");
   }
-
-  const double stiffness = std::isfinite(config.impedance_stiffness_nm_per_rad)
-                               ? config.impedance_stiffness_nm_per_rad
-                               : 0.0;
-  const double damping = std::isfinite(config.impedance_damping_nms_per_rad)
-                             ? config.impedance_damping_nms_per_rad
-                             : 0.0;
-  *tau_source = stiffness * action - damping * state.dq;
-  return tau_source->allFinite();
+  return state.q + action;
 }
 
 bool TryForceAwareTactileRollout(
-    const RobotRolloutState& state,
-    const Eigen::Ref<const Eigen::VectorXd>& action,
-    const RolloutContext& context, double dt, TactileState* tactile_out) {
+    const RobotRolloutState& state, const RolloutContext& context, double dt,
+    TactileState* tactile_out) {
   if (tactile_out == nullptr || context.contact_kinematics == nullptr ||
       !state.valid || !state.tactile.valid ||
       !HasActiveTactileContactPoint(state.tactile) ||
@@ -337,7 +339,9 @@ bool TryForceAwareTactileRollout(
   auto& data = *kinematics.data;
   if (state.q.size() != static_cast<Eigen::Index>(model.nq) ||
       state.dq.size() != static_cast<Eigen::Index>(model.nv) ||
-      !state.q.allFinite() || !state.dq.allFinite()) {
+      state.tau.size() != static_cast<Eigen::Index>(model.nv) ||
+      !state.q.allFinite() || !state.dq.allFinite() ||
+      !state.tau.allFinite()) {
     return false;
   }
 
@@ -345,7 +349,7 @@ bool TryForceAwareTactileRollout(
       context.contact_force_projection_config != nullptr
           ? *context.contact_force_projection_config
           : ContactForceProjectionConfig{};
-  ContactForceRolloutConfig force_rollout_config =
+  const ContactForceRolloutConfig force_rollout_config =
       context.contact_force_rollout_config != nullptr
           ? *context.contact_force_rollout_config
           : ContactForceRolloutConfig{};
@@ -354,26 +358,18 @@ bool TryForceAwareTactileRollout(
     return false;
   }
 
-  Eigen::VectorXd tau_source;
-  const bool allow_impedance_proxy =
-      context.contact_force_rollout_config != nullptr;
-  if (!BuildForceAwareTorqueSource(state, action, force_rollout_config,
-                                   allow_impedance_proxy, model.nv,
-                                   &tau_source)) {
-    return false;
-  }
-
   const Eigen::VectorXd zero_acceleration =
       Eigen::VectorXd::Zero(static_cast<Eigen::Index>(model.nv));
   const Eigen::VectorXd tau_model =
       pinocchio::rnea(model, data, state.q, state.dq, zero_acceleration);
-  if (tau_model.size() != tau_source.size() || !tau_model.allFinite()) {
+  if (tau_model.size() != state.tau.size() || !tau_model.allFinite()) {
     return false;
   }
 
+  const Eigen::VectorXd tau_residual = state.tau - tau_model;
   ContactForceProjectionResult projection =
-      ProjectContactForcesFromTorqueResidual(state, tau_source - tau_model,
-                                             kinematics, projection_config);
+      ProjectContactForcesFromTorqueResidual(state, tau_residual, kinematics,
+                                             projection_config);
   if (!projection.valid) {
     return false;
   }
@@ -504,6 +500,12 @@ void UpdatePredictedTactile(const ContactPredictionState& contact,
     tactile->contact_support_count = 0;
     tactile->contact_area_proxy = 0.0;
     tactile->edge_risk = 0.0;
+    for (auto& point : tactile->contact_points) {
+      point.active = false;
+      point.has_normal_force = false;
+      point.normal_force_n = 0.0;
+      point.confidence = 0.0;
+    }
     return;
   }
 
@@ -623,37 +625,61 @@ void DeltaQReferenceRolloutModel::Step(
     throw std::invalid_argument(
         "DeltaQReferenceRolloutModel::Step: next_state is null");
   }
-  if (dt <= 0.0) {
+  if (!std::isfinite(dt) || dt <= 0.0) {
     throw std::invalid_argument(
         "DeltaQReferenceRolloutModel::Step: dt must be positive");
   }
-  if (state.q.size() != static_cast<Eigen::Index>(joint_dim_) ||
+  if (state.dq.size() != static_cast<Eigen::Index>(joint_dim_) ||
+      state.tau.size() != state.dq.size() ||
       action.size() != static_cast<Eigen::Index>(joint_dim_)) {
     throw std::invalid_argument(
         "DeltaQReferenceRolloutModel::Step: dimension mismatch");
   }
+  if (state.q.size() != action.size() &&
+      !CanIntegrateWithPinocchio(state, action, context.contact_kinematics)) {
+    throw std::invalid_argument(
+        "DeltaQReferenceRolloutModel::Step: q and action dimension mismatch");
+  }
+  if (!state.q.allFinite() || !state.dq.allFinite() ||
+      !state.tau.allFinite() || !action.allFinite()) {
+    throw std::invalid_argument(
+        "DeltaQReferenceRolloutModel::Step: state and action must be finite");
+  }
 
-  next_state->q = state.q + action;
+  const ContactForceRolloutConfig torque_config =
+      context.contact_force_rollout_config != nullptr
+          ? *context.contact_force_rollout_config
+          : ContactForceRolloutConfig{};
+
+  next_state->q = IntegrateReference(state, action, context.contact_kinematics);
   next_state->dq = action / dt;
-  next_state->has_measured_tau = false;
-  next_state->measured_tau.resize(0);
+  next_state->tau =
+      ComputeRolloutPredictedTorque(action, state.dq, torque_config);
   next_state->tactile =
       state.tactile.valid ? state.tactile : InitialTactilePrediction(context);
   next_state->valid = next_state->tactile.valid &&
-                      next_state->q.size() == next_state->dq.size();
+                      next_state->dq.size() == next_state->tau.size() &&
+                      next_state->q.allFinite() && next_state->dq.allFinite() &&
+                      next_state->tau.allFinite();
 
   RobotRolloutState tactile_rollout_state = state;
   tactile_rollout_state.tactile = next_state->tactile;
   tactile_rollout_state.valid =
       tactile_rollout_state.tactile.valid &&
-      tactile_rollout_state.q.size() == tactile_rollout_state.dq.size();
+      tactile_rollout_state.dq.size() == tactile_rollout_state.tau.size() &&
+      tactile_rollout_state.q.allFinite() &&
+      tactile_rollout_state.dq.allFinite() &&
+      tactile_rollout_state.tau.allFinite();
 
   TactileState force_predicted_tactile;
-  if (TryForceAwareTactileRollout(tactile_rollout_state, action, context, dt,
+  if (TryForceAwareTactileRollout(tactile_rollout_state, context, dt,
                                   &force_predicted_tactile)) {
     next_state->tactile = force_predicted_tactile;
     next_state->valid = next_state->tactile.valid &&
-                        next_state->q.size() == next_state->dq.size();
+                        next_state->dq.size() == next_state->tau.size() &&
+                        next_state->q.allFinite() &&
+                        next_state->dq.allFinite() &&
+                        next_state->tau.allFinite();
     return;
   }
 
@@ -667,7 +693,8 @@ void DeltaQReferenceRolloutModel::Step(
         tactile_rollout_state, action, *context.contact_kinematics);
     *next_state =
         StepGraspTactilePatch(tactile_rollout_state, next_state->q,
-                              next_state->dq, motions, dt, rollout_config);
+                              next_state->dq, next_state->tau, motions, dt,
+                              rollout_config);
     return;
   }
 
@@ -785,7 +812,9 @@ void DeltaQReferenceRolloutModel::Step(
   UpdatePredictedTactile(contact, prediction_config_.slip_velocity_weight,
                          &next_state->tactile);
   next_state->valid = next_state->tactile.valid &&
-                      next_state->q.size() == next_state->dq.size();
+                      next_state->dq.size() == next_state->tau.size() &&
+                      next_state->q.allFinite() && next_state->dq.allFinite() &&
+                      next_state->tau.allFinite();
 }
 
 }  // namespace mppi_core

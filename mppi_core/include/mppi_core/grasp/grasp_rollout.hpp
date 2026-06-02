@@ -389,11 +389,12 @@ inline GraspState StepGraspTactilePatch(
     const GraspState& state,
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
+    const Eigen::VectorXd& tau,
     const std::vector<ContactPointMotion>& motions,
     double dt,
     const GraspRolloutConfig& config = {}) {
   return MakeGraspState(
-      q, dq, StepTactileContactPatch(state.tactile, motions, dt, config));
+      q, dq, tau, StepTactileContactPatch(state.tactile, motions, dt, config));
 }
 
 }  // namespace mppi_core

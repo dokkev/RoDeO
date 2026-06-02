@@ -40,12 +40,11 @@ struct ContactForceRolloutConfig {
   double shear_ref_m{1.0e-3};
   double rotational_shear_ref_rad{2.0e-2};
 
-  // Optional rollout torque source when measured/commanded torque is not
-  // available. This maps sampled delta-q actions to a simple impedance torque
-  // proxy; it is a model parameter, not a cost weight.
-  bool enable_impedance_torque_proxy{true};
-  double impedance_stiffness_nm_per_rad{1.0};
-  double impedance_damping_nms_per_rad{0.01};
+  // Rollout torque model for predicted future states. This maps sampled
+  // delta-q actions to a simple impedance-style commanded torque; it is a
+  // rollout model parameter, not a fallback source for missing torque.
+  double rollout_torque_stiffness_nm_per_rad{1.0};
+  double rollout_torque_damping_nms_per_rad{0.01};
 };
 
 inline double ForceRolloutClamp01(double x) {
