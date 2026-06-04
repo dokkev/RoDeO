@@ -1,46 +1,29 @@
 grasp:
+  tactile_prediction:
+    # Contact MPPI is entered after tactile contact is already active. Runtime
+    # rollout therefore requires torque-residual force projection by default.
+    rollout_policy: force_aware_required
+
+  contact_force_rollout:
+    enable_force_projection_update: true
+    force_lowpass_alpha: 0.5
+    max_predicted_normal_force_n: 20.0
+    shear_force_gain_m_per_n_s: 0.0001
+    rotational_shear_gain_rad_per_nm_s: 0.01
+    friction_violation_confidence_decay: 0.2
+    negative_normal_confidence_decay: 0.5
+    min_stable_support_count: 4
+    min_contact_confidence: 0.001
+    shear_ref_m: 0.001
+    rotational_shear_ref_rad: 0.02
+    rollout_torque_stiffness_nm_per_rad: 1.0
+    rollout_torque_damping_nms_per_rad: 0.01
+
   normal_force_window:
     min_n: 0.5
     max_n: 2.5
     under_weight: 20.0
     over_weight: 40.0
-    use_object_weight_lower_bound: true
-    weight_safety_factor: 1.5
-
-  friction_margin:
-    enabled: true
-    weight: 20.0
-    mu_nominal: 0.35
-    mu_min: 0.2
-    required_force_weight: 10.0
-
-  tangential_load_proxy:
-    gravity_weight: 1.0
-    # Pinocchio contact velocity is not in the first grasp pass.
-    motion_weight: 0.0
-    slip_weight: 3.0
-    force_spike_weight: 5.0
-
-  normal_force_proxy:
-    closing_force_gain: 1.0
-    opening_force_gain: 1.0
-    max_force_n: 5.0
-
-  tactile_prediction:
-    # Predict which local NariTouch hemispheres belong to the contact patch.
-    force_per_node_n: 0.4
-    slip_decay: 0.9
-    slip_margin_gain_per_n: 0.2
-    centroid_drift_gain_m_per_n: 0.0005
-    # Local contact-patch oscillation model: arm/object shaking shows up as
-    # slip velocity and centroid velocity on the tactile surface.
-    slip_velocity_decay: 0.85
-    slip_velocity_margin_gain_per_nps: 0.2
-    action_slip_damping_gain_per_rad: 0.0
-    max_slip_velocity: 100.0
-    centroid_velocity_decay: 0.9
-    centroid_velocity_slip_gain: 0.001
-    max_centroid_velocity_mps: 0.05
 
   slip_risk:
     threshold: 0.25
@@ -72,7 +55,3 @@ grasp:
 
   joint_limit:
     weight: 10.0
-
-  action:
-    # Plato MPPI v1 controls [joint3, joint4, joint5, joint6].
-    closing_direction: [-1.0, -1.0, 1.0, 1.0]

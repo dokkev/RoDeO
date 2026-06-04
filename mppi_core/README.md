@@ -1,62 +1,59 @@
 # mppi_core
 
-`mppi_core` is a ROS-free C++ package for reusable MPPI runtime objects.
+`mppi_core` is a ROS-free C++ package for reusable MPPI runtime objects. The
+current controller shape is contact-local: enter MPPI after tactile contact is
+active, roll out small joint-reference increments, predict tactile state from
+torque-residual contact forces, and score force/slip/centroid/contact-patch
+quality.
 
-The first optimizer surface is `mppi_core::MPPIOptimizer`: it owns a nominal
-action sequence, samples noisy rollouts around it, evaluates a caller-provided
-`RolloutModelBase` and `CostTermBase`, updates the nominal sequence with MPPI
-weights, and returns the first action as a short-horizon command.
+The main runtime pieces are:
 
-For the initial PLATOMPPI path, the action is a bounded finger `delta_q_ref`
-increment. The rollout integrates that into the next `q_ref`; any `v_des`
-feedforward is derived from `delta_q_ref / dt` and is not the primary tracking
-objective.
+- `mppi_core::MPPIOptimizer`
+- `mppi_core::DeltaQReferenceRolloutModel`
+- `mppi_core::GraspStabilityCost`
+- `mppi_core::TactileState`
+- `mppi_core::ContactForceProjection`
+- `mppi_core::ContactForceRollout`
+- `mppi_core::ContactForceCorrection`
+- `mppi_core::RobotCommand`
 
-The planner-facing tactile surface is `mppi_core::TactileState`. It is
-hardware-agnostic and keeps only the physical/contact features MPPI needs:
-contact presence, normal force, contact centroid and centroid velocity,
-translational shear, rotational shear, scalar slip scores, support counts, and
-optional geometry quality terms.
+For a click-through view of how these pieces exchange data, open
+[`docs/mppi_flow.html`](docs/mppi_flow.html) in a browser.
 
-NariTouch remains a hardware-specific input representation in
-`mppi_core::NariTouchState`. For `sdr_grasp_msgs/msg/Tactile`, the ROS adapter
-maps `shear_displacement.x/y/theta` into NariTouch `slip_state`, `force.z` into
-`force_z`, `contact_state` into `mppi_core::NariTouchContactState`, and message
-`units` into `NariTouchState::units`. The adapter then calls
-`ConvertNariTouchToTactileState(...)`, where NariTouch `slip_state.x/y` becomes
-generic translational shear and `slip_state.z` becomes rotational shear. Raw
-pressure grids, sensor array metadata, TF/world poses, and raw sensing node
-indices should stay outside planner code until a cost explicitly needs them.
+`TactileState` is hardware-agnostic. It carries contact presence, normal force,
+contact centroid, shear, slip scores, support counts, and contact points. The
+NARI adapter remains hardware-specific input plumbing: `NariTouchState` is
+converted to `TactileState` before planner code sees it.
 
-NariTouch messages expose shear displacement rather than slip velocity. The
-hardware-facing adapter derives `slip_velocity_state` with a timestamped finite
-difference and light filtering before converting to `TactileState`.
+In measured/current states, `tau` is measured joint torque. In future rollout
+states, `tau` is a predicted commanded-torque proxy from the rollout impedance
+model. That means the first force-aware rollout step is anchored by measured
+torque, while later steps are force hypotheses based on predicted torque.
 
-Object information enters MPPI as a lightweight prior rather than an object
-state rollout. For a Jenga-sized block, use:
+By default, tactile rollout is force-aware required. If torque-residual contact
+force projection is unavailable or invalid, the rollout state is invalid and MPPI
+assigns the invalid-rollout penalty. The kinematic contact-patch rollout can be
+enabled only as an explicit ablation/debug fallback.
 
-```cpp
-const auto object = mppi_core::MakeJengaBlockObjectPrior();
-```
-
-The first Jenga policy is intentionally a contact-local tactile-risk governor,
-not a full object dynamics simulator. The rollout state is a `GraspState`: it
-carries the candidate joint reference, a predicted `TactileState`, and
-predicted normal force, tangential load, slip risk, contact centroid, and
-friction margin.
-
-The predicted `TactileState` also carries a local contact support proxy. Each
-rollout step estimates support count from normal force and increases
-translational/rotational shear when the friction margin goes negative. The
-friction margin mirrors the linearized friction-pyramid convention used by
-`wbc_core` contacts, but it is used as a soft prediction feature rather than an
-HQP constraint.
+`MPPIOptimizer` is intentionally rollout-model agnostic, so it does not inspect
+`TactileRolloutPolicy` or perform the no-contact gate itself. A force-aware
+required caller must check tactile contact before calling `Update(...)`; the
+optimizer only provides a safety backstop by returning a hold command when all
+sampled rollouts are invalid.
 
 ```cpp
-auto config = mppi_core::MakeDefaultJengaGraspConfig(joint_dim);
+mppi_core::MPPIConfig mppi_config;
+mppi_core::DeltaQReferenceRolloutConfig rollout_config;
+rollout_config.tactile_rollout_policy =
+    mppi_core::TactileRolloutPolicy::kForceAwareRequired;
 
-mppi_core::JengaGrasp policy;
-policy.Initialize(joint_dim, config);
+auto model = std::make_shared<mppi_core::DeltaQReferenceRolloutModel>(
+    joint_dim, rollout_config);
+auto cost = std::make_shared<mppi_core::GraspStabilityCost>(
+    mppi_core::GraspStabilityCostConfig{});
+
+mppi_core::MPPIOptimizer optimizer;
+optimizer.Initialize(mppi_config, model, cost);
 
 mppi_core::GraspObservation obs;
 obs.q_measured = q_measured;
@@ -65,97 +62,51 @@ obs.q_ref_current = q_ref_current;
 obs.v_ref_current = v_ref_current;
 obs.tau = measured_joint_torque;
 obs.tactile = tactile_state;
+obs.contact_kinematics = &contact_kinematics;
+obs.contact_force_projection_config = &projection_config;
+obs.contact_force_rollout_config = &force_rollout_config;
 
-const auto command = policy.Update(obs);
-// command.q_des is safe to send downstream; command.delta_q_ref is the raw MPPI
-// increment and command.v_des is delta_q_ref / dt.
+const auto command = optimizer.Update(obs);
 ```
 
-The policy rolls out `delta_q_ref` candidates with
-`DeltaQReferenceRolloutModel` and evaluates them with
-`GraspStabilityCost`. Disturbances are represented as local tactile-risk
-scenarios, such as normal-force drops/spikes, slip bumps, and contact-centroid
-drift. This keeps the v1 controller focused on stabilizing contact quality
-without pretending to predict full Jenga block motion.
+`RobotCommand` is the generic final command packet. It is not the MPPI action.
+MPPI may sample `delta_q_ref`, but the downstream controller receives a hybrid
+impedance command:
 
-For debugging, the optimizer can roll out any candidate `ActionSequence` and
-return a `RolloutTrace`. This is the main way to inspect whether a proposed
-control input makes sense: `states[k + 1]` contains the predicted joint
-reference, tactile contact patch, slip risk, force proxy, and friction margin
-after `actions[k]`.
-
-```cpp
-mppi_core::ActionSequence candidate(joint_dim, horizon_steps);
-candidate.setAction(0, delta_q_ref);
-
-const auto trace = policy.PredictRollout(obs, candidate);
-const auto& predicted = trace.states[1];
+```text
+tau_cmd = tau_ff + kp * (q_des - q) + kd * (qdot_des - qdot)
 ```
 
-The optimizer sampling budget and action bounds live in `config/mppi.yaml`:
+For pure position/velocity impedance behavior, keep `tau_ff = 0`. For mostly
+torque-feedforward behavior, keep `kp` and `kd` small or zero. Hybrid behavior
+uses both nonzero feedforward torque and nonzero gains.
 
-```yaml
-mppi:
-  horizon_steps: 20
-  dt: 0.01
-  num_rollouts: 128
-  temperature: 1.0
-  random_seed: 1
-
-  action:
-    lower_bound: -0.004
-    upper_bound: 0.004
-    noise_std: 0.0015
-```
-
-Scalars under `action` expand to all controlled joints; joint-sized sequences
-can be used when each finger joint needs a different bound or noise level.
-
-The default grasp cost can be configured separately from YAML at initialization
-time:
+Sampling budget and action bounds live in `config/mppi.yaml`. Contact-local cost
+and force-aware rollout settings live in `config/grasp.yaml`:
 
 ```yaml
 grasp:
+  tactile_prediction:
+    rollout_policy: force_aware_required
+
+  contact_force_rollout:
+    enable_force_projection_update: true
+    force_lowpass_alpha: 0.5
+    max_predicted_normal_force_n: 20.0
+    rollout_torque_stiffness_nm_per_rad: 1.0
+    rollout_torque_damping_nms_per_rad: 0.01
+
   normal_force_window:
     min_n: 0.5
     max_n: 2.5
-    under_weight: 5.0
-    over_weight: 30.0
-
-  friction_margin:
-    enabled: true
-    weight: 20.0
-    mu_nominal: 0.35
-    required_force_weight: 10.0
-
-  tactile_prediction:
-    force_per_node_n: 0.4
-    slip_decay: 0.9
-    slip_margin_gain_per_n: 0.2
-    centroid_drift_gain_m_per_n: 0.0005
+    under_weight: 20.0
+    over_weight: 40.0
 
   slip_risk:
-    velocity_weight: 0.0
-
-  action:
-    closing_direction: [-1.0, -1.0, 1.0, 1.0]
+    threshold: 0.25
+    weight: 4.0
 ```
 
-The YAML loader is not part of the rollout hot loop. It updates
-`MPPIConfig` and `GraspStabilityCostConfig` once during policy initialization.
-See [`docs/grasp_tuning.md`](docs/grasp_tuning.md) for the current hardware
-tuning knobs and symptom-based adjustment guide.
-
-```cpp
-#include "mppi_core/config/grasp_config.hpp"
-#include "mppi_core/config/mppi_config.hpp"
-
-auto config = mppi_core::MakeDefaultJengaGraspConfig(joint_dim);
-config.mppi = mppi_core::LoadMPPIConfigFromYamlFile(
-    mppi_yaml_path, joint_dim, config.mppi);
-config.grasp_stability_cost = mppi_core::LoadGraspConfigFromYamlFile(
-    cost_yaml_path, joint_dim, config.grasp_stability_cost);
-
-mppi_core::JengaGrasp policy;
-policy.Initialize(joint_dim, config);
-```
+For debugging, `MPPIOptimizer::PredictRollout(...)` returns a `RolloutTrace`.
+`states[k + 1]` contains the predicted joint reference, predicted torque proxy,
+and force-aware tactile prediction after `actions[k]`.

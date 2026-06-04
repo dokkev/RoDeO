@@ -12,8 +12,6 @@
 namespace mppi_core {
 namespace {
 
-constexpr double kGravityMps2 = 9.80665;
-
 double Relu(double value) {
   return std::max(0.0, value);
 }
@@ -24,10 +22,6 @@ double Square(double value) {
 
 bool IsFiniteAndNonnegative(double value) {
   return std::isfinite(value) && value >= 0.0;
-}
-
-double Clamp(double value, double lower, double upper) {
-  return std::max(lower, std::min(value, upper));
 }
 
 double FiniteNonnegativeOrZero(double value) {
@@ -100,25 +94,6 @@ bool TactileContactCentroidM(const TactileState& tactile,
   return true;
 }
 
-std::size_t ContactSupportCountFromForce(double normal_force_n,
-                                         double force_per_support_n,
-                                         std::size_t max_support_count) {
-  if (normal_force_n <= 0.0) {
-    return 0;
-  }
-
-  const double safe_force_per_support =
-      std::max(1.0e-9, force_per_support_n);
-  const auto count =
-      static_cast<std::size_t>(std::ceil(normal_force_n /
-                                         safe_force_per_support));
-  if (max_support_count > 0) {
-    return std::max<std::size_t>(
-        1, std::min<std::size_t>(count, max_support_count));
-  }
-  return std::max<std::size_t>(1, count);
-}
-
 }  // namespace
 
 GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
@@ -129,21 +104,6 @@ GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
     throw std::invalid_argument(
         "GraspStabilityCost: force bounds must be finite and ordered");
   }
-  if (!std::isfinite(config_.friction_coefficient) ||
-      config_.friction_coefficient <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: friction_coefficient must be positive");
-  }
-  if (!std::isfinite(config_.friction_mu_min) ||
-      config_.friction_mu_min <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: friction_mu_min must be positive");
-  }
-  if (!std::isfinite(config_.supporting_contact_count) ||
-      config_.supporting_contact_count <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: supporting_contact_count must be positive");
-  }
   if (!std::isfinite(config_.centroid_x_min) ||
       !std::isfinite(config_.centroid_x_max) ||
       !std::isfinite(config_.centroid_y_min) ||
@@ -153,32 +113,11 @@ GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
     throw std::invalid_argument(
         "GraspStabilityCost: centroid bounds must be finite and ordered");
   }
-  if (!IsFiniteAndNonnegative(config_.object_force_safety_factor) ||
-      !IsFiniteAndNonnegative(config_.force_under_weight) ||
+  if (!IsFiniteAndNonnegative(config_.force_under_weight) ||
       !IsFiniteAndNonnegative(config_.force_over_weight) ||
       !IsFiniteAndNonnegative(config_.slip_threshold) ||
       !IsFiniteAndNonnegative(config_.slip_risk_weight) ||
       !IsFiniteAndNonnegative(config_.slip_velocity_weight) ||
-      !IsFiniteAndNonnegative(config_.friction_margin_weight) ||
-      !IsFiniteAndNonnegative(config_.required_force_weight) ||
-      !IsFiniteAndNonnegative(config_.gravity_tangential_load_weight) ||
-      !IsFiniteAndNonnegative(config_.motion_tangential_load_weight) ||
-      !IsFiniteAndNonnegative(config_.slip_tangential_load_weight) ||
-      !IsFiniteAndNonnegative(config_.force_spike_tangential_load_weight) ||
-      !IsFiniteAndNonnegative(config_.closing_force_gain_n_per_rad) ||
-      !IsFiniteAndNonnegative(config_.opening_force_gain_n_per_rad) ||
-      !IsFiniteAndNonnegative(config_.force_proxy_max_n) ||
-      !IsFiniteAndNonnegative(config_.contact_patch_force_per_node_n) ||
-      !IsFiniteAndNonnegative(config_.slip_prediction_decay) ||
-      !IsFiniteAndNonnegative(config_.slip_prediction_margin_gain_per_n) ||
-      !IsFiniteAndNonnegative(config_.centroid_slip_drift_gain_m_per_n) ||
-      !IsFiniteAndNonnegative(config_.slip_velocity_decay) ||
-      !IsFiniteAndNonnegative(config_.slip_velocity_margin_gain_per_nps) ||
-      !IsFiniteAndNonnegative(config_.action_slip_damping_gain_per_rad) ||
-      !IsFiniteAndNonnegative(config_.max_slip_velocity) ||
-      !IsFiniteAndNonnegative(config_.centroid_velocity_decay) ||
-      !IsFiniteAndNonnegative(config_.centroid_velocity_slip_gain) ||
-      !IsFiniteAndNonnegative(config_.max_centroid_velocity_mps) ||
       !IsFiniteAndNonnegative(config_.centroid_boundary_weight) ||
       !IsFiniteAndNonnegative(config_.contact_loss_weight) ||
       !IsFiniteAndNonnegative(config_.contact_patch_target_node_count) ||
@@ -190,19 +129,6 @@ GraspStabilityCost::GraspStabilityCost(GraspStabilityCostConfig config)
     throw std::invalid_argument(
         "GraspStabilityCost: weights, thresholds, and gains must be finite "
         "and nonnegative");
-  }
-  if (config_.force_proxy_max_n <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: force_proxy_max_n must be positive");
-  }
-  if (config_.contact_patch_force_per_node_n <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: contact_patch_force_per_node_n must be positive");
-  }
-  if (config_.max_slip_velocity <= 0.0 ||
-      config_.max_centroid_velocity_mps <= 0.0) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: tactile velocity limits must be positive");
   }
   if (config_.joint_lower_bound.size() != 0 ||
       config_.joint_upper_bound.size() != 0) {
@@ -236,155 +162,13 @@ double GraspStabilityCost::Evaluate(
   bool centroid_valid = TactileContactCentroidM(tactile, &centroid_m);
   std::size_t contact_support_count = tactile.contact_support_count;
 
-  double normal_force_proxy_n =
-      NormalForceProxyN(tactile, state, action, *context.rollout);
-  double tangential_load_proxy_n =
-      TangentialLoadProxyN(slip_risk, *context.rollout);
-  double friction_margin_n =
-      config_.friction_coefficient * normal_force_proxy_n -
-      tangential_load_proxy_n;
+  const double contact_cost =
+      ContactLocalCost(TactileNormalForceN(tactile), slip_risk, centroid_m,
+                       centroid_valid, contact_support_count);
 
-  if (contact_support_count == 0 && normal_force_proxy_n > 0.0) {
-    contact_support_count = ContactSupportCountFromForce(
-        normal_force_proxy_n, config_.contact_patch_force_per_node_n,
-        tactile.support_count);
-  }
-  const double force_min_n = MinimumForceN(*context.rollout);
-
-  double robust_cost = ScenarioCost(
-      normal_force_proxy_n, tangential_load_proxy_n, friction_margin_n,
-      slip_risk, centroid_m, centroid_valid, contact_support_count,
-      force_min_n);
-
-  const auto* disturbances = context.rollout->tactile_disturbances;
-  if (disturbances != nullptr) {
-    for (std::size_t i = 0; i < disturbances->count; ++i) {
-      const auto& disturbance = disturbances->scenarios[i];
-      const double disturbed_force_n =
-          Clamp(normal_force_proxy_n + disturbance.normal_force_delta_n, 0.0,
-                config_.force_proxy_max_n);
-      const double disturbed_slip =
-          std::max(0.0, slip_risk + disturbance.slip_delta);
-      const double disturbed_tangential_load_n =
-          tangential_load_proxy_n +
-          config_.slip_tangential_load_weight * disturbance.slip_delta;
-      const double safe_disturbed_tangential_load_n =
-          std::max(0.0, disturbed_tangential_load_n);
-      const double disturbed_friction_margin_n =
-          config_.friction_coefficient * disturbed_force_n -
-          safe_disturbed_tangential_load_n;
-      const std::size_t disturbed_contact_support_count =
-          ContactSupportCountFromForce(
-              disturbed_force_n, config_.contact_patch_force_per_node_n,
-              tactile.support_count);
-      const Eigen::Vector2d disturbed_centroid_m =
-          centroid_m + disturbance.centroid_delta_m;
-      robust_cost = std::max(
-          robust_cost,
-          ScenarioCost(disturbed_force_n, safe_disturbed_tangential_load_n,
-                       disturbed_friction_margin_n, disturbed_slip,
-                       disturbed_centroid_m, centroid_valid,
-                       disturbed_contact_support_count, force_min_n));
-    }
-  }
-
-  return robust_cost + TrackingGuardCost(action, *context.rollout) +
+  return contact_cost + TrackingGuardCost(action, *context.rollout) +
          JointLimitCost(state, action) +
          config_.action_smoothness_weight * action.squaredNorm();
-}
-
-double GraspStabilityCost::ClosingDelta(
-    const Eigen::Ref<const Eigen::VectorXd>& action) const {
-  if (action.size() == 0) {
-    return 0.0;
-  }
-
-  if (config_.closing_direction.size() == 0) {
-    return action.mean();
-  }
-  if (config_.closing_direction.size() != action.size()) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: closing_direction dimension mismatch");
-  }
-
-  const double normalizer =
-      std::max(1.0, config_.closing_direction.cwiseAbs().sum());
-  return config_.closing_direction.dot(action) / normalizer;
-}
-
-double GraspStabilityCost::CumulativeClosingDelta(
-    const RobotRolloutState& state,
-    const Eigen::Ref<const Eigen::VectorXd>& action,
-    const RolloutContext& rollout) const {
-  if (rollout.initial_reference_state == nullptr) {
-    return ClosingDelta(action);
-  }
-  const auto& initial_q = rollout.initial_reference_state->q;
-  if (state.q.size() != action.size() || initial_q.size() != action.size()) {
-    return ClosingDelta(action);
-  }
-
-  if (config_.closing_direction.size() == 0) {
-    return (state.q - initial_q).mean();
-  }
-  if (config_.closing_direction.size() != action.size()) {
-    throw std::invalid_argument(
-        "GraspStabilityCost: closing_direction dimension mismatch");
-  }
-
-  const double normalizer =
-      std::max(1.0, config_.closing_direction.cwiseAbs().sum());
-  return config_.closing_direction.dot(state.q - initial_q) / normalizer;
-}
-
-double GraspStabilityCost::NormalForceProxyN(
-    const TactileState& tactile, const RobotRolloutState& state,
-    const Eigen::Ref<const Eigen::VectorXd>& action,
-    const RolloutContext& rollout) const {
-  const double measured_force_n = TactileNormalForceN(tactile);
-  const double cumulative_closing_delta =
-      CumulativeClosingDelta(state, action, rollout);
-  const double predicted_force_n =
-      measured_force_n +
-      config_.closing_force_gain_n_per_rad * Relu(cumulative_closing_delta) -
-      config_.opening_force_gain_n_per_rad * Relu(-cumulative_closing_delta);
-
-  return Clamp(predicted_force_n, 0.0, config_.force_proxy_max_n);
-}
-
-double GraspStabilityCost::TangentialLoadProxyN(
-    double slip_risk, const RolloutContext& rollout) const {
-  double gravity_load_n = 0.0;
-  if (rollout.object != nullptr && rollout.object->mass_kg > 0.0) {
-    double gravity_magnitude = kGravityMps2;
-    if (rollout.has_gravity_context &&
-        rollout.gravity_in_sensor_frame.allFinite()) {
-      const Eigen::Vector2d tangent_gravity =
-          rollout.gravity_in_sensor_frame.head<2>();
-      gravity_magnitude = tangent_gravity.norm();
-      if (gravity_magnitude <= 0.0) {
-        gravity_magnitude = kGravityMps2;
-      }
-    }
-    gravity_load_n = rollout.object->mass_kg * gravity_magnitude /
-                     config_.supporting_contact_count;
-  }
-
-  return config_.gravity_tangential_load_weight * gravity_load_n +
-         config_.slip_tangential_load_weight * std::max(0.0, slip_risk);
-}
-
-double GraspStabilityCost::MinimumForceN(const RolloutContext& rollout) const {
-  double force_min_n = config_.force_min_n;
-  if (config_.use_object_weight_lower_bound && rollout.object != nullptr &&
-      rollout.object->mass_kg > 0.0) {
-    const double object_force_n =
-        config_.object_force_safety_factor * rollout.object->mass_kg *
-        kGravityMps2 /
-        (config_.friction_coefficient * config_.supporting_contact_count);
-    force_min_n = std::max(force_min_n, object_force_n);
-  }
-  return force_min_n;
 }
 
 double GraspStabilityCost::TrackingGuardCost(
@@ -429,26 +213,15 @@ double GraspStabilityCost::JointLimitCost(
          (lower_violation.squaredNorm() + upper_violation.squaredNorm());
 }
 
-double GraspStabilityCost::ScenarioCost(
-    double normal_force_proxy_n, double tangential_load_proxy_n,
-    double friction_margin_n, double slip_risk,
+double GraspStabilityCost::ContactLocalCost(
+    double normal_force_n, double slip_risk,
     const Eigen::Vector2d& predicted_centroid_m, bool centroid_valid,
-    std::size_t contact_support_count, double force_min_n) const {
+    std::size_t contact_support_count) const {
   double cost = 0.0;
   cost += config_.force_under_weight *
-          Square(Relu(force_min_n - normal_force_proxy_n));
+          Square(Relu(config_.force_min_n - normal_force_n));
   cost += config_.force_over_weight *
-          Square(Relu(normal_force_proxy_n - config_.force_max_n));
-
-  if (config_.friction_margin_enabled) {
-    cost += config_.friction_margin_weight * Square(Relu(-friction_margin_n));
-  }
-
-  const double required_normal_force_n =
-      tangential_load_proxy_n /
-      std::max(config_.friction_mu_min, config_.friction_coefficient);
-  cost += config_.required_force_weight *
-          Square(Relu(required_normal_force_n - config_.force_max_n));
+          Square(Relu(normal_force_n - config_.force_max_n));
 
   cost += config_.slip_risk_weight *
           Square(Relu(slip_risk - config_.slip_threshold));
@@ -469,7 +242,7 @@ double GraspStabilityCost::ScenarioCost(
   }
 
   cost += config_.contact_loss_weight *
-          Square(Relu(force_min_n - normal_force_proxy_n));
+          Square(Relu(config_.force_min_n - normal_force_n));
 
   if (config_.contact_patch_enabled) {
     const double contact_patch_deficit =

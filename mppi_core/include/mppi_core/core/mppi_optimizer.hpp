@@ -34,7 +34,7 @@ class MPPIOptimizer {
                   std::shared_ptr<const RolloutModelBase> model,
                   std::shared_ptr<const CostTermBase> cost_term);
 
-  GraspCommand Update(const GraspObservation& observation);
+  RobotCommand Update(const GraspObservation& observation);
   RolloutTrace PredictRollout(const GraspObservation& observation,
                               const ActionSequence& actions) const;
   RolloutTrace PredictNominalRollout(const GraspObservation& observation) const;
@@ -50,7 +50,7 @@ class MPPIOptimizer {
   void SampleActionSequences();
   double EvaluateRollout(const GraspObservation& observation,
                          const ActionSequence& actions) const;
-  GraspCommand MakeCommand(const GraspObservation& observation,
+  RobotCommand MakeCommand(const GraspObservation& observation,
                            const Eigen::VectorXd& delta_q_ref) const;
   void UpdateNominalActionSequence();
 

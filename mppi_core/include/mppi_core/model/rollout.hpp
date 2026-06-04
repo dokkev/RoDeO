@@ -23,8 +23,6 @@ struct PinocchioContactKinematicsContext;
 
 struct RolloutContext {
   const TactileState* tactile{nullptr};
-  const ObjectPrior* object{nullptr};
-  const TactileDisturbanceSet* tactile_disturbances{nullptr};
   const RobotRolloutState* measured_state{nullptr};
   const RobotRolloutState* initial_reference_state{nullptr};
   const PinocchioContactKinematicsContext* contact_kinematics{nullptr};
@@ -32,8 +30,6 @@ struct RolloutContext {
   const ContactForceProjectionConfig* contact_force_projection_config{nullptr};
   const ContactForceRolloutConfig* contact_force_rollout_config{nullptr};
   const ContactForceCorrectionState* contact_force_correction_state{nullptr};
-  bool has_gravity_context{false};
-  Eigen::Vector3d gravity_in_sensor_frame{Eigen::Vector3d::Zero()};
 };
 
 class RolloutModelBase {

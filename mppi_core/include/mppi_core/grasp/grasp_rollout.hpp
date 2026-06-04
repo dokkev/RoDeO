@@ -15,6 +15,9 @@
 
 namespace mppi_core {
 
+// Kinematic contact-patch rollout is retained only for debug/ablation through
+// TactileRolloutPolicy::kForceThenKinematicFallback. The default contact-gated
+// runtime uses torque-residual force-aware tactile rollout instead.
 struct ContactPointMotion {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 

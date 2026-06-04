@@ -22,7 +22,6 @@ set(${PROJECT_NAME}_SOURCES
   src/core/mppi_optimizer.cpp
   src/costs/grasp_stability_cost.cpp
   src/model/delta_q_reference_rollout_model.cpp
-  src/policies/jenga_grasp.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${${PROJECT_NAME}_SOURCES})

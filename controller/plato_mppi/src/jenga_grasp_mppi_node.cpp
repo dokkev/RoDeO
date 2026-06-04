@@ -24,7 +24,10 @@
 #include "geometry_msgs/msg/pose_array.hpp"
 #include "mppi_core/config/grasp_config.hpp"
 #include "mppi_core/config/mppi_config.hpp"
-#include "mppi_core/policies/jenga_grasp.hpp"
+#include "mppi_core/core/mppi_optimizer.hpp"
+#include "mppi_core/costs/grasp_stability_cost.hpp"
+#include "mppi_core/grasp/contact_force_rollout.hpp"
+#include "mppi_core/model/delta_q_reference_rollout_model.hpp"
 #include "mppi_core/tactile/nari_touch_adapter.hpp"
 #include "pinocchio/spatial/se3.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -44,6 +47,18 @@ std::vector<std::string> DefaultCommandJointNames() {
 
 std::vector<std::string> DefaultControlledJointNames() {
   return {"joint3", "joint4", "joint5", "joint6"};
+}
+
+mppi_core::MPPIConfig DefaultMPPIConfig(std::size_t joint_dim) {
+  mppi_core::MPPIConfig config;
+  config.action_dim = joint_dim;
+  config.action_lower_bound =
+      Eigen::VectorXd::Constant(static_cast<Eigen::Index>(joint_dim), -0.015);
+  config.action_upper_bound =
+      Eigen::VectorXd::Constant(static_cast<Eigen::Index>(joint_dim), 0.015);
+  config.action_noise_std =
+      Eigen::VectorXd::Constant(static_cast<Eigen::Index>(joint_dim), 0.006);
+  return config;
 }
 
 std::vector<std::string> DefaultTactileFrameNames(std::size_t count) {
@@ -559,7 +574,10 @@ class JengaGraspMppiNode final : public rclcpp::Node {
   }
 
   void InitializePolicy() {
-    auto config = mppi_core::MakeDefaultJengaGraspConfig(joint_dim_);
+    mppi_core::MPPIConfig mppi_config = DefaultMPPIConfig(joint_dim_);
+    mppi_core::GraspStabilityCostConfig cost_config;
+    rollout_config_ = mppi_core::DeltaQReferenceRolloutConfig{};
+    contact_force_rollout_config_ = mppi_core::ContactForceRolloutConfig{};
 
     std::string default_mppi_yaml;
     try {
@@ -576,32 +594,32 @@ class JengaGraspMppiNode final : public rclcpp::Node {
       mppi_yaml_path = default_mppi_yaml;
     }
     if (!mppi_yaml_path.empty()) {
-      config.mppi = mppi_core::LoadMPPIConfigFromYamlFile(
-          mppi_yaml_path, joint_dim_, config.mppi);
+      mppi_config = mppi_core::LoadMPPIConfigFromYamlFile(
+          mppi_yaml_path, joint_dim_, mppi_config);
     }
 
-    config.mppi.horizon_steps = static_cast<std::size_t>(declare_parameter<int>(
-        "mppi.horizon_steps", static_cast<int>(config.mppi.horizon_steps)));
-    config.mppi.num_rollouts = static_cast<std::size_t>(declare_parameter<int>(
-        "mppi.num_rollouts", static_cast<int>(config.mppi.num_rollouts)));
-    config.mppi.dt = declare_parameter<double>("mppi.dt", config.mppi.dt);
-    config.mppi.temperature =
-        declare_parameter<double>("mppi.temperature", config.mppi.temperature);
-    config.mppi.random_seed = static_cast<std::uint32_t>(declare_parameter<int>(
-        "mppi.random_seed", static_cast<int>(config.mppi.random_seed)));
-    config.mppi.action_lower_bound =
+    mppi_config.horizon_steps = static_cast<std::size_t>(declare_parameter<int>(
+        "mppi.horizon_steps", static_cast<int>(mppi_config.horizon_steps)));
+    mppi_config.num_rollouts = static_cast<std::size_t>(declare_parameter<int>(
+        "mppi.num_rollouts", static_cast<int>(mppi_config.num_rollouts)));
+    mppi_config.dt = declare_parameter<double>("mppi.dt", mppi_config.dt);
+    mppi_config.temperature =
+        declare_parameter<double>("mppi.temperature", mppi_config.temperature);
+    mppi_config.random_seed = static_cast<std::uint32_t>(declare_parameter<int>(
+        "mppi.random_seed", static_cast<int>(mppi_config.random_seed)));
+    mppi_config.action_lower_bound =
         ReadVectorParameter(this, "mppi.action_lower_bound", joint_dim_,
-                            config.mppi.action_lower_bound);
-    config.mppi.action_upper_bound =
+                            mppi_config.action_lower_bound);
+    mppi_config.action_upper_bound =
         ReadVectorParameter(this, "mppi.action_upper_bound", joint_dim_,
-                            config.mppi.action_upper_bound);
-    config.mppi.action_noise_std =
+                            mppi_config.action_upper_bound);
+    mppi_config.action_noise_std =
         ReadVectorParameter(this, "mppi.action_noise_std", joint_dim_,
-                            config.mppi.action_noise_std);
+                            mppi_config.action_noise_std);
     if (q_lower_bound_.size() == static_cast<Eigen::Index>(joint_dim_) &&
         q_upper_bound_.size() == static_cast<Eigen::Index>(joint_dim_)) {
-      config.grasp_stability_cost.joint_lower_bound = q_lower_bound_;
-      config.grasp_stability_cost.joint_upper_bound = q_upper_bound_;
+      cost_config.joint_lower_bound = q_lower_bound_;
+      cost_config.joint_upper_bound = q_upper_bound_;
     }
 
     std::string default_cost_yaml;
@@ -619,13 +637,27 @@ class JengaGraspMppiNode final : public rclcpp::Node {
       cost_yaml_path = default_cost_yaml;
     }
     if (!cost_yaml_path.empty()) {
-      config.grasp_stability_cost = mppi_core::LoadGraspConfigFromYamlFile(
-          cost_yaml_path, joint_dim_, config.grasp_stability_cost);
+      cost_config = mppi_core::LoadGraspConfigFromYamlFile(
+          cost_yaml_path, joint_dim_, cost_config);
+      rollout_config_ =
+          mppi_core::LoadDeltaQReferenceRolloutConfigFromYamlFile(
+              cost_yaml_path, rollout_config_);
+      contact_force_rollout_config_ =
+          mppi_core::LoadContactForceRolloutConfigFromYamlFile(
+              cost_yaml_path, contact_force_rollout_config_);
     }
+    require_force_aware_tactile_rollout_ =
+        rollout_config_.tactile_rollout_policy ==
+        mppi_core::TactileRolloutPolicy::kForceAwareRequired;
 
     tactile_adapter_config_.slip_velocity_weight =
-        config.grasp_stability_cost.slip_velocity_weight;
-    policy_.Initialize(joint_dim_, std::move(config));
+        cost_config.slip_velocity_weight;
+
+    model_ = std::make_shared<mppi_core::DeltaQReferenceRolloutModel>(
+        joint_dim_, rollout_config_);
+    cost_ = std::make_shared<mppi_core::GraspStabilityCost>(
+        std::move(cost_config));
+    optimizer_.Initialize(std::move(mppi_config), model_, cost_);
   }
 
   void JointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
@@ -985,6 +1017,18 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     }
     MaybeLogSelectedTactile(selected_tactile_index);
 
+    if (require_force_aware_tactile_rollout_ && !tactile.hasContact()) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "Holding MPPI command: force-aware tactile rollout requires active "
+          "contact");
+      if (publish_hold_without_tactile_) {
+        PublishCommand(command_q_ref_,
+                       Eigen::VectorXd::Zero(command_q_ref_.size()));
+      }
+      return;
+    }
+
     if (activation_requires_all_tactile_enough_contact_ && !mppi_active_) {
       if (!AllTactileActivationContactsReady()) {
         RCLCPP_WARN_THROTTLE(
@@ -1023,12 +1067,13 @@ class JengaGraspMppiNode final : public rclcpp::Node {
             : now().seconds();
     observation.tactile = mppi_core::ConvertNariTouchToTactileState(
         tactile, tactile_frame, tactile_stamp, tactile_adapter_config_);
+    observation.contact_force_rollout_config = &contact_force_rollout_config_;
     observation.time_s = now().seconds();
 
     const Eigen::VectorXd old_q_ref = q_ref_;
-    const auto command = policy_.Update(observation);
+    const auto command = optimizer_.Update(observation);
     if (command.q_des.size() != static_cast<Eigen::Index>(joint_dim_) ||
-        command.v_des.size() != static_cast<Eigen::Index>(joint_dim_) ||
+        command.qdot_des.size() != static_cast<Eigen::Index>(joint_dim_) ||
         command.delta_q_ref.size() != static_cast<Eigen::Index>(joint_dim_)) {
       RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
                             "MPPI command dimension mismatch");
@@ -1038,8 +1083,8 @@ class JengaGraspMppiNode final : public rclcpp::Node {
     q_ref_ = command.q_des;
     ClampQRef();
     Eigen::VectorXd v_ff = Eigen::VectorXd::Zero(q_ref_.size());
-    if (command.dt > 0.0) {
-      v_ff = (q_ref_ - old_q_ref) / command.dt;
+    if (optimizer_.config().dt > 0.0) {
+      v_ff = (q_ref_ - old_q_ref) / optimizer_.config().dt;
     }
     Eigen::VectorXd command_v_ff =
         Eigen::VectorXd::Zero(static_cast<Eigen::Index>(command_joint_dim_));
@@ -1094,6 +1139,7 @@ class JengaGraspMppiNode final : public rclcpp::Node {
   bool publish_hold_without_tactile_{true};
   bool publish_tactile_frame_poses_{true};
   bool activation_requires_all_tactile_enough_contact_{true};
+  bool require_force_aware_tactile_rollout_{false};
   bool mppi_active_{false};
   int activation_contact_state_threshold_{2};
 
@@ -1140,7 +1186,11 @@ class JengaGraspMppiNode final : public rclcpp::Node {
   std::vector<bool> tactile_frame_pose_valid_;
   std::size_t active_tactile_index_{std::numeric_limits<std::size_t>::max()};
 
-  mppi_core::JengaGrasp policy_;
+  mppi_core::DeltaQReferenceRolloutConfig rollout_config_;
+  mppi_core::ContactForceRolloutConfig contact_force_rollout_config_;
+  std::shared_ptr<const mppi_core::DeltaQReferenceRolloutModel> model_;
+  std::shared_ptr<const mppi_core::GraspStabilityCost> cost_;
+  mppi_core::MPPIOptimizer optimizer_;
 
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
       joint_state_sub_;
