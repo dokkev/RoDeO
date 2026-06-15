@@ -18,10 +18,10 @@
 
 #include <cassert>
 
-#include "wbc_core/controller/id-problem.hpp"
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
+#include "wbc_core/tasks/motion-objective.hpp"
 
 namespace wbc {
 
@@ -33,26 +33,25 @@ class MotionConstraintBlock : public HQPBlock {
     m_constraint = std::make_shared<math::ConstraintEquality>(name, 0, 0);
   }
 
-  void setConstraintRef(const MotionConstraintRef* constraint_ref) {
-    m_constraintRef = constraint_ref;
+  void setObjective(const MotionObjective* objective) {
+    m_objective = objective;
   }
 
   void build(const HQPBuildContext& ctx) override {
-    assert(m_constraintRef != nullptr);
-    build(*m_constraintRef, ctx);
+    assert(m_objective != nullptr);
+    build(*m_objective, ctx);
   }
 
-  void build(const MotionConstraintRef& constraint_ref,
-             const HQPBuildContext& ctx) {
-    assert(constraint_ref.isValid());
-    const auto& J = constraint_ref.matrix();
+  void build(const MotionObjective& objective, const HQPBuildContext& ctx) {
+    assert(objective.isValid());
+    const auto& J = objective.matrix();
     const int rows = static_cast<int>(J.rows());
 
     assert(ctx.qpDim() >= ctx.nv);
     assert(J.cols() == ctx.nv);
 
-    if (constraint_ref.isEquality()) {
-      assert(constraint_ref.vector().size() == rows);
+    if (objective.isEquality()) {
+      assert(objective.vector().size() == rows);
       auto* eq = ensureEquality();
       eq->resize(rows, ctx.qpDim());
       eq->matrix().setZero();
@@ -60,16 +59,16 @@ class MotionConstraintBlock : public HQPBlock {
 
       if (ctx.qddot_ref) {
         assert(ctx.qddot_ref->size() == ctx.nv);
-        eq->vector().noalias() = constraint_ref.vector() - J * (*ctx.qddot_ref);
+        eq->vector().noalias() = objective.vector() - J * (*ctx.qddot_ref);
       } else {
-        eq->vector() = constraint_ref.vector();
+        eq->vector() = objective.vector();
       }
       return;
     }
 
-    assert(constraint_ref.isInequality() || constraint_ref.isBound());
-    assert(constraint_ref.lowerBound().size() == rows);
-    assert(constraint_ref.upperBound().size() == rows);
+    assert(objective.isInequality() || objective.isBound());
+    assert(objective.lowerBound().size() == rows);
+    assert(objective.upperBound().size() == rows);
     auto* ineq = ensureInequality();
     ineq->resize(rows, ctx.qpDim());
     ineq->matrix().setZero();
@@ -78,11 +77,11 @@ class MotionConstraintBlock : public HQPBlock {
     if (ctx.qddot_ref) {
       assert(ctx.qddot_ref->size() == ctx.nv);
       const auto JqddotRef = J * (*ctx.qddot_ref);
-      ineq->lowerBound() = constraint_ref.lowerBound() - JqddotRef;
-      ineq->upperBound() = constraint_ref.upperBound() - JqddotRef;
+      ineq->lowerBound() = objective.lowerBound() - JqddotRef;
+      ineq->upperBound() = objective.upperBound() - JqddotRef;
     } else {
-      ineq->lowerBound() = constraint_ref.lowerBound();
-      ineq->upperBound() = constraint_ref.upperBound();
+      ineq->lowerBound() = objective.lowerBound();
+      ineq->upperBound() = objective.upperBound();
     }
   }
 
@@ -101,7 +100,7 @@ class MotionConstraintBlock : public HQPBlock {
     return static_cast<math::ConstraintInequality*>(m_constraint.get());
   }
 
-  const MotionConstraintRef* m_constraintRef{nullptr};
+  const MotionObjective* m_objective{nullptr};
 };
 
 }  // namespace wbc

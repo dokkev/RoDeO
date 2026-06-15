@@ -2,8 +2,8 @@
 // Copyright (c) 2021 University of Trento
 //
 
-#ifndef __tsid_contact_level_hpp__
-#define __tsid_contact_level_hpp__
+#ifndef WBC_CORE_CONTACTS_CONTACT_LEVEL_HPP_
+#define WBC_CORE_CONTACTS_CONTACT_LEVEL_HPP_
 
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/contacts/contact-base.hpp"
@@ -32,4 +32,4 @@ struct ContactLevel {
 
 }  // namespace wbc
 
-#endif  // ifndef __tsid_contact_level_hpp__
+#endif  // WBC_CORE_CONTACTS_CONTACT_LEVEL_HPP_

@@ -23,7 +23,8 @@ RobotState
   -> RobotCommand
   -> ROS hardware command
 
-RobotLogger records the solver-to-command trace beside the command path.
+RobotLogger records the final RobotCommand and solver-to-command trace beside
+the command path.
 ```
 
 Configuration flow:
@@ -69,6 +70,30 @@ auditable.
 | `hardware_interface/*` | Hardware-specific ROS interfaces | WBC formulation | Keep hardware IO isolated from solver/formulation code. |
 | `tsid` | Vendored/reference TSID source and model assets | Active repo architecture decisions | `tsid/COLCON_IGNORE` keeps it out of normal colcon builds. Use as reference/baseline. |
 | `wbc_core_legacy` | Historical packages kept for reference during migration | New architecture dependencies | Do not add new dependencies on legacy packages without an explicit decision. |
+
+### `wbc_core` Internal Boundary
+
+Inside `wbc_core`, `controller/` is the public inverse-dynamics controller
+surface. `controller/base/` owns reusable controller base interfaces such as
+`IDBase` and reusable controller wiring helpers such as `IDProblemRegistry`;
+the top-level controller directory owns `IDHQP`. All inverse-dynamics
+controller implementations assemble solve requests as `solvers::HQPData`;
+`IDBase` owns the basic `addConstraint` and `addTask` helpers for that HQP
+construction path. `IDHQP` uses a fixed hierarchy shape: physics constraints
+at level 0, user objectives at positive levels, and regularization after the
+deepest user objective.
+
+`formulations/` owns formulation-level solve schemas and implementation-level
+HQP construction blocks used by `IDHQP`. `IDProblem`, `IDSolution`, and HQP
+blocks live here. They may know about matrix assembly and solver constraint
+objects, but they should not own controller lifecycle, hierarchy construction,
+task/contact registries, command output state, or runtime configuration.
+
+`tasks/` and `contacts/` expose reusable primitive objects and their per-tick
+solve-facing views. `MotionObjective` lives with tasks, and contact snapshots
+such as `ContactConstraintData` and activation metadata such as `ContactLevel`
+live with contacts, not formulations. These layers should not include
+controller base classes or IDHQP internals.
 
 ## Dependency Direction
 
@@ -172,11 +197,11 @@ The FSM itself should not require ROS or pluginlib.
 
 The WBC command payload is a simple model-side holder: `RobotCommand::q`,
 `RobotCommand::qdot`, and `RobotCommand::tau`. The hardware/ROS layer maps
-configured `command_interfaces` to those fields. Command-building trace values
-such as `qddot_sol`, `q_cmd`, `qdot_cmd`, `tau_ff_cmd`, `tau_fb_cmd`, and
-`tau_cmd` are recorded in `RobotLogger`. Hardware-owned impedance gains such as
-`command_kp` and `command_kd` stay in the hardware/ROS layer, not in
-`RobotCommand`.
+configured `command_interfaces` to those fields. The final `RobotCommand`
+instance and command-building trace values such as `qddot_sol`, `q_cmd`,
+`qdot_cmd`, `tau_ff_cmd`, `tau_fb_cmd`, and `tau_cmd` are recorded in
+`RobotLogger`. Hardware-owned impedance gains such as `command_kp` and
+`command_kd` stay in the hardware/ROS layer, not in `RobotCommand`.
 
 Robot-specific plugins, such as `optimo_controller::OptimoController`, should be
 thin loader shims that return a robot-specific `RobotControlProfile`.
@@ -186,15 +211,35 @@ thin loader shims that return a robot-specific `RobotControlProfile`.
 `IDProblemRegistry` stores non-owning references to already-created runtime
 tasks/contacts and snapshots the active state into an `IDProblem`.
 
-`IDHQP` solves a ready `IDProblem` and returns an `IDSolution` containing
-acceleration, contact reaction, integrated command fields, and separated torque
-components. `tau_ff_cmd` is the model-based feedforward torque, `tau_fb_cmd` is
-the optional host-side feedback torque, and `tau_cmd` is the final actuator
-torque command.
+`IDHQP` solves a ready `IDProblem` and returns an `IDSolution` containing only
+solver/model outputs: `qddot_ref`, `delta_qddot_sol`, `qddot_sol`,
+`lambda_sol`, and `tau_sol`. `tau_sol` is the recovered model torque that feeds
+the command builder as `tau_ff_cmd`; it is not itself the final torque command.
+`ControlArchitecture` integrates `qddot_sol` into `q_cmd` and `qdot_cmd`, then
+builds `tau_cmd` from `tau_ff_cmd` plus optional feedback.
 
-The intended solver style is HQP cascade. The YAML solver backend chooses the
-inner QP implementation, for example `SOLVER_HQP_PROXQP` when available or an
-eiquadprog baseline.
+The intended solver style is HQP cascade for every inverse-dynamics problem.
+The YAML solver backend chooses only the inner QP implementation, for example
+`SOLVER_HQP_PROXQP` when available or an eiquadprog baseline. Hard feasibility
+terms enter the hierarchy through `IDBase::addConstraint`; weighted objective
+terms and regularization enter through `IDBase::addTask`.
+
+`IDProblem` keeps a single `motion_objectives` list for task snapshots.
+`IDHQP` routes equality motion constraints from that list as weighted soft
+objectives, and routes inequality or bound motion constraints as hard
+feasibility constraints at physics level 0. This keeps state-machine and
+registry code simple while avoiding unsupported inequality costs in inner QP
+backends.
+
+`ContactConstraintData::motion_rhs` stores the contact acceleration RHS used by
+the hard constraint `Jc * qddot = motion_rhs`. Contact motion-task desired
+acceleration and feedback terms are therefore preserved in the solver-facing
+snapshot rather than being reduced to a stationary drift term.
+
+The 1 kHz solve path does not perform full per-step `IDProblem` dimension
+validation. Runtime assembly, state-machine task selection, and task/contact
+constructors own dimensional correctness; hot-path blocks keep debug asserts
+and focused tests cover the expected contracts.
 
 ## Architecture Risks
 

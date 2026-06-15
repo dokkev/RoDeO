@@ -15,14 +15,14 @@
 // <http://www.gnu.org/licenses/>.
 //
 
-#ifndef __invdyn_task_cop_equality_hpp__
-#define __invdyn_task_cop_equality_hpp__
+#ifndef WBC_CORE_TASKS_TASK_COP_EQUALITY_HPP_
+#define WBC_CORE_TASKS_TASK_COP_EQUALITY_HPP_
 
+#include "wbc_core/contacts/contact-level.hpp"
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/tasks/task-contact-force.hpp"
 #include "wbc_core/trajectories/trajectory-base.hpp"
 #include "wbc_core/math/constraint-equality.hpp"
-#include "wbc_core/formulations/inverse-dynamics.hpp"
 
 namespace wbc {
 namespace tasks {
@@ -75,4 +75,4 @@ class TaskCopEquality : public TaskContactForce {
 }  // namespace tasks
 }  // namespace wbc
 
-#endif  // ifndef __invdyn_task_com_equality_hpp__
+#endif  // WBC_CORE_TASKS_TASK_COP_EQUALITY_HPP_

@@ -65,10 +65,7 @@ set(${PROJECT_NAME}_SOURCES
   src/trajectories/joint_integrator.cpp
   ${wbc_solver_sources}
   src/robots/robot-system.cpp
-  src/formulations/contact-level.cpp
-  src/formulations/inverse-dynamics.cpp
-  src/formulations/inverse-kinematics.cpp
-  src/formulations/inverse-dynamics-formulation-acc-force.cpp
+  src/contacts/contact-level.cpp
   src/controller/id-hqp.cpp
   src/utils/ros_path_utils.cpp
 )

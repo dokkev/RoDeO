@@ -2,7 +2,7 @@
 // Copyright (c) 2021 University of Trento
 //
 
-#include "wbc_core/formulations/contact-level.hpp"
+#include "wbc_core/contacts/contact-level.hpp"
 
 namespace wbc {
 

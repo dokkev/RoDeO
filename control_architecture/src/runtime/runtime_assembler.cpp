@@ -256,10 +256,10 @@ void BindRegistry(RuntimeConfig& config, IDProblemRegistry& registry,
       case ConstraintTypeSpec::kJointTorque: {
         const auto& model = robot.model();
         const int na = robot.na();
-        config.torque_limits_enabled = true;
+        config.joint_torque_limits_enabled = true;
         config.tau_lb = -constraint.scale * model.effortLimit.tail(na);
         config.tau_ub = constraint.scale * model.effortLimit.tail(na);
-        registry.setTorqueBounds(&config.tau_lb, &config.tau_ub);
+        registry.setJointTorqueBounds(&config.tau_lb, &config.tau_ub);
         break;
       }
     }

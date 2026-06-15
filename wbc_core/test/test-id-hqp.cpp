@@ -13,7 +13,7 @@
 #include <pinocchio/algorithm/joint-configuration.hpp>
 
 #include <wbc_core/controller/id-hqp.hpp>
-#include <wbc_core/controller/id-problem-registry.hpp>
+#include <wbc_core/controller/base/id-problem-registry.hpp>
 #include <wbc_core/math/constraint-equality.hpp>
 #include <wbc_core/robots/robot-system.hpp>
 #include <wbc_core/tasks/task-motion.hpp>
@@ -44,7 +44,7 @@ wbc::ContactConstraintData makeForceOnlyContact(const std::string& name, int nv,
   wbc::ContactConstraintData contact;
   contact.name = name;
   contact.Jc = Matrix::Zero(0, nv);
-  contact.Jcdot_qdot = Vector::Zero(0);
+  contact.motion_rhs = Vector::Zero(0);
   contact.T = Matrix::Zero(0, 1);
   contact.Uf = Matrix::Identity(1, 1);
   contact.uf_lb = Vector::Constant(1, uf_lb);
@@ -120,14 +120,13 @@ class PublicIDHQPTest : public ::testing::Test {
     return problem;
   }
 
-  wbc::ObjectiveTerm makeSingleDoFObjective(const std::string& name, int dof,
-                                            double a_des, unsigned int level,
-                                            double weight) {
+  wbc::MotionObjective makeSingleDoFObjective(const std::string& name, int dof,
+                                              double a_des, unsigned int level,
+                                              double weight) {
     motion_constraints.push_back(
         makeSingleDoFConstraint(name, robot->nv(), dof, a_des));
-    return wbc::ObjectiveTerm::MakeMotionConstraint(
-        wbc::MotionConstraintRef{name, motion_constraints.back().get()}, level,
-        weight);
+    return wbc::MotionObjective{name, motion_constraints.back().get(), level,
+                                weight};
   }
 
   static constexpr double kTol = 1e-5;
@@ -230,23 +229,22 @@ TEST_F(PublicIDHQPTest, SolveZeroNominalProblem) {
 
   ASSERT_TRUE(solution.success);
   EXPECT_TRUE(solution.qddot_ref.isZero(kTol));
-  EXPECT_TRUE(solution.delta_qddot.isZero(kTol));
+  EXPECT_TRUE(solution.delta_qddot_sol.isZero(kTol));
   EXPECT_TRUE(solution.qddot_sol.isZero(kTol));
-  EXPECT_TRUE(solution.qdot_cmd.isApprox(qdot, kTol));
-  EXPECT_TRUE(solution.q_cmd.isApprox(q, kTol));
   EXPECT_EQ(solution.lambda_sol.size(), 0);
+  EXPECT_EQ(solution.tau_sol.size(), robot->na());
 }
 
 TEST_F(PublicIDHQPTest, PublicIDHQPSolvesNominalCenteredHierarchy) {
   auto problem = makeProblem();
   const double dt = 0.002;
-  problem.objectives.push_back(
+  problem.motion_objectives.push_back(
       makeSingleDoFObjective("operational", 0, 1.25, 1u, 1.0));
 
   Vector qddot_bias = Vector::Constant(robot->nv(), 2.0);
   qddot_bias(0) = -4.0;
-  problem.objectives.push_back(wbc::ObjectiveTerm::MakeJointAccelerationTarget(
-      wbc::JointAccelerationTarget{"joint-bias", &qddot_bias}, 2u, 1.0));
+  problem.joint_acceleration_objectives.emplace_back("joint-bias", &qddot_bias,
+                                                     2u, 1.0);
 
   const IDSolution& solution = id_hqp->solve(problem, dt);
 
@@ -254,12 +252,7 @@ TEST_F(PublicIDHQPTest, PublicIDHQPSolvesNominalCenteredHierarchy) {
   EXPECT_NEAR(solution.qddot_sol(0), 1.25, kTol);
   ASSERT_GT(robot->nv(), 1);
   EXPECT_NEAR(solution.qddot_sol(1), 2.0, kTol);
-  const Vector expected_qdot = qdot + dt * solution.qddot_sol;
-  Vector expected_delta = dt * expected_qdot;
-  Vector expected_q(robot->nq());
-  pinocchio::integrate(robot->model(), q, expected_delta, expected_q);
-  EXPECT_TRUE(solution.qdot_cmd.isApprox(expected_qdot, kTol));
-  EXPECT_TRUE(solution.q_cmd.isApprox(expected_q, kTol));
+  EXPECT_TRUE(solution.tau_sol.allFinite());
 }
 
 TEST_F(PublicIDHQPTest, PublicIDHQPChoosesMinimumNormFeasibleLambda) {
@@ -277,16 +270,15 @@ TEST_F(PublicIDHQPTest, PublicIDHQPChoosesMinimumNormFeasibleLambda) {
 TEST_F(PublicIDHQPTest, RegistryBuildsProblemForPublicIDHQP) {
   MockMotionTask task("mock-task", *robot);
   task.setSingleDoFTarget(0, 0.75);
-  registry->addOperationalTask(task, 2.0);
+  registry->addTask(task, 1u, 2.0);
 
   IDProblem problem = registry->buildProblem(0.0, q, qdot);
-  ASSERT_EQ(problem.objectives.size(), 1u);
-  ASSERT_TRUE(problem.objectives[0].isMotionConstraint());
-  EXPECT_EQ(problem.objectives[0].motionConstraint().name, "mock-task");
-  EXPECT_DOUBLE_EQ(problem.objectives[0].weight, 2.0);
-  EXPECT_NEAR(problem.objectives[0].motionConstraint().matrix()(0, 0), 1.0,
+  ASSERT_EQ(problem.motion_objectives.size(), 1u);
+  EXPECT_EQ(problem.motion_objectives[0].name, "mock-task");
+  EXPECT_DOUBLE_EQ(problem.motion_objectives[0].weight, 2.0);
+  EXPECT_NEAR(problem.motion_objectives[0].matrix()(0, 0), 1.0,
               kTol);
-  EXPECT_NEAR(problem.objectives[0].motionConstraint().vector()(0), 0.75, kTol);
+  EXPECT_NEAR(problem.motion_objectives[0].vector()(0), 0.75, kTol);
 
   const IDSolution& solution = id_hqp->solve(problem, kDt);
   ASSERT_TRUE(solution.success);

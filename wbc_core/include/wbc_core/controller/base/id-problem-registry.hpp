@@ -1,11 +1,11 @@
 //
 // Copyright (c) 2026
 //
-// Registry layer for assembling IDProblem from TSID primitives.
+// Registry layer for assembling IDProblem from runtime task/contact primitives.
 //
 
-#ifndef __wbc_controller_id_problem_registry_hpp__
-#define __wbc_controller_id_problem_registry_hpp__
+#ifndef WBC_CORE_CONTROLLER_BASE_ID_PROBLEM_REGISTRY_HPP_
+#define WBC_CORE_CONTROLLER_BASE_ID_PROBLEM_REGISTRY_HPP_
 
 #include <memory>
 #include <optional>
@@ -15,10 +15,9 @@
 #include <vector>
 
 #include "wbc_core/bias/joint-accel-bias.hpp"
-#include "wbc_core/controller/id-problem.hpp"
-#include "wbc_core/formulations/contact-level.hpp"
+#include "wbc_core/contacts/contact-level.hpp"
+#include "wbc_core/formulations/id-problem.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
-#include "wbc_core/nominal/nominal-acceleration-provider.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/tasks/task-motion.hpp"
 
@@ -38,49 +37,39 @@ class IDProblemRegistry {
     double weight{1.0};
   };
 
-  struct JointAccelerationTargetRegistration {
-    JointAccelerationTarget target;
-    unsigned int level{2};
-    double weight{1.0};
-  };
-
   explicit IDProblemRegistry(robots::RobotSystem& robot)
       : m_robot(robot), m_data(robot.model()) {
     m_qddotRef.setZero(robot.nv());
   }
 
   void addTask(tasks::TaskMotion& task, unsigned int level, double weight) {
+    if (m_tasks.find(task.name()) == m_tasks.end()) {
+      m_taskOrder.push_back(task.name());
+    }
     m_tasks[task.name()] = {&task, level, weight};
   }
 
-  // Legacy shim: semantic operational tasks map to level 1.
-  void addOperationalTask(tasks::TaskMotion& task, double weight) {
-    addTask(task, 1u, weight);
-  }
-
-  // Legacy shim: semantic bias tasks map to level 2.
-  void addTaskSpaceBias(tasks::TaskMotion& task, double weight) {
-    addTask(task, 2u, weight);
-  }
-
-  void addJointAccelerationTarget(const JointAccelerationTarget& target,
-                                  unsigned int level, double weight) {
-    m_jointAccelerationTargets.push_back({target, level, weight});
+  void addJointAccelerationObjective(const std::string& name,
+                                     const math::Vector* qddot_target,
+                                     unsigned int level, double weight) {
+    m_jointAccelerationObjectives.emplace_back(name, qddot_target, level,
+                                               weight);
   }
 
   void addJointAccelBias(const bias::JointAccelBias& bias) {
-    addJointAccelerationTarget(
-        JointAccelerationTarget{bias.name, bias.qddot_bias}, bias.level,
-        bias.weight);
+    addJointAccelerationObjective(bias.name, bias.qddot_bias, bias.level,
+                                  bias.weight);
   }
 
   void addJointAccelBias(const bias::JointAccelBias& bias, unsigned int level) {
-    addJointAccelerationTarget(
-        JointAccelerationTarget{bias.name, bias.qddot_bias}, level,
-        bias.weight);
+    addJointAccelerationObjective(bias.name, bias.qddot_bias, level,
+                                  bias.weight);
   }
 
   void addContact(contacts::ContactBase& contact) {
+    if (m_contacts.find(contact.name()) == m_contacts.end()) {
+      m_contactOrder.push_back(contact.name());
+    }
     m_contacts[contact.name()] = std::make_shared<ContactLevel>(contact);
   }
 
@@ -93,25 +82,12 @@ class IDProblemRegistry {
     return true;
   }
 
-  void clearNominalProvider() { m_nominalProvider.reset(); }
-
-  void setNominalProvider(
-      std::shared_ptr<nominal::NominalAccelerationProvider> provider) {
-    m_nominalProvider = std::move(provider);
-  }
-
   void setReferenceAcceleration(math::ConstRefVector qddot_ref) {
     m_qddotRef = qddot_ref;
     m_hasExternalReference = true;
   }
 
   void clearReferenceAcceleration() { m_hasExternalReference = false; }
-
-  void setNominalAcceleration(math::ConstRefVector qddot_ref) {
-    setReferenceAcceleration(qddot_ref);
-  }
-
-  void clearNominalAcceleration() { clearReferenceAcceleration(); }
 
   void setReferenceAccelerationEnabled(bool enabled) {
     m_referenceAccelerationEnabled = enabled;
@@ -121,9 +97,10 @@ class IDProblemRegistry {
     return m_referenceAccelerationEnabled;
   }
 
-  void setTorqueBounds(const math::Vector* tau_lb, const math::Vector* tau_ub) {
-    m_torqueLimits.lower = tau_lb;
-    m_torqueLimits.upper = tau_ub;
+  void setJointTorqueBounds(const math::Vector* tau_lb,
+                            const math::Vector* tau_ub) {
+    m_jointTorqueLimits.lower = tau_lb;
+    m_jointTorqueLimits.upper = tau_ub;
   }
 
   void setExternalGeneralizedWrench(const math::Vector* h_ext) {
@@ -218,8 +195,6 @@ class IDProblemRegistry {
                                 active_contact_names);
   }
 
-  IDHierarchyPolicy& hierarchy() { return m_hierarchy; }
-  const IDHierarchyPolicy& hierarchy() const { return m_hierarchy; }
   IDRegularizationParams& regularization() { return m_regularization; }
   const IDRegularizationParams& regularization() const {
     return m_regularization;
@@ -242,18 +217,18 @@ class IDProblemRegistry {
       const std::vector<int>& task_levels,
       const std::vector<std::string>& active_contact_names) {
     IDProblem problem;
-    problem.torque_limits = m_torqueLimits;
+    problem.joint_torque_limits = m_jointTorqueLimits;
     problem.h_ext = m_hExt;
-    problem.hierarchy = m_hierarchy;
     problem.regularization = m_regularization;
 
-    resolveReferenceAcceleration(time, q, v);
+    resolveReferenceAcceleration();
     problem.qddot_ref = &m_qddotRef;
 
     const bool use_task_filter = !active_task_names.empty();
-    problem.objectives.reserve(
-        m_jointAccelerationTargets.size() +
+    problem.motion_objectives.reserve(
         (use_task_filter ? active_task_names.size() : m_tasks.size()));
+    problem.joint_acceleration_objectives.reserve(
+        m_jointAccelerationObjectives.size());
 
     auto weightOverride =
         [&active_task_names,
@@ -286,10 +261,9 @@ class IDProblemRegistry {
     auto appendTask = [&](const std::string& name, TaskRegistration& entry) {
       const double weight = weightOverride(name).value_or(entry.weight);
       const unsigned int level = levelOverride(name).value_or(entry.level);
-      auto constraint =
-          computeMotionConstraint(*entry.task, time, q, v, data);
-      problem.objectives.push_back(
-          ObjectiveTerm::MakeMotionConstraint(constraint, level, weight));
+      problem.motion_objectives.push_back(
+          computeMotionObjective(*entry.task, time, q, v, data, level,
+                                 weight));
     };
 
     if (use_task_filter) {
@@ -303,19 +277,17 @@ class IDProblemRegistry {
         appendTask(name, it->second);
       }
     } else {
-      for (auto& [name, entry] : m_tasks) {
-        appendTask(name, entry);
+      for (const auto& name : m_taskOrder) {
+        auto it = m_tasks.find(name);
+        if (it != m_tasks.end()) {
+          appendTask(name, it->second);
+        }
       }
     }
 
-    for (const auto& target : m_jointAccelerationTargets) {
-      problem.objectives.push_back(ObjectiveTerm::MakeJointAccelerationTarget(
-          target.target, target.level, target.weight));
-    }
+    problem.joint_acceleration_objectives = m_jointAccelerationObjectives;
 
-    std::vector<std::shared_ptr<ContactLevel>> activeContacts;
     if (!active_contact_names.empty()) {
-      activeContacts.reserve(active_contact_names.size());
       for (const auto& name : active_contact_names) {
         auto it = m_contacts.find(name);
         if (it == m_contacts.end()) {
@@ -323,29 +295,32 @@ class IDProblemRegistry {
               "IDProblemRegistry::buildProblem: unknown active contact '" +
               name + "'");
         }
-        activeContacts.push_back(it->second);
         problem.contacts.push_back(
             snapshotContact(it->second->contact, time, q, v, data));
       }
     } else {
-      activeContacts.reserve(m_contacts.size());
-      for (auto& [name, level] : m_contacts) {
-        activeContacts.push_back(level);
+      for (const auto& name : m_contactOrder) {
+        auto it = m_contacts.find(name);
+        if (it == m_contacts.end()) {
+          continue;
+        }
         problem.contacts.push_back(
-            snapshotContact(level->contact, time, q, v, data));
+            snapshotContact(it->second->contact, time, q, v, data));
       }
     }
 
     return problem;
   }
 
-  static MotionConstraintRef computeMotionConstraint(tasks::TaskMotion& task,
-                                                     double time,
-                                                     math::ConstRefVector q,
-                                                     math::ConstRefVector v,
-                                                     pinocchio::Data& data) {
+  static MotionObjective computeMotionObjective(tasks::TaskMotion& task,
+                                                double time,
+                                                math::ConstRefVector q,
+                                                math::ConstRefVector v,
+                                                pinocchio::Data& data,
+                                                unsigned int level,
+                                                double weight) {
     const auto& constraint = task.compute(time, q, v, data);
-    return MotionConstraintRef{task.name(), &constraint};
+    return MotionObjective{task.name(), &constraint, level, weight};
   }
 
   static ContactConstraintData snapshotContact(contacts::ContactBase& contact,
@@ -361,9 +336,8 @@ class IDProblemRegistry {
     out.name = contact.name();
 
     const auto& motion_cst = contact.getMotionConstraint();
-    const auto& motion_task = contact.getMotionTask();
     out.Jc = motion_cst.matrix();
-    out.Jcdot_qdot = motion_task.getDesiredAcceleration() - motion_cst.vector();
+    out.motion_rhs = motion_cst.vector();
 
     out.T = contact.getForceGeneratorMatrix();
 
@@ -374,10 +348,7 @@ class IDProblemRegistry {
     return out;
   }
 
-  void resolveReferenceAcceleration(double time, math::ConstRefVector q,
-                                    math::ConstRefVector v) {
-    (void)q;
-    (void)v;
+  void resolveReferenceAcceleration() {
     if (!m_referenceAccelerationEnabled) {
       m_qddotRef.setZero(m_robot.nv());
       return;
@@ -387,18 +358,6 @@ class IDProblemRegistry {
       return;
     }
 
-    if (m_nominalProvider) {
-      nominal::NominalAccelerationContext ctx;
-      ctx.time = time;
-      ctx.q = &m_qBuffer;
-      ctx.v = &m_vBuffer;
-      ctx.nv = m_robot.nv();
-      ctx.lambdaDim = 0;
-      if (m_nominalProvider->compute(ctx, m_qddotRef)) {
-        return;
-      }
-    }
-
     m_qddotRef.setZero(m_robot.nv());
   }
 
@@ -406,22 +365,22 @@ class IDProblemRegistry {
   pinocchio::Data m_data;
 
   std::unordered_map<std::string, TaskRegistration> m_tasks;
-  std::vector<JointAccelerationTargetRegistration> m_jointAccelerationTargets;
+  std::vector<std::string> m_taskOrder;
+  std::vector<JointAccelerationObjective> m_jointAccelerationObjectives;
   std::unordered_map<std::string, std::shared_ptr<ContactLevel>> m_contacts;
+  std::vector<std::string> m_contactOrder;
 
-  IDHierarchyPolicy m_hierarchy;
   IDRegularizationParams m_regularization;
-  std::shared_ptr<nominal::NominalAccelerationProvider> m_nominalProvider;
 
   math::Vector m_qBuffer;
   math::Vector m_vBuffer;
   math::Vector m_qddotRef;
   bool m_hasExternalReference{false};
   bool m_referenceAccelerationEnabled{true};
-  constraints::ActuatorTorqueLimits m_torqueLimits;
+  constraints::JointTorqueLimits m_jointTorqueLimits;
   const math::Vector* m_hExt{nullptr};
 };
 
 }  // namespace wbc
 
-#endif  // ifndef __wbc_controller_id_problem_registry_hpp__
+#endif  // WBC_CORE_CONTROLLER_BASE_ID_PROBLEM_REGISTRY_HPP_

@@ -120,6 +120,7 @@ layers or command components:
 
 ```cpp
 struct RobotLogger {
+  RobotCommand cmd;
   Eigen::VectorXd qddot_sol;
   Eigen::VectorXd q_cmd;
   Eigen::VectorXd qdot_cmd;
@@ -134,6 +135,7 @@ Rule of thumb:
 ```txt
 q_cmd     = free variable at command layer
 cmd.q     = field inside RobotCommand
+log.cmd.q = field inside the RobotCommand instance held by RobotLogger
 log.q_cmd = field inside RobotLogger or another mixed-layer record
 ```
 
@@ -291,9 +293,10 @@ Mixed-layer solution/report structs may keep suffixes in their fields:
 ```cpp
 struct IDSolution {
   Eigen::VectorXd qddot_ref;
+  Eigen::VectorXd delta_qddot_sol;
   Eigen::VectorXd qddot_sol;
-  Eigen::VectorXd q_cmd;
-  Eigen::VectorXd tau_cmd;
+  Eigen::VectorXd lambda_sol;
+  Eigen::VectorXd tau_sol;
 };
 ```
 
@@ -314,7 +317,8 @@ Typical flow:
 
 ```txt
 qddot_sol
-  -> inverse dynamics
+  -> inverse dynamics torque recovery
+  -> tau_sol
   -> tau_ff_cmd
 
 qddot_sol
@@ -366,6 +370,10 @@ Meaning:
 ```txt
 tau_ff_cmd = pure model-based feedforward torque command
 ```
+
+If the value comes from `IDSolution`, `tau_sol` is the solved model torque that
+is copied into `tau_ff_cmd` before any host-side feedback is added. `tau_sol`
+is not the final `tau_cmd`.
 
 Do not include feedback inside `tau_ff_cmd`.
 
@@ -516,11 +524,12 @@ cmd.qdot = qdot_cmd;
 cmd.tau = tau_cmd;
 ```
 
-Use `RobotLogger` for command trace components that should not be part of the
-hardware command holder:
+Use `RobotLogger` for the final command payload and command trace components
+that should not be part of the hardware command holder:
 
 ```cpp
 RobotLogger log;
+log.UpdateCommand(cmd);
 log.qddot_sol = qddot_sol;
 log.q_cmd = q_cmd;
 log.qdot_cmd = qdot_cmd;
@@ -671,8 +680,9 @@ cmd.q = q_cmd;
 cmd.qdot = qdot_cmd;
 cmd.tau = tau_cmd;
 
-// Record the command-building trace separately.
+// Record the final command payload and command-building trace separately.
 RobotLogger log;
+log.UpdateCommand(cmd);
 log.qddot_sol = qddot_sol;
 log.q_cmd = q_cmd;
 log.qdot_cmd = qdot_cmd;
@@ -726,6 +736,7 @@ Struct field rule:
 q_cmd     = free variable at command layer
 cmd.q     = field inside RobotCommand
 joint.q   = field inside a semantic joint-state struct
+log.cmd.q = field inside the RobotCommand instance held by RobotLogger
 log.q_cmd = field inside RobotLogger or another mixed-layer record
 ```
 

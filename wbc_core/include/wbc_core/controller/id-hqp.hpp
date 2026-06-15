@@ -28,17 +28,17 @@
 
 #include <Eigen/Dense>
 
-#include "wbc_core/controller/id-hierarchy-policy.hpp"
-#include "wbc_core/controller/id-problem.hpp"
-#include "wbc_core/controller/id-solution.hpp"
+#include "wbc_core/controller/base/id-base.hpp"
+#include "wbc_core/formulations/id-problem.hpp"
+#include "wbc_core/formulations/id-solution.hpp"
 #include "wbc_core/formulations/hqp/blocks/contact-acceleration-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/floating-base-dynamics-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/friction-cone-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/joint-accel-bias-block.hpp"
+#include "wbc_core/formulations/hqp/blocks/joint-torque-limit-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/motion-constraint-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/qddot-regularization-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/rf-regularization-block.hpp"
-#include "wbc_core/formulations/hqp/blocks/torque-limit-block.hpp"
 #include "wbc_core/formulations/hqp/hqp-build-context.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/solvers/solver-HQP-base.hpp"
@@ -46,7 +46,7 @@
 
 namespace wbc {
 
-class IDHQP {
+class IDHQP : public IDBase {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -64,33 +64,35 @@ class IDHQP {
   IDHQP(robots::RobotSystem& robot, solvers::SolverHQP solver_type,
         const solvers::SolverQPParams& qp_params);
 
-  const IDSolution& solve(const IDProblem& problem, double dt);
+  const IDSolution& solve(const IDProblem& problem, double dt) override;
 
-  const IDSolution& solution() const { return *m_solution; }
+  const IDSolution& solution() const override { return *m_solution; }
   const Vector& referenceAcceleration() const { return m_solution->qddot_ref; }
-  const Vector& deltaAcceleration() const { return m_solution->delta_qddot; }
+  const Vector& deltaAcceleration() const {
+    return m_solution->delta_qddot_sol;
+  }
   const Vector& solvedAcceleration() const { return m_solution->qddot_sol; }
-  Data& data() { return m_data; }
-  const Data& data() const { return m_data; }
-  const HQPBuildContext& context() const { return m_ctx; }
-  void setTimingEnabled(bool enabled) { m_timingEnabled = enabled; }
-  bool timingEnabled() const { return m_timingEnabled; }
+  Data& data() override { return m_data; }
+  const Data& data() const override { return m_data; }
+  void setTimingEnabled(bool enabled) override { m_timingEnabled = enabled; }
+  bool timingEnabled() const override { return m_timingEnabled; }
   const TimingStats& timingStats() const { return m_timingStats; }
-  solvers::SolverHQP solverType() const { return m_solverType; }
-  void setSolverType(solvers::SolverHQP solver_type);
-  const solvers::SolverQPParams& qpParams() const { return m_qpParams; }
-  void setQPParams(const solvers::SolverQPParams& qp_params);
+  solvers::SolverHQP solverType() const override { return m_solverType; }
+  void setSolverType(solvers::SolverHQP solver_type) override;
+  const solvers::SolverQPParams& qpParams() const override {
+    return m_qpParams;
+  }
+  void setQPParams(const solvers::SolverQPParams& qp_params) override;
 
  private:
-  struct ObjectiveSlot {
-    std::unique_ptr<MotionConstraintBlock> motion_constraint;
-    std::unique_ptr<JointAccelerationBias> joint_bias;
+  struct MotionObjectiveSlot {
+    std::unique_ptr<MotionConstraintBlock> block;
     std::shared_ptr<math::ConstraintBase> constraint;
+  };
 
-    bool holdsMotionConstraint() const {
-      return static_cast<bool>(motion_constraint);
-    }
-    bool holdsJointBias() const { return static_cast<bool>(joint_bias); }
+  struct JointAccelerationObjectiveSlot {
+    std::unique_ptr<JointAccelerationBias> block;
+    std::shared_ptr<math::ConstraintBase> constraint;
   };
 
   struct ContactLayout {
@@ -103,23 +105,21 @@ class IDHQP {
     bool hasContactForces{false};
     bool hasContactKinematics{false};
     bool hasFrictionConstraints{false};
-    bool hasTorqueLimits{false};
+    bool hasJointTorqueLimits{false};
     bool regularizeLambda{false};
 
     Matrix Jc;
-    Vector Jcdot_qdot;
+    Vector contact_motion_rhs;
     Matrix Uf;
     Vector uf_lb;
     Vector uf_ub;
     std::unordered_map<std::string, ContactLayout> contactLayout;
   };
 
-  static void ensureObjectiveCapacity(std::vector<ObjectiveSlot>& pool,
-                                      std::size_t nObjectives);
-
   void beginCycle(const IDProblem& problem);
   const IDSolution& fail() const { return *m_solution; }
   bool validateInput(const IDProblem& problem, double dt) const;
+  bool validateHierarchy(const IDProblem& problem) const;
   void updateRobotModel();
   void prepareCycleWorkspace(const IDProblem& problem);
   void stackContactData(const IDProblem& problem);
@@ -129,9 +129,8 @@ class IDHQP {
   void buildObjectiveBlocks(const IDProblem& problem);
   void assembleHierarchy(const IDProblem& problem);
   const IDSolution& decodeSolution(const IDProblem& problem,
-                                   const solvers::HQPOutput& hqpSol, double dt);
+                                   const solvers::HQPOutput& hqpSol);
   void resetFailedSolution();
-  void integrateSolutionState(double dt);
   void recoverTorque(const IDProblem& problem);
   void resizeSolverFromHQPData();
 
@@ -152,22 +151,22 @@ class IDHQP {
   FloatingBaseDynamicsConstraint m_dynamicsConstraint;
   ContactConsistencyConstraint m_contactConsistencyConstraint;
   FrictionConeConstraint m_frictionConeConstraint;
-  TorqueLimitConstraint m_torqueLimitConstraint;
+  JointTorqueLimitConstraint m_jointTorqueLimitConstraint;
   AccelerationRegularization m_accelerationRegularization;
   ContactForceRegularization m_lambdaRegularization;
 
-  std::vector<ObjectiveSlot> m_objectiveSlots;
+  std::vector<MotionObjectiveSlot> m_motionObjectiveSlots;
+  std::vector<JointAccelerationObjectiveSlot> m_jointAccelerationObjectiveSlots;
 
   CycleWorkspace m_cycle;
 
-  constraints::ActuatorTorqueLimits m_torqueLimits;
+  constraints::JointTorqueLimits m_jointTorqueLimits;
   const Eigen::VectorXd* m_h_ext{nullptr};
 
   Vector m_zeroQddotRef;
   Vector m_qddotRefCurrent;
   Vector m_tauFull;
   Vector m_zero_h_ext;
-  Vector m_integrateDelta;
   std::unique_ptr<IDSolution> m_solution;
   bool m_timingEnabled{false};
   TimingStats m_timingStats;

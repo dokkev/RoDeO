@@ -36,7 +36,7 @@
 #include "control_architecture/state_machine/fsm_handler.hpp"
 #include "control_architecture/state_machine/state_machine.hpp"
 #include "wbc_core/controller/id-hqp.hpp"
-#include "wbc_core/controller/id-problem-registry.hpp"
+#include "wbc_core/controller/base/id-problem-registry.hpp"
 
 using namespace wbc;
 using namespace wbc::robots;
@@ -792,14 +792,13 @@ TEST_F(ArchitectureTest,
       0.0, q0, v0, state_cfg.task_names, state_cfg.task_weights,
       state_cfg.task_levels, state_cfg.contact_names);
 
-  ASSERT_EQ(problem.objectives.size(), 1u);
-  ASSERT_TRUE(problem.objectives[0].isMotionConstraint());
-  EXPECT_EQ(problem.objectives[0].motionConstraint().name, "jpos_task");
-  EXPECT_DOUBLE_EQ(problem.objectives[0].weight, 3.5);
-  EXPECT_EQ(problem.objectives[0].level, 3u);
+  ASSERT_EQ(problem.motion_objectives.size(), 1u);
+  EXPECT_EQ(problem.motion_objectives[0].name, "jpos_task");
+  EXPECT_DOUBLE_EQ(problem.motion_objectives[0].weight, 3.5);
+  EXPECT_EQ(problem.motion_objectives[0].level, 3u);
 }
 
-TEST_F(ArchitectureTest, BindRegistry_BindsRuntimePolicyAndTorqueLimits) {
+TEST_F(ArchitectureTest, BindRegistry_BindsRuntimePolicyAndJointTorqueLimits) {
   auto root = makeMinimalConfig();
   root["controller"]["qddot_ref"] = false;
   root["regularization"]["w_delta_qddot"] = 0.07;
@@ -826,14 +825,14 @@ TEST_F(ArchitectureTest, BindRegistry_BindsRuntimePolicyAndTorqueLimits) {
 
   EXPECT_DOUBLE_EQ(problem.regularization.w_delta_qddot, 0.07);
   EXPECT_DOUBLE_EQ(problem.regularization.w_lambda, 0.003);
-  ASSERT_TRUE(problem.torque_limits.enabled());
-  ASSERT_NE(problem.torque_limits.lower, nullptr);
-  ASSERT_NE(problem.torque_limits.upper, nullptr);
+  ASSERT_TRUE(problem.joint_torque_limits.enabled());
+  ASSERT_NE(problem.joint_torque_limits.lower, nullptr);
+  ASSERT_NE(problem.joint_torque_limits.upper, nullptr);
 
   const auto expected_upper =
       0.5 * robot->model().effortLimit.tail(robot->na());
-  EXPECT_TRUE(problem.torque_limits.upper->isApprox(expected_upper));
-  EXPECT_TRUE(problem.torque_limits.lower->isApprox(-expected_upper));
+  EXPECT_TRUE(problem.joint_torque_limits.upper->isApprox(expected_upper));
+  EXPECT_TRUE(problem.joint_torque_limits.lower->isApprox(-expected_upper));
 }
 
 TEST_F(ArchitectureTest, ConfigCompiler_IgnoresJointVelLimitConstraint) {
@@ -1178,12 +1177,12 @@ TEST_F(ArchitectureTest, YamlFileToIDHQPDataFlow_SolvesAndProducesCommand) {
   const auto& sol = arch->solver()->solution();
   ASSERT_TRUE(sol.success);
   ASSERT_EQ(sol.qddot_ref.size(), robot->nv());
-  ASSERT_EQ(sol.delta_qddot.size(), robot->nv());
+  ASSERT_EQ(sol.delta_qddot_sol.size(), robot->nv());
   ASSERT_EQ(sol.qddot_sol.size(), robot->nv());
-  ASSERT_EQ(sol.tau_cmd.size(), robot->na());
+  ASSERT_EQ(sol.tau_sol.size(), robot->na());
   EXPECT_TRUE(sol.qddot_ref.isZero(1e-12));
-  EXPECT_NEAR((sol.delta_qddot - sol.qddot_sol).norm(), 0.0, 1e-9);
-  EXPECT_TRUE(sol.tau_cmd.allFinite());
+  EXPECT_NEAR((sol.delta_qddot_sol - sol.qddot_sol).norm(), 0.0, 1e-9);
+  EXPECT_TRUE(sol.tau_sol.allFinite());
 
   const auto& cmd = arch->command();
   EXPECT_EQ(cmd.tau.size(), robot->na());
@@ -1194,12 +1193,17 @@ TEST_F(ArchitectureTest, YamlFileToIDHQPDataFlow_SolvesAndProducesCommand) {
   EXPECT_TRUE(cmd.qdot.allFinite());
 
   const auto& logger = arch->logger();
+  EXPECT_TRUE(logger.cmd.q.isApprox(cmd.q));
+  EXPECT_TRUE(logger.cmd.qdot.isApprox(cmd.qdot));
+  EXPECT_TRUE(logger.cmd.tau.isApprox(cmd.tau));
   EXPECT_EQ(logger.qddot_sol.size(), robot->nv());
   EXPECT_EQ(logger.tau_ff_cmd.size(), robot->na());
   EXPECT_EQ(logger.tau_fb_cmd.size(), robot->na());
   EXPECT_EQ(logger.tau_cmd.size(), robot->na());
   EXPECT_TRUE(logger.q_cmd.isApprox(cmd.q));
   EXPECT_TRUE(logger.qdot_cmd.isApprox(cmd.qdot));
+  EXPECT_TRUE(logger.tau_ff_cmd.isApprox(sol.tau_sol));
+  EXPECT_TRUE(logger.tau_fb_cmd.isZero(1e-12));
   EXPECT_TRUE(logger.tau_cmd.isApprox(cmd.tau));
 
   fs::remove_all(temp_dir);
@@ -1280,10 +1284,9 @@ TEST_F(ArchitectureTest, YamlJointCommand_TracksConfiguredJointReference) {
       arch->solver()->data(),
       state_cfg.task_names, state_cfg.task_weights, state_cfg.task_levels,
       state_cfg.contact_names);
-  ASSERT_EQ(problem.objectives.size(), 1u);
-  ASSERT_TRUE(problem.objectives[0].isMotionConstraint());
+  ASSERT_EQ(problem.motion_objectives.size(), 1u);
 
-  const auto& motion = problem.objectives[0].motionConstraint();
+  const auto& motion = problem.motion_objectives[0];
   const Eigen::VectorXd expected_acc = 40.0 * target;
   EXPECT_LT(InfNorm(motion.vector() - expected_acc), 1e-9);
   EXPECT_LT(InfNorm(motion.matrix() * sol.qddot_sol - motion.vector()), 1e-6);
@@ -1363,7 +1366,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_GravityCompensatesAtStaticReference) {
 
   const auto& data = arch->solver()->data();
   const auto& h = robot->nonLinearEffects(data);
-  EXPECT_LT(InfNorm(sol.tau_cmd - h), 1e-7);
+  EXPECT_LT(InfNorm(sol.tau_sol - h), 1e-7);
   EXPECT_LT(InfNorm(arch->command().tau - h), 1e-7);
   EXPECT_LT(InfNorm(arch->command().q - target), 1e-10);
   EXPECT_LT(InfNorm(arch->command().qdot), 1e-10);
@@ -1388,16 +1391,17 @@ TEST_F(ArchitectureTest, PinocchioDynamics_FixedBaseTorqueMatchesSolvedState) {
   ASSERT_TRUE(sol.success);
   ASSERT_TRUE(robot->is_fixed_base());
   ASSERT_EQ(sol.qddot_sol.size(), robot->nv());
-  ASSERT_EQ(sol.tau_cmd.size(), robot->na());
+  ASSERT_EQ(sol.tau_sol.size(), robot->na());
 
   const auto& data = arch->solver()->data();
   const auto& M = robot->mass(data);
   const auto& h = robot->nonLinearEffects(data);
   const Eigen::VectorXd tau_from_pinocchio = M * sol.qddot_sol + h;
 
-  ASSERT_EQ(tau_from_pinocchio.size(), sol.tau_cmd.size());
-  EXPECT_LT(InfNorm(tau_from_pinocchio - sol.tau_cmd), 1e-7);
-  EXPECT_TRUE(arch->command().tau.isApprox(sol.tau_cmd, 1e-12));
+  ASSERT_EQ(tau_from_pinocchio.size(), sol.tau_sol.size());
+  EXPECT_LT(InfNorm(tau_from_pinocchio - sol.tau_sol), 1e-7);
+  EXPECT_TRUE(arch->logger().tau_ff_cmd.isApprox(sol.tau_sol, 1e-12));
+  EXPECT_TRUE(arch->command().tau.isApprox(arch->logger().tau_cmd, 1e-12));
 }
 
 TEST_F(ArchitectureTest,
@@ -1474,7 +1478,7 @@ TEST_F(ArchitectureTest,
   ASSERT_TRUE(sol.success);
   ASSERT_FALSE(fb_robot->is_fixed_base());
   ASSERT_EQ(sol.qddot_sol.size(), fb_robot->nv());
-  ASSERT_EQ(sol.tau_cmd.size(), fb_robot->na());
+  ASSERT_EQ(sol.tau_sol.size(), fb_robot->na());
   ASSERT_TRUE(sol.lambda_sol.allFinite());
 
   const auto& state_cfg = arch->config()->states.at(0);
@@ -1495,7 +1499,7 @@ TEST_F(ArchitectureTest,
     const auto lambda = sol.lambda_sol.segment(lambda_offset, lambda_dim);
 
     const Eigen::VectorXd contact_accel =
-        contact.Jc * sol.qddot_sol + contact.Jcdot_qdot;
+        contact.Jc * sol.qddot_sol - contact.motion_rhs;
     EXPECT_LT(InfNorm(contact_accel), 1e-5);
 
     const Eigen::VectorXd force_margin_lb = contact.Uf * lambda - contact.uf_lb;
@@ -1516,7 +1520,7 @@ TEST_F(ArchitectureTest,
       M * sol.qddot_sol + h - generalized_contact_force;
 
   EXPECT_LT(InfNorm(pinocchio_residual.head(6)), 1e-5);
-  EXPECT_LT(InfNorm(pinocchio_residual.tail(fb_robot->na()) - sol.tau_cmd),
+  EXPECT_LT(InfNorm(pinocchio_residual.tail(fb_robot->na()) - sol.tau_sol),
             1e-5);
 
   fs::remove_all(temp_dir);
@@ -1621,12 +1625,32 @@ TEST_F(ArchitectureTest, RobotLogger_InitializesTraceBuffers) {
   RobotLogger logger;
   logger.Initialize(*robot);
 
+  EXPECT_EQ(logger.cmd.q.size(), robot->nq_joints());
+  EXPECT_EQ(logger.cmd.qdot.size(), robot->nv_joints());
+  EXPECT_EQ(logger.cmd.tau.size(), robot->na());
   EXPECT_EQ(logger.qddot_sol.size(), robot->nv());
   EXPECT_EQ(logger.q_cmd.size(), robot->nq_joints());
   EXPECT_EQ(logger.qdot_cmd.size(), robot->nv_joints());
   EXPECT_EQ(logger.tau_ff_cmd.size(), robot->na());
   EXPECT_EQ(logger.tau_fb_cmd.size(), robot->na());
   EXPECT_EQ(logger.tau_cmd.size(), robot->na());
+}
+
+TEST_F(ArchitectureTest, RobotLogger_UpdateCommandCopiesRobotCommand) {
+  RobotLogger logger;
+  logger.Initialize(*robot);
+
+  RobotCommand cmd;
+  cmd.Initialize(*robot);
+  cmd.q.setConstant(0.4);
+  cmd.qdot.setConstant(0.5);
+  cmd.tau.setConstant(0.6);
+
+  logger.UpdateCommand(cmd);
+
+  EXPECT_TRUE(logger.cmd.q.isApprox(cmd.q));
+  EXPECT_TRUE(logger.cmd.qdot.isApprox(cmd.qdot));
+  EXPECT_TRUE(logger.cmd.tau.isApprox(cmd.tau));
 }
 
 TEST_F(ArchitectureTest, RobotCommand_InitializesCommandBuffers) {

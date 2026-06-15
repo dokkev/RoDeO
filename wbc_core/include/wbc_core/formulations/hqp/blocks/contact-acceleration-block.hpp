@@ -4,12 +4,10 @@
 // Contact acceleration hard equality constraint block.
 //
 // Enforces stacked rigid-contact motion consistency:
-//   Jc * qddot = -Jcdot_qdot
-//
-// For stationary rigid contacts, Jcdot_qdot is the usual drift term.
+//   Jc * qddot = contact_motion_rhs
 //
 // If qddot_ref is provided (delta form):
-//   Jc * delta_qddot = -(Jcdot_qdot + Jc * qddot_ref)
+//   Jc * delta_qddot = contact_motion_rhs - Jc * qddot_ref
 //
 
 #ifndef __wbc_hqp_blocks_contact_acceleration_block_hpp__
@@ -31,13 +29,13 @@ class ContactConsistencyConstraint : public HQPBlock {
   }
 
   void build(const HQPBuildContext& ctx) override {
-    if (!ctx.Jc || !ctx.Jcdot_qdot || ctx.Jc->rows() == 0) {
+    if (!ctx.Jc || !ctx.contact_motion_rhs || ctx.Jc->rows() == 0) {
       cst()->resize(0, ctx.qpDim());
       return;
     }
 
     assert(ctx.Jc->cols() == ctx.nv);
-    assert(ctx.Jcdot_qdot->size() == ctx.Jc->rows());
+    assert(ctx.contact_motion_rhs->size() == ctx.Jc->rows());
 
     const int nMotion = static_cast<int>(ctx.Jc->rows());
     cst()->resize(nMotion, ctx.qpDim());
@@ -47,9 +45,9 @@ class ContactConsistencyConstraint : public HQPBlock {
     if (ctx.qddot_ref) {
       assert(ctx.qddot_ref->size() == ctx.nv);
       cst()->vector().noalias() =
-          -(*ctx.Jcdot_qdot) - (*ctx.Jc) * (*ctx.qddot_ref);
+          *ctx.contact_motion_rhs - (*ctx.Jc) * (*ctx.qddot_ref);
     } else {
-      cst()->vector() = -(*ctx.Jcdot_qdot);
+      cst()->vector() = *ctx.contact_motion_rhs;
     }
   }
 

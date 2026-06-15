@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <pinocchio/algorithm/joint-configuration.hpp>
+
 #include "control_architecture/runtime/runtime_assembler.hpp"
 #include "control_architecture/runtime/state_machine_assembler.hpp"
 
@@ -115,7 +117,7 @@ void ControlArchitecture::Step(double dt) {
   UpdateStateMachine(current_time, dt);
   auto problem = BuildProblem(current_time);
   const auto& sol = SolveProblem(problem, dt);
-  ApplySolution(sol);
+  ApplySolution(sol, dt);
 }
 
 void ControlArchitecture::UpdateModelTerms() {
@@ -150,7 +152,8 @@ const IDSolution& ControlArchitecture::SolveProblem(const IDProblem& problem,
   return solver_->solve(problem, dt);
 }
 
-void ControlArchitecture::ApplySolution(const IDSolution& solution) {
+void ControlArchitecture::ApplySolution(const IDSolution& solution,
+                                        double dt) {
   ScopedPhaseTimer timer(timing_enabled_, timing_stats_.output_us);
   if (!solution.success) {
     return;
@@ -166,28 +169,35 @@ void ControlArchitecture::ApplySolution(const IDSolution& solution) {
       !solution.qddot_sol.allFinite()) {
     return;
   }
-  if (solution.q_cmd.size() < q_offset + nq_joints ||
-      solution.qdot_cmd.size() < v_offset + nv_joints ||
-      !solution.q_cmd.segment(q_offset, nq_joints).allFinite() ||
-      !solution.qdot_cmd.segment(v_offset, nv_joints).allFinite()) {
+  if (solution.tau_sol.size() != na || !solution.tau_sol.allFinite()) {
     return;
   }
-  if (solution.tau_ff_cmd.size() != na || solution.tau_fb_cmd.size() != na ||
-      solution.tau_cmd.size() != na || !solution.tau_ff_cmd.allFinite() ||
-      !solution.tau_fb_cmd.allFinite() || !solution.tau_cmd.allFinite()) {
+
+  math::Vector qdot_cmd_full =
+      robot_->generalized_v() + dt * solution.qddot_sol;
+  math::Vector integrate_delta = dt * qdot_cmd_full;
+  math::Vector q_cmd_full(robot_->nq());
+  pinocchio::integrate(robot_->model(), robot_->generalized_q(),
+                       integrate_delta, q_cmd_full);
+
+  if (q_cmd_full.size() < q_offset + nq_joints ||
+      qdot_cmd_full.size() < v_offset + nv_joints ||
+      !q_cmd_full.segment(q_offset, nq_joints).allFinite() ||
+      !qdot_cmd_full.segment(v_offset, nv_joints).allFinite()) {
     return;
   }
 
   logger_.qddot_sol = solution.qddot_sol;
-  logger_.q_cmd = solution.q_cmd.segment(q_offset, nq_joints);
-  logger_.qdot_cmd = solution.qdot_cmd.segment(v_offset, nv_joints);
-  logger_.tau_ff_cmd = solution.tau_ff_cmd;
-  logger_.tau_fb_cmd = solution.tau_fb_cmd;
-  logger_.tau_cmd = solution.tau_cmd;
+  logger_.q_cmd = q_cmd_full.segment(q_offset, nq_joints);
+  logger_.qdot_cmd = qdot_cmd_full.segment(v_offset, nv_joints);
+  logger_.tau_ff_cmd = solution.tau_sol;
+  logger_.tau_fb_cmd.setZero(na);
+  logger_.tau_cmd = logger_.tau_ff_cmd + logger_.tau_fb_cmd;
 
   cmd_.q = logger_.q_cmd;
   cmd_.qdot = logger_.qdot_cmd;
   cmd_.tau = logger_.tau_cmd;
+  logger_.UpdateCommand(cmd_);
   command_initialized_ = true;
 }
 
@@ -198,6 +208,9 @@ void ControlArchitecture::InitializeCommandFromRobotState() {
     cmd_.Initialize(*robot_);
   }
   if (logger_.qddot_sol.size() != robot_->nv() ||
+      logger_.cmd.q.size() != robot_->nq_joints() ||
+      logger_.cmd.qdot.size() != robot_->nv_joints() ||
+      logger_.cmd.tau.size() != robot_->na() ||
       logger_.q_cmd.size() != robot_->nq_joints() ||
       logger_.qdot_cmd.size() != robot_->nv_joints() ||
       logger_.tau_cmd.size() != robot_->na()) {
@@ -218,6 +231,7 @@ void ControlArchitecture::InitializeCommandFromRobotState() {
   logger_.tau_ff_cmd.setZero(robot_->na());
   logger_.tau_fb_cmd.setZero(robot_->na());
   logger_.tau_cmd = cmd_.tau;
+  logger_.UpdateCommand(cmd_);
   command_initialized_ = true;
 }
 

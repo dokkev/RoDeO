@@ -310,7 +310,7 @@ Step(dt)
   -> UpdateStateMachine(current_time)
   -> BuildProblem(current_time)
   -> IDHQP::solve(problem, dt)
-  -> fill RobotCommand and RobotLogger from IDSolution
+  -> integrate qddot_sol and map tau_sol into the tau_ff trace
 ```
 
 Rules:
@@ -326,7 +326,7 @@ Rules:
 
 File:
 
-- `wbc_core/include/wbc_core/controller/id-problem-registry.hpp`
+- `wbc_core/include/wbc_core/controller/base/id-problem-registry.hpp`
 
 Role:
 
@@ -358,10 +358,28 @@ IDProblemRegistry::buildProblem(...)
 `ControlArchitecture` passes the already-updated `solver_->data()` into the
 registry to avoid recomputing Pinocchio model terms in the 1 kHz loop.
 
+### ID Formulation Schemas
+
+Files:
+
+- `wbc_core/include/wbc_core/formulations/id-problem.hpp`
+- `wbc_core/include/wbc_core/formulations/id-solution.hpp`
+
+Role:
+
+- Define the per-tick inverse-dynamics HQP problem and solution schemas.
+- Aggregate task/contact-layer solve views such as `MotionObjective` and
+  `ContactConstraintData`; those primitive views are defined with their source
+  layers, not owned by formulations.
+- Keep solve input/output fields with the formulation contract, not with
+  controller runtime ownership.
+- Are consumed by `IDProblemRegistry`, `IDBase`, and `IDHQP`.
+
 ### IDHQP
 
 Files:
 
+- `wbc_core/include/wbc_core/controller/base/id-base.hpp`
 - `wbc_core/include/wbc_core/controller/id-hqp.hpp`
 - `wbc_core/src/controller/id-hqp.cpp`
 
@@ -369,8 +387,11 @@ Role:
 
 - Solves a ready `IDProblem`.
 - Owns HQP cascade solver backend.
-- Decodes qddot, lambda, integrated command state, and separated torque
-  components into `IDSolution`.
+- Owns the fixed hierarchy shape: physics constraints at level 0, objectives at
+  positive levels, and regularization after the deepest objective.
+- Decodes qddot reference/correction, contact force, and recovered model torque
+  into `IDSolution`.
+- Does not integrate joint commands or build final `RobotCommand`.
 
 Rules:
 

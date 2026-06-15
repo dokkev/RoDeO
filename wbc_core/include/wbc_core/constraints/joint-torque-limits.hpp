@@ -1,18 +1,18 @@
 //
 // Copyright (c) 2026
 //
-// Problem-facing actuator torque limit primitive.
+// Problem-facing joint torque limit primitive.
 //
 
-#ifndef WBC_CORE_CONSTRAINTS_ACTUATOR_TORQUE_LIMITS_HPP_
-#define WBC_CORE_CONSTRAINTS_ACTUATOR_TORQUE_LIMITS_HPP_
+#ifndef WBC_CORE_CONSTRAINTS_JOINT_TORQUE_LIMITS_HPP_
+#define WBC_CORE_CONSTRAINTS_JOINT_TORQUE_LIMITS_HPP_
 
 #include "wbc_core/math/fwd.hpp"
 
 namespace wbc {
 namespace constraints {
 
-struct ActuatorTorqueLimits {
+struct JointTorqueLimits {
   const math::Vector* lower{nullptr};
   const math::Vector* upper{nullptr};
 
@@ -22,4 +22,4 @@ struct ActuatorTorqueLimits {
 }  // namespace constraints
 }  // namespace wbc
 
-#endif  // WBC_CORE_CONSTRAINTS_ACTUATOR_TORQUE_LIMITS_HPP_
+#endif  // WBC_CORE_CONSTRAINTS_JOINT_TORQUE_LIMITS_HPP_

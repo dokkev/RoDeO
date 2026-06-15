@@ -16,7 +16,7 @@
 
 #include "control_architecture/state_machine/fsm_handler.hpp"
 #include "control_architecture/state_machine/state_factory.hpp"
-#include "wbc_core/controller/id-problem-registry.hpp"
+#include "wbc_core/controller/base/id-problem-registry.hpp"
 #include "wbc_core/controller/id-hqp.hpp"
 #include "wbc_core/robots/robot-command.hpp"
 #include "wbc_core/robots/robot-logger.hpp"
@@ -88,7 +88,7 @@ class ControlArchitecture {
   void UpdateStateMachine(double current_time, double dt);
   IDProblem BuildProblem(double current_time);
   const IDSolution& SolveProblem(const IDProblem& problem, double dt);
-  void ApplySolution(const IDSolution& solution);
+  void ApplySolution(const IDSolution& solution, double dt);
   void InitializeCommandFromRobotState();
   const StateConfig* ActiveStateConfig() const;
 

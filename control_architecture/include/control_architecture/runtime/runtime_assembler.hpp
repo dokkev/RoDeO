@@ -11,7 +11,7 @@
 
 #include "control_architecture/runtime/compiled_config.hpp"
 #include "control_architecture/runtime/runtime_config.hpp"
-#include "wbc_core/controller/id-problem-registry.hpp"
+#include "wbc_core/controller/base/id-problem-registry.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 
 namespace wbc {

@@ -16,9 +16,9 @@
 #include <yaml-cpp/yaml.h>
 
 #include "control_architecture/state_machine/state_machine.hpp"
-#include "wbc_core/contacts/contact-base.hpp"
-#include "wbc_core/controller/id-problem.hpp"
 #include "control_architecture/runtime/compiled_config.hpp"
+#include "wbc_core/contacts/contact-base.hpp"
+#include "wbc_core/formulations/id-problem.hpp"
 #include "wbc_core/tasks/task-motion.hpp"
 #include "wbc_core/tasks/task-base.hpp"
 
@@ -46,7 +46,7 @@ struct StateConfig {
   YAML::Node params;
 };
 
-/// Configuration for one IDProblem constraint primitive (e.g. torque limits).
+/// Configuration for one IDProblem constraint primitive.
 struct ConstraintConfig {
   ConstraintTypeSpec type{ConstraintTypeSpec::kJointTorque};
   bool enabled{false};
@@ -77,7 +77,7 @@ struct RuntimeConfig {
   solvers::SolverHQP solver_type{DefaultSolverTypeSpec()};
   solvers::SolverQPParams solver_qp_params;
 
-  bool torque_limits_enabled{false};
+  bool joint_torque_limits_enabled{false};
   Eigen::VectorXd tau_lb;
   Eigen::VectorXd tau_ub;
 

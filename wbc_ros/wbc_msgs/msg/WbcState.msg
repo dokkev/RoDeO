@@ -11,7 +11,7 @@ float64[] qdot_des
 float64[] q_curr
 float64[] qdot_curr
 
-# --- IK output (_cmd) from FindConfiguration ---
+# --- Command output (_cmd) ---
 float64[] q_cmd
 float64[] qdot_cmd
 float64[] qddot_cmd

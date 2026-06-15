@@ -20,7 +20,7 @@
 
 #include <wbc_core/macros.hpp>
 #include <wbc_core/tasks/task-base.hpp>
-#include <wbc_core/formulations/contact-level.hpp>
+#include <wbc_core/contacts/contact-level.hpp>
 #include <memory>
 
 namespace wbc {

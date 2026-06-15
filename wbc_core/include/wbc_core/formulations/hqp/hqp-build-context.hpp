@@ -39,7 +39,7 @@ struct HQPBuildContext {
 
   // ── Aggregated contact data (required by contact-aware blocks) ────────
   const math::Matrix* Jc{nullptr};
-  const math::Vector* Jcdot_qdot{nullptr};
+  const math::Vector* contact_motion_rhs{nullptr};
   const math::Matrix* Uf{nullptr};
   const math::Vector* uf_lb{nullptr};
   const math::Vector* uf_ub{nullptr};
@@ -48,7 +48,7 @@ struct HQPBuildContext {
   const math::Vector* h_ext{nullptr};
 
   // ── Optional torque bounds ────────────────────────────────────────────
-  bool enableTorqueLimits{false};
+  bool enableJointTorqueLimits{false};
   const math::Vector* tau_lb{nullptr};
   const math::Vector* tau_ub{nullptr};
 
@@ -61,11 +61,11 @@ struct HQPBuildContext {
   // ── Validation helpers ────────────────────────────────────────────────
   bool hasDynamics() const { return M != nullptr && h != nullptr; }
   bool hasContacts() const {
-    return lambdaDim > 0 && Jc != nullptr && Jcdot_qdot != nullptr &&
+    return lambdaDim > 0 && Jc != nullptr && contact_motion_rhs != nullptr &&
            Uf != nullptr && uf_lb != nullptr && uf_ub != nullptr;
   }
-  bool hasTorqueLimits() const {
-    return enableTorqueLimits && tau_lb != nullptr && tau_ub != nullptr;
+  bool hasJointTorqueLimits() const {
+    return enableJointTorqueLimits && tau_lb != nullptr && tau_ub != nullptr;
   }
   bool hasReferenceAcceleration() const { return qddot_ref != nullptr; }
 };

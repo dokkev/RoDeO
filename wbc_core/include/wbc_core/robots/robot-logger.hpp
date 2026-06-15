@@ -10,6 +10,7 @@
 #include <Eigen/Core>
 
 #include "wbc_core/math/fwd.hpp"
+#include "wbc_core/robots/robot-command.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 
 namespace wbc {
@@ -17,14 +18,16 @@ namespace robots {
 
 /// Per-tick robot command trace.
 ///
-/// This holder records solver and command components separately for debugging
-/// and telemetry. It is not the hardware command payload.
+/// This holder records the final command payload plus solver and command
+/// components for debugging and telemetry. It is not the hardware command
+/// writer.
 class RobotLogger {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  /// Allocate zero log buffers for a robot model.
+  /// Initialize command payload and trace buffers for a robot model.
   void Initialize(const RobotSystem& robot) {
+    cmd.Initialize(robot);
     qddot_sol = math::Vector::Zero(robot.nv());
     q_cmd = math::Vector::Zero(robot.nq_joints());
     qdot_cmd = math::Vector::Zero(robot.nv_joints());
@@ -33,6 +36,10 @@ class RobotLogger {
     tau_cmd = math::Vector::Zero(robot.na());
   }
 
+  /// Update final model-side command payload.
+  void UpdateCommand(const RobotCommand& command) { cmd = command; }
+
+  RobotCommand cmd;         ///< Final model-side command payload.
   math::Vector qddot_sol;   ///< Solved generalized acceleration, size nv().
   math::Vector q_cmd;       ///< Joint position command, size nq_joints().
   math::Vector qdot_cmd;    ///< Joint velocity command, size nv_joints().

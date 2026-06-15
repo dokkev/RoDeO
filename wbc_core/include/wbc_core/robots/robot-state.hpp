@@ -21,9 +21,9 @@ namespace robots {
 struct JointState {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  math::Vector q;     ///< Joint configuration, size nq_joints().
+  math::Vector q;     ///< Joint position, size nq_joints().
   math::Vector qdot;  ///< Joint velocity, size nv_joints().
-  math::Vector tau;   ///< Actuator torque feedback, size na().
+  math::Vector tau;   ///< Joint torque, size na().
 };
 
 /// Floating-base state supplied by the caller.
