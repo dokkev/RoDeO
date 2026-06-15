@@ -12,7 +12,7 @@
 
 #include "control_architecture/control_architecture.hpp"
 #include "control_architecture/state_machine/robot_control_profile.hpp"
-#include "wbc_core/adapters/command-adapter.hpp"
+#include "wbc_core/robots/robot-command.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/utils/actuator_interface.hpp"
 
@@ -48,6 +48,7 @@ class WholeBodyController : public controller_interface::ControllerInterface {
  private:
   static constexpr std::size_t kPositionBlock = 0U;
   static constexpr std::size_t kVelocityBlock = 1U;
+  static constexpr std::size_t kEffortBlock = 2U;
 
   static constexpr std::size_t InterfaceIndex(
       std::size_t block, std::size_t joint_idx,
@@ -62,12 +63,12 @@ class WholeBodyController : public controller_interface::ControllerInterface {
   bool ConfigureCommandInterfaces();
   bool ConfigureCommandGains();
   bool ConfigureActuator();
-  bool PrepareOutputCommand(const wbc::LowLevelCommand& cmd, double dt);
+  bool PrepareOutputCommand(const wbc::robots::RobotCommand& cmd, double dt);
   void UpdateDebugStats(double time_sec);
   void LogAvailableStates() const;
 
   bool ReadRobotState(double time_sec);
-  bool WriteJointCommand(const wbc::LowLevelCommand& cmd);
+  bool WriteJointCommand(const wbc::robots::RobotCommand& cmd);
   bool WriteSafeCommand();
   controller_interface::return_type HandleRuntimeFault(const char* message);
 
@@ -81,8 +82,8 @@ class WholeBodyController : public controller_interface::ControllerInterface {
   std::unique_ptr<wbc::RobotControlProfile> control_profile_;
   std::unique_ptr<wbc::ActuatorInterface> actuator_;
   wbc::robots::RobotState robot_state_;
-  wbc::LowLevelCommand output_cmd_;
-  wbc::LowLevelCommand safe_cmd_;
+  wbc::robots::RobotCommand output_cmd_;
+  wbc::robots::RobotCommand safe_cmd_;
   Eigen::VectorXd command_kp_;
   Eigen::VectorXd command_kd_;
 

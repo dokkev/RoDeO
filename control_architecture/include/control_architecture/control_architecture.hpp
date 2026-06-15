@@ -14,11 +14,12 @@
 
 #include <wbc_core/robots/robot-system.hpp>
 
-#include "wbc_core/adapters/command-adapter.hpp"
 #include "control_architecture/state_machine/fsm_handler.hpp"
 #include "control_architecture/state_machine/state_factory.hpp"
 #include "wbc_core/controller/id-problem-registry.hpp"
 #include "wbc_core/controller/id-hqp.hpp"
+#include "wbc_core/robots/robot-command.hpp"
+#include "wbc_core/robots/robot-logger.hpp"
 #include "control_architecture/runtime/runtime_config.hpp"
 
 namespace wbc {
@@ -45,7 +46,10 @@ class ControlArchitecture {
   void Update(const robots::RobotState& state, double dt);
 
   /// Get the last computed command.
-  const LowLevelCommand& command() const { return cmd_; }
+  const robots::RobotCommand& command() const { return cmd_; }
+
+  /// Get the last solver-to-command trace.
+  const robots::RobotLogger& logger() const { return logger_; }
 
   /// Access runtime components.
   wbc::robots::RobotSystem* robot() const { return robot_.get(); }
@@ -104,8 +108,8 @@ class ControlArchitecture {
   StateFactory state_factory_;
 
   // Output
-  CommandAdapter command_adapter_;
-  LowLevelCommand cmd_;
+  robots::RobotCommand cmd_;
+  robots::RobotLogger logger_;
   bool command_initialized_{false};
 
   bool timing_enabled_{false};

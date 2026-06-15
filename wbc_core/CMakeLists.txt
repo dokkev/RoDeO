@@ -119,6 +119,14 @@ if(BUILD_TESTING)
   set(TSID_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tsid/models")
 
   find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_robot_system_state_contract
+    test/test_robot_system_state_contract.cpp)
+  target_link_libraries(test_robot_system_state_contract ${PROJECT_NAME})
+  target_compile_definitions(test_robot_system_state_contract PRIVATE
+    TSID_MODEL_DIR="${TSID_MODEL_DIR}")
+  set_tests_properties(test_robot_system_state_contract PROPERTIES
+    ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
+
   ament_add_gtest(test_id_hqp test/test-id-hqp.cpp)
   target_link_libraries(test_id_hqp ${PROJECT_NAME})
   target_compile_definitions(test_id_hqp PRIVATE

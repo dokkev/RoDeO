@@ -25,6 +25,8 @@ using wbc::IDProblem;
 using wbc::IDSolution;
 using wbc::math::Matrix;
 using wbc::math::Vector;
+using wbc::robots::BaseState;
+using wbc::robots::JointState;
 using wbc::robots::RobotSystem;
 
 std::shared_ptr<wbc::math::ConstraintBase> makeSingleDoFConstraint(
@@ -100,11 +102,20 @@ class PublicIDHQPTest : public ::testing::Test {
     registry = std::make_unique<wbc::IDProblemRegistry>(*robot);
 
     q = pinocchio::neutral(robot->model());
-    qdot = Vector::Zero(robot->nv());
+    qdot = Vector::Zero(robot->nv_joints());
+  }
+
+  JointState makeJointState(const Vector& q_in, const Vector& qdot_in,
+                            const Vector& tau_in) const {
+    JointState joint;
+    joint.q = q_in;
+    joint.qdot = qdot_in;
+    joint.tau = tau_in;
+    return joint;
   }
 
   IDProblem makeProblem() {
-    robot->updateState(q, qdot);
+    robot->updateState(makeJointState(q, qdot, Vector::Zero(robot->na())));
     IDProblem problem;
     return problem;
   }
@@ -129,6 +140,88 @@ class PublicIDHQPTest : public ::testing::Test {
   Vector q;
   Vector qdot;
 };
+
+TEST_F(PublicIDHQPTest, RobotSystemStoresActuatedTauAndSystemTime) {
+  const Vector tau = Vector::LinSpaced(robot->na(), -0.5, 0.5);
+  const JointState joint = makeJointState(q, qdot, tau);
+
+  robot->setTime(1.25);
+  robot->updateState(joint);
+
+  EXPECT_TRUE(robot->jointState().q.isApprox(q));
+  EXPECT_TRUE(robot->jointState().qdot.isApprox(qdot));
+  EXPECT_TRUE(robot->tau_actuated().isApprox(tau));
+  EXPECT_TRUE(robot->generalized_actuation_force().isApprox(tau));
+  EXPECT_TRUE(robot->generalized_q().isApprox(q));
+  EXPECT_TRUE(robot->generalized_v().isApprox(qdot));
+  EXPECT_TRUE(robot->state().joint.tau.isApprox(tau));
+  EXPECT_DOUBLE_EQ(robot->time(), 1.25);
+
+  const Vector next_qdot = Vector::Constant(robot->nv_joints(), 0.1);
+  const Vector next_tau = Vector::Constant(robot->na(), 0.2);
+
+  robot->updateState(makeJointState(q, next_qdot, next_tau));
+
+  EXPECT_TRUE(robot->generalized_v().isApprox(next_qdot));
+  EXPECT_TRUE(robot->tau_actuated().isApprox(next_tau));
+  EXPECT_TRUE(robot->generalized_actuation_force().isApprox(next_tau));
+  EXPECT_DOUBLE_EQ(robot->time(), 1.25);
+}
+
+TEST_F(PublicIDHQPTest, RobotSystemPacksFloatingBaseState) {
+  const std::vector<std::string> package_dirs{TSID_MODEL_DIR};
+  const std::string urdf_file =
+      std::string(TSID_MODEL_DIR) + "/romeo/urdf/romeo.urdf";
+  RobotSystem floating_robot(urdf_file, package_dirs,
+                             pinocchio::JointModelFreeFlyer());
+
+  const Vector q_joints =
+      Vector::LinSpaced(floating_robot.nq_joints(), -0.2, 0.2);
+  const Vector qdot_joints =
+      Vector::LinSpaced(floating_robot.nv_joints(), -0.1, 0.1);
+  const Vector tau = Vector::LinSpaced(floating_robot.na(), -1.0, 1.0);
+
+  BaseState base;
+  base.pose_world_base =
+      pinocchio::SE3(Eigen::Matrix3d::Identity(),
+                     Eigen::Vector3d(0.3, -0.2, 0.7));
+  Eigen::Matrix<double, 6, 1> base_twist;
+  base_twist << 0.1, 0.2, 0.3, -0.1, -0.2, -0.3;
+  base.twist_world_base = pinocchio::Motion(base_twist);
+
+  JointState joint;
+  joint.q = q_joints;
+  joint.qdot = qdot_joints;
+  joint.tau = tau;
+  floating_robot.setTime(2.5);
+  floating_robot.updateState(joint, base);
+
+  ASSERT_EQ(floating_robot.generalized_q().size(), floating_robot.nq());
+  ASSERT_EQ(floating_robot.generalized_v().size(), floating_robot.nv());
+  EXPECT_TRUE(floating_robot.jointState().q.isApprox(q_joints));
+  EXPECT_TRUE(floating_robot.baseState().pose_world_base.isApprox(
+      base.pose_world_base));
+  EXPECT_TRUE(floating_robot.generalized_q().head<3>().isApprox(
+      base.pose_world_base.translation()));
+  EXPECT_TRUE(floating_robot.generalized_q().segment<4>(3).isApprox(
+      Vector::Unit(4, 3)));
+  EXPECT_TRUE(floating_robot.generalized_q()
+                  .tail(floating_robot.nq_joints())
+                  .isApprox(q_joints));
+  EXPECT_TRUE(floating_robot.generalized_v().head<6>().isApprox(
+      base.twist_world_base.toVector()));
+  EXPECT_TRUE(floating_robot.generalized_v()
+                  .tail(floating_robot.nv_joints())
+                  .isApprox(qdot_joints));
+  EXPECT_TRUE(floating_robot.tau_actuated().isApprox(tau));
+  EXPECT_TRUE(floating_robot.generalized_actuation_force()
+                  .head<6>()
+                  .isApprox(Vector::Zero(6)));
+  EXPECT_TRUE(floating_robot.generalized_actuation_force()
+                  .tail(floating_robot.na())
+                  .isApprox(tau));
+  EXPECT_DOUBLE_EQ(floating_robot.time(), 2.5);
+}
 
 TEST_F(PublicIDHQPTest, SolveZeroNominalProblem) {
   auto problem = makeProblem();

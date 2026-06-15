@@ -17,22 +17,16 @@ TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name)
 
 TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name,
                                              const SE3& M)
-    : TrajectoryBase(name) {
+  : TrajectoryBase(name) {
   m_sample.resize(12, 6);
-  TSID_DISABLE_WARNING_PUSH
-  TSID_DISABLE_WARNING_DEPRECATED
   wbc::math::SE3ToVector(M, m_sample.pos);
-  TSID_DISABLE_WARNING_POP
 }
 
 unsigned int TrajectorySE3Constant::size() const { return 6; }
 
 void TrajectorySE3Constant::setReference(const pinocchio::SE3& ref) {
   m_sample.resize(12, 6);
-  TSID_DISABLE_WARNING_PUSH
-  TSID_DISABLE_WARNING_DEPRECATED
   wbc::math::SE3ToVector(ref, m_sample.pos);
-  TSID_DISABLE_WARNING_POP
 }
 
 const TrajectorySample& TrajectorySE3Constant::operator()(double) {

@@ -18,7 +18,6 @@
 #ifndef __invdyn_solvers_hqp_eiquadprog_fast_hpp__
 #define __invdyn_solvers_hqp_eiquadprog_fast_hpp__
 
-#include "wbc_core/deprecated.hh"
 #include "wbc_core/solvers/solver-HQP-base.hpp"
 #include "eiquadprog/eiquadprog-fast.hpp"
 
@@ -64,13 +63,12 @@ class TSID_DLLAPI SolverHQuadProgFast : public SolverHQPBase {
   // <nVars, nEqCon, 2*nIneqCon>
   eiquadprog::solvers::EiquadprogFast m_solver;
 
-  TSID_DEPRECATED Matrix m_H;
-  TSID_DEPRECATED Vector m_g;
-  TSID_DEPRECATED Matrix m_CE;
-  TSID_DEPRECATED Vector m_ce0;
-  TSID_DEPRECATED Matrix
-      m_CI;  /// twice the rows because inequality constraints are bilateral
-  TSID_DEPRECATED Vector m_ci0;
+  Matrix m_H;
+  Vector m_g;
+  Matrix m_CE;
+  Vector m_ce0;
+  Matrix m_CI;  /// twice the rows because inequality constraints are bilateral
+  Vector m_ci0;
   double m_objValue;
   double m_hessian_regularization;
 

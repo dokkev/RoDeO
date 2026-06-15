@@ -20,8 +20,4 @@ InverseDynamicsBase::InverseDynamicsBase(
 MeasuredForceLevel::MeasuredForceLevel(
     contacts::MeasuredForceBase& measuredForce)
     : measuredForce(measuredForce) {}
-
-bool InverseDynamicsBase::addRigidContact(ContactBase& contact) {
-  return addRigidContact(contact, 1e-5);
-}
 }  // namespace wbc

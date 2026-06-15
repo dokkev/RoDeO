@@ -5,8 +5,7 @@
 - Start here for workspace rules.
 - Read `docs/ARCHITECTURE.md` before changing package boundaries, runtime
   wiring, public APIs, or dependency direction.
-- Read `docs/QUALITY.md` before broad refactors or readability reviews.
-- Read `docs/TESTING.md` before running builds, tests, or smoke checks.
+- Read 'docs/NAMING.md` for variable naming rules for controller code.
 - Read `docs/DECISIONS.md` before reversing an architecture choice.
 - Use `docs/PLANS.md` for multi-session or risky work.
 

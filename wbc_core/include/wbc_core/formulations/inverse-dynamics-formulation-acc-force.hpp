@@ -67,8 +67,6 @@ class InverseDynamicsFormulationAccForce
                        double motion_weight = 1.0,
                        unsigned int motion_priority_level = 0) override;
 
-  TSID_DEPRECATED bool addRigidContact(ContactBase& contact) override;
-
   bool updateRigidContactWeights(const std::string& contact_name,
                                  double force_regularization_weight,
                                  double motion_weight = -1.0) override;

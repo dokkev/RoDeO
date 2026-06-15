@@ -20,7 +20,10 @@ RobotState
   -> IDProblemRegistry snapshots active tasks/contacts
   -> IDHQP solves
   -> IDSolution
-  -> CommandAdapter / ROS hardware command
+  -> RobotCommand
+  -> ROS hardware command
+
+RobotLogger records the solver-to-command trace beside the command path.
 ```
 
 Configuration flow:
@@ -39,6 +42,13 @@ YAML files
 The hot path should contain model update, FSM update, problem snapshot, solve,
 and output application. YAML parsing, object creation, factory lookup, and
 schema validation belong outside the 1 kHz loop.
+
+Hot-path functions should be locally readable. Avoid thin helper functions that
+only forward to another helper or split adjacent state updates across files.
+Prefer overloads, clear branches, or a small inline sequence when the input
+shape already expresses the behavior. Add a helper only when it removes real
+duplication, names a durable domain operation, or keeps a large algorithm
+auditable.
 
 ## Module Ownership
 
@@ -160,10 +170,13 @@ The FSM itself should not require ROS or pluginlib.
 - actuator command adaptation
 - `ControlArchitecture` lifetime
 
-The WBC command payload carries all standard actuator-facing channels:
-`q`, `qdot`, `tau`, `kp`, and `kd`. The hardware/ROS layer decides which
-channels to publish through `command_interfaces`; the core does not choose a
-"torque only" versus "integrated command" mode.
+The WBC command payload is a simple model-side holder: `RobotCommand::q`,
+`RobotCommand::qdot`, and `RobotCommand::tau`. The hardware/ROS layer maps
+configured `command_interfaces` to those fields. Command-building trace values
+such as `qddot_sol`, `q_cmd`, `qdot_cmd`, `tau_ff_cmd`, `tau_fb_cmd`, and
+`tau_cmd` are recorded in `RobotLogger`. Hardware-owned impedance gains such as
+`command_kp` and `command_kd` stay in the hardware/ROS layer, not in
+`RobotCommand`.
 
 Robot-specific plugins, such as `optimo_controller::OptimoController`, should be
 thin loader shims that return a robot-specific `RobotControlProfile`.
@@ -174,7 +187,10 @@ thin loader shims that return a robot-specific `RobotControlProfile`.
 tasks/contacts and snapshots the active state into an `IDProblem`.
 
 `IDHQP` solves a ready `IDProblem` and returns an `IDSolution` containing
-acceleration, contact reaction, torque, and integrated command fields.
+acceleration, contact reaction, integrated command fields, and separated torque
+components. `tau_ff_cmd` is the model-based feedforward torque, `tau_fb_cmd` is
+the optional host-side feedback torque, and `tau_cmd` is the final actuator
+torque command.
 
 The intended solver style is HQP cascade. The YAML solver backend chooses the
 inner QP implementation, for example `SOLVER_HQP_PROXQP` when available or an

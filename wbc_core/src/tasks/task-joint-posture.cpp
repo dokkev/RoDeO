@@ -14,27 +14,20 @@ using namespace pinocchio;
 
 TaskJointPosture::TaskJointPosture(const std::string& name, RobotSystem& robot)
     : TaskMotion(name, robot),
-      m_ref(robot.nq_actuated(), robot.na()),
-      m_constraint(name, robot.na(), robot.nv()) {
+      m_ref(robot.nq_joints(), robot.nv_joints()),
+      m_constraint(name, robot.nv_joints(), robot.nv()) {
   m_ref_q_augmented = pinocchio::neutral(robot.model());
-  m_Kp.setZero(robot.na());
-  m_Kd.setZero(robot.na());
-  Vector m = Vector::Ones(robot.na());
+  m_Kp.setZero(robot.nv_joints());
+  m_Kd.setZero(robot.nv_joints());
+  Vector m = Vector::Ones(robot.nv_joints());
   setMask(m);
-}
-
-const Vector& TaskJointPosture::mask() const { return m_mask; }
-
-void TaskJointPosture::mask(const Vector& m) {
-  // std::cerr<<"The method TaskJointPosture::mask is deprecated. Use
-  // TaskJointPosture::setMask instead.\n";
-  return setMask(m);
 }
 
 void TaskJointPosture::setMask(ConstRefVector m) {
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
-      m.size() == m_robot.na(),
-      "The size of the mask needs to equal " + std::to_string(m_robot.na()));
+      m.size() == m_robot.nv_joints(),
+      "The size of the mask needs to equal " +
+          std::to_string(m_robot.nv_joints()));
   m_mask = m;
   const Vector::Index dim = static_cast<Vector::Index>(m.sum());
   Matrix S = Matrix::Zero(dim, m_robot.nv());
@@ -45,7 +38,7 @@ void TaskJointPosture::setMask(ConstRefVector m) {
       PINOCCHIO_CHECK_INPUT_ARGUMENT(
           m(i) == 1.0, "Valid mask values are either 0.0 or 1.0 received: " +
                            std::to_string(m(i)));
-      S(j, m_robot.nv() - m_robot.na() + i) = 1.0;
+      S(j, m_robot.nv() - m_robot.nv_joints() + i) = 1.0;
       m_activeAxes(j) = i;
       j++;
     }
@@ -60,33 +53,33 @@ const Vector& TaskJointPosture::Kp() { return m_Kp; }
 const Vector& TaskJointPosture::Kd() { return m_Kd; }
 
 void TaskJointPosture::Kp(ConstRefVector Kp) {
-  PINOCCHIO_CHECK_INPUT_ARGUMENT(Kp.size() == m_robot.na(),
+  PINOCCHIO_CHECK_INPUT_ARGUMENT(Kp.size() == m_robot.nv_joints(),
                                  "The size of the Kp vector needs to equal " +
-                                     std::to_string(m_robot.na()));
+                                     std::to_string(m_robot.nv_joints()));
   m_Kp = Kp;
 }
 
 void TaskJointPosture::Kd(ConstRefVector Kd) {
-  PINOCCHIO_CHECK_INPUT_ARGUMENT(Kd.size() == m_robot.na(),
+  PINOCCHIO_CHECK_INPUT_ARGUMENT(Kd.size() == m_robot.nv_joints(),
                                  "The size of the Kd vector needs to equal " +
-                                     std::to_string(m_robot.na()));
+                                     std::to_string(m_robot.nv_joints()));
   m_Kd = Kd;
 }
 
 void TaskJointPosture::setReference(const TrajectorySample& ref) {
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
-      ref.getValue().size() == m_robot.nq_actuated(),
+      ref.getValue().size() == m_robot.nq_joints(),
       "The size of the reference value vector needs to equal " +
-          std::to_string(m_robot.nq_actuated()));
+          std::to_string(m_robot.nq_joints()));
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
-      ref.getDerivative().size() == m_robot.na(),
+      ref.getDerivative().size() == m_robot.nv_joints(),
       "The size of the reference value derivative vector needs to equal " +
-          std::to_string(m_robot.na()));
+          std::to_string(m_robot.nv_joints()));
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
-      ref.getSecondDerivative().size() == m_robot.na(),
+      ref.getSecondDerivative().size() == m_robot.nv_joints(),
       "The size of the reference value second derivative vector needs to "
       "equal " +
-          std::to_string(m_robot.na()));
+          std::to_string(m_robot.nv_joints()));
   m_ref = ref;
 }
 
@@ -122,13 +115,13 @@ const ConstraintBase& TaskJointPosture::getConstraint() const {
 
 const ConstraintBase& TaskJointPosture::compute(const double, ConstRefVector q,
                                                 ConstRefVector v, Data&) {
-  m_ref_q_augmented.tail(m_robot.nq_actuated()) = m_ref.getValue();
+  m_ref_q_augmented.tail(m_robot.nq_joints()) = m_ref.getValue();
 
   // Compute errors
   m_p_error = pinocchio::difference(m_robot.model(), m_ref_q_augmented, q)
-                  .tail(m_robot.na());
+                  .tail(m_robot.nv_joints());
 
-  m_v = v.tail(m_robot.na());
+  m_v = v.tail(m_robot.nv_joints());
   m_v_error = m_v - m_ref.getDerivative();
   m_a_des = -m_Kp.cwiseProduct(m_p_error) - m_Kd.cwiseProduct(m_v_error) +
             m_ref.getSecondDerivative();

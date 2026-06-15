@@ -30,29 +30,6 @@ Contact6d::Contact6d(const std::string& name, RobotSystem& robot,
   this->init();
 }
 
-Contact6d::Contact6d(const std::string& name, RobotSystem& robot,
-                     const std::string& frameName, ConstRefMatrix contactPoints,
-                     ConstRefVector contactNormal,
-                     const double frictionCoefficient,
-                     const double minNormalForce, const double maxNormalForce,
-                     const double)
-    : ContactBase(name, robot),
-      m_motionTask(name, robot, frameName),
-      m_forceInequality(name, 17, 12),
-      m_forceRegTask(name, 6, 12),
-      m_contactPoints(contactPoints),
-      m_contactNormal(contactNormal),
-      m_mu(frictionCoefficient),
-      m_fMin(minNormalForce),
-      m_fMax(maxNormalForce) {
-#ifndef NDEBUG
-  std::cout << "[Contact6d] The constructor with forceRegWeight is deprecated "
-               "now. forceRegWeight should now be specified when calling "
-               "addRigidContact()\n";
-#endif
-  this->init();
-}
-
 void Contact6d::init() {
   m_weightForceRegTask << 1, 1, 1e-3, 2, 2, 2;
   m_forceGenMat.resize(6, 12);

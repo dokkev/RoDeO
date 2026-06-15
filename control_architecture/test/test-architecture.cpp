@@ -91,9 +91,9 @@ class YamlJointCommandState final : public State {
 
   void Configure(const YAML::Node& node) override {
     State::Configure(node);
-    target_q_ = ReadVector(node, "target_jpos", robot_->nq_actuated());
-    target_qdot_ = ReadVector(node, "target_jvel", robot_->na());
-    target_qddot_ = ReadVector(node, "target_jacc", robot_->na());
+    target_q_ = ReadVector(node, "target_jpos", robot_->nq_joints());
+    target_qdot_ = ReadVector(node, "target_jvel", robot_->nv_joints());
+    target_qddot_ = ReadVector(node, "target_jacc", robot_->nv_joints());
   }
 
   void OnEnter() override { ApplyReference(); }
@@ -129,8 +129,8 @@ class YamlJointCommandState final : public State {
           "YamlJointCommandState: jpos_task is not assigned");
     }
 
-    wbc::trajectories::TrajectorySample ref(robot_->nq_actuated(),
-                                            robot_->na());
+    wbc::trajectories::TrajectorySample ref(robot_->nq_joints(),
+                                            robot_->nv_joints());
     ref.setValue(target_q_);
     ref.setDerivative(target_qdot_);
     ref.setSecondDerivative(target_qddot_);
@@ -182,8 +182,12 @@ std::unique_ptr<ControlArchitecture> MakeTestArchitecture(
 
 RobotState MakeZeroRobotState(const RobotSystem& robot) {
   RobotState state;
-  state.q = pinocchio::neutral(robot.model());
-  state.qdot = math::Vector::Zero(robot.nv());
+  state.joint.q = pinocchio::neutral(robot.model()).tail(robot.nq_joints());
+  state.joint.qdot = math::Vector::Zero(robot.nv_joints());
+  state.joint.tau = math::Vector::Zero(robot.na());
+  if (!robot.is_fixed_base()) {
+    state.base = BaseState{};
+  }
   return state;
 }
 
@@ -1094,7 +1098,7 @@ TEST_F(ArchitectureTest, ControlArchitecture_EndToEnd) {
   auto state = MakeZeroRobotState(*robot);
 
   for (int i = 0; i < 10; ++i) {
-    state.time = i * 0.001;
+    robot->setTime(i * 0.001);
     arch->Update(state, 0.001);
     EXPECT_DOUBLE_EQ(robot->time(), i * 0.001);
     const auto& cmd = arch->command();
@@ -1164,7 +1168,7 @@ TEST_F(ArchitectureTest, YamlFileToIDHQPDataFlow_SolvesAndProducesCommand) {
   RegisterTestStates(*arch);
 
   auto state = MakeZeroRobotState(*robot);
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
 
   EXPECT_EQ(arch->fsmHandler()->GetCurrentStateId(), 0);
@@ -1183,11 +1187,20 @@ TEST_F(ArchitectureTest, YamlFileToIDHQPDataFlow_SolvesAndProducesCommand) {
 
   const auto& cmd = arch->command();
   EXPECT_EQ(cmd.tau.size(), robot->na());
-  EXPECT_EQ(cmd.q.size(), robot->na());
-  EXPECT_EQ(cmd.qdot.size(), robot->na());
+  EXPECT_EQ(cmd.q.size(), robot->nq_joints());
+  EXPECT_EQ(cmd.qdot.size(), robot->nv_joints());
   EXPECT_TRUE(cmd.tau.allFinite());
   EXPECT_TRUE(cmd.q.allFinite());
   EXPECT_TRUE(cmd.qdot.allFinite());
+
+  const auto& logger = arch->logger();
+  EXPECT_EQ(logger.qddot_sol.size(), robot->nv());
+  EXPECT_EQ(logger.tau_ff_cmd.size(), robot->na());
+  EXPECT_EQ(logger.tau_fb_cmd.size(), robot->na());
+  EXPECT_EQ(logger.tau_cmd.size(), robot->na());
+  EXPECT_TRUE(logger.q_cmd.isApprox(cmd.q));
+  EXPECT_TRUE(logger.qdot_cmd.isApprox(cmd.qdot));
+  EXPECT_TRUE(logger.tau_cmd.isApprox(cmd.tau));
 
   fs::remove_all(temp_dir);
 }
@@ -1202,7 +1215,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_TracksConfiguredJointReference) {
 
   const fs::path root_path = temp_dir / "wbc_tracking.yaml";
 
-  Eigen::VectorXd target = Eigen::VectorXd::Zero(robot->nq_actuated());
+  Eigen::VectorXd target = Eigen::VectorXd::Zero(robot->nq_joints());
   target(0) = 0.05;
   if (target.size() > 3) {
     target(3) = -0.025;
@@ -1248,7 +1261,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_TracksConfiguredJointReference) {
   RegisterYamlJointCommandState(*arch);
 
   auto state = MakeZeroRobotState(*robot);
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
 
   const auto& sol = arch->solver()->solution();
@@ -1263,7 +1276,8 @@ TEST_F(ArchitectureTest, YamlJointCommand_TracksConfiguredJointReference) {
 
   const auto& state_cfg = arch->config()->states.at(0);
   const auto problem = arch->registry()->buildProblem(
-      robot->time(), robot->q(), robot->qdot(), arch->solver()->data(),
+      robot->time(), robot->generalized_q(), robot->generalized_v(),
+      arch->solver()->data(),
       state_cfg.task_names, state_cfg.task_weights, state_cfg.task_levels,
       state_cfg.contact_names);
   ASSERT_EQ(problem.objectives.size(), 1u);
@@ -1278,7 +1292,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_TracksConfiguredJointReference) {
   const auto& cmd = arch->command();
   const Eigen::VectorXd expected_qdot = 0.001 * expected_acc;
   const Eigen::VectorXd expected_q =
-      state.q.tail(robot->na()) + 0.001 * expected_qdot;
+      state.joint.q + 0.001 * expected_qdot;
   EXPECT_LT(InfNorm(cmd.qdot - expected_qdot), 1e-8);
   EXPECT_LT(InfNorm(cmd.q - expected_q), 1e-8);
   EXPECT_GT(cmd.qdot(0), 0.0);
@@ -1299,7 +1313,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_GravityCompensatesAtStaticReference) {
 
   const fs::path root_path = temp_dir / "wbc_gravity.yaml";
   auto state = MakeZeroRobotState(*robot);
-  const Eigen::VectorXd target = state.q.tail(robot->nq_actuated());
+  const Eigen::VectorXd target = state.joint.q;
 
   {
     std::ofstream out(root_path);
@@ -1340,7 +1354,7 @@ TEST_F(ArchitectureTest, YamlJointCommand_GravityCompensatesAtStaticReference) {
   auto arch = std::make_unique<ControlArchitecture>(std::move(config), robot);
   RegisterYamlJointCommandState(*arch);
 
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
 
   const auto& sol = arch->solver()->solution();
@@ -1367,7 +1381,7 @@ TEST_F(ArchitectureTest, PinocchioDynamics_FixedBaseTorqueMatchesSolvedState) {
   auto arch = MakeTestArchitecture(root, robot);
 
   auto state = MakeZeroRobotState(*robot);
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
 
   const auto& sol = arch->solver()->solution();
@@ -1453,7 +1467,7 @@ TEST_F(ArchitectureTest,
   RegisterTestStates(*arch);
 
   auto state = MakeZeroRobotState(*fb_robot);
-  state.time = 0.0;
+  fb_robot->setTime(0.0);
   arch->Update(state, 0.001);
 
   const auto& sol = arch->solver()->solution();
@@ -1465,7 +1479,8 @@ TEST_F(ArchitectureTest,
 
   const auto& state_cfg = arch->config()->states.at(0);
   const auto problem = arch->registry()->buildProblem(
-      fb_robot->time(), fb_robot->q(), fb_robot->qdot(), arch->solver()->data(),
+      fb_robot->time(), fb_robot->generalized_q(),
+      fb_robot->generalized_v(), arch->solver()->data(),
       state_cfg.task_names, state_cfg.task_weights, state_cfg.task_levels,
       state_cfg.contact_names);
 
@@ -1515,13 +1530,13 @@ TEST_F(ArchitectureTest, ControlArchitecture_StateTransition) {
   auto state = MakeZeroRobotState(*robot);
 
   // Start in state 0
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
   EXPECT_EQ(arch->fsmHandler()->GetCurrentStateId(), 0);
 
   // Request state 1
   arch->RequestState(1);
-  state.time = 0.001;
+  robot->setTime(0.001);
   arch->Update(state, 0.001);
   EXPECT_EQ(arch->fsmHandler()->GetCurrentStateId(), 1);
 
@@ -1536,15 +1551,15 @@ TEST_F(ArchitectureTest, ControlArchitecture_InitialCommandHoldsMeasuredState) {
   arch->Initialize();
 
   auto state = MakeZeroRobotState(*robot);
-  state.q.tail(robot->nq_actuated()).setConstant(0.05);
-  state.qdot.tail(robot->na()).setConstant(0.02);
-  state.time = 0.0;
+  state.joint.q.setConstant(0.05);
+  state.joint.qdot.setConstant(0.02);
+  robot->setTime(0.0);
 
   arch->Update(state, 0.0);
 
   const auto& cmd = arch->command();
-  EXPECT_TRUE(cmd.q.isApprox(state.q.tail(robot->nq_actuated())));
-  EXPECT_TRUE(cmd.qdot.isApprox(state.qdot.tail(robot->na())));
+  EXPECT_TRUE(cmd.q.isApprox(state.joint.q));
+  EXPECT_TRUE(cmd.qdot.isApprox(state.joint.qdot));
   EXPECT_TRUE(cmd.tau.allFinite());
 }
 
@@ -1574,14 +1589,14 @@ TEST_F(ArchitectureTest, ControlArchitecture_StateMachineReferenceOnly) {
   auto state = MakeZeroRobotState(*robot);
 
   // Go to YAML-driven joint reference state.
-  state.time = 0.0;
+  robot->setTime(0.0);
   arch->Update(state, 0.001);
   arch->RequestState(3);
-  state.time = 0.001;
+  robot->setTime(0.001);
   arch->Update(state, 0.001);
   EXPECT_EQ(arch->fsmHandler()->GetCurrentStateId(), 3);
 
-  state.time = 0.002;
+  robot->setTime(0.002);
   arch->Update(state, 0.001);
   const auto& cmd = arch->command();
   EXPECT_TRUE(cmd.tau.allFinite());
@@ -1595,48 +1610,32 @@ TEST_F(ArchitectureTest, ControlArchitecture_LongRunStability) {
   auto state = MakeZeroRobotState(*robot);
 
   for (int i = 0; i < 500; ++i) {
-    state.time = i * 0.001;
+    robot->setTime(i * 0.001);
     arch->Update(state, 0.001);
     const auto& cmd = arch->command();
     ASSERT_TRUE(cmd.tau.allFinite()) << "NaN at tick " << i;
   }
 }
 
-TEST_F(ArchitectureTest, CommandAdapter_MapsFullCommandPayload) {
-  CommandAdapter adapter;
+TEST_F(ArchitectureTest, RobotLogger_InitializesTraceBuffers) {
+  RobotLogger logger;
+  logger.Initialize(*robot);
 
-  LowLevelCommand cmd;
-  cmd.Initialize(robot->na());
-
-  wbc::IDSolution sol;
-  sol.tau_cmd = Eigen::VectorXd::Constant(robot->na(), 1.23);
-  sol.qddot_sol = Eigen::VectorXd::Zero(robot->nv());
-  sol.q_cmd = pinocchio::neutral(robot->model());
-  sol.qdot_cmd = Eigen::VectorXd::Zero(robot->nv());
-
-  const bool ok = adapter.fromSolution(sol, *robot, cmd);
-
-  EXPECT_TRUE(ok);
-  EXPECT_EQ(cmd.tau.size(), robot->na());
-  EXPECT_TRUE(cmd.tau.isApprox(sol.tau_cmd));
-  EXPECT_TRUE(cmd.q.isApprox(sol.q_cmd.head(robot->na())));
-  EXPECT_TRUE(cmd.qdot.isApprox(sol.qdot_cmd.head(robot->na())));
+  EXPECT_EQ(logger.qddot_sol.size(), robot->nv());
+  EXPECT_EQ(logger.q_cmd.size(), robot->nq_joints());
+  EXPECT_EQ(logger.qdot_cmd.size(), robot->nv_joints());
+  EXPECT_EQ(logger.tau_ff_cmd.size(), robot->na());
+  EXPECT_EQ(logger.tau_fb_cmd.size(), robot->na());
+  EXPECT_EQ(logger.tau_cmd.size(), robot->na());
 }
 
-TEST_F(ArchitectureTest,
-       CommandAdapter_RejectsMissingIntegratedCommandPayload) {
-  CommandAdapter adapter;
+TEST_F(ArchitectureTest, RobotCommand_InitializesCommandBuffers) {
+  RobotCommand cmd;
+  cmd.Initialize(*robot);
 
-  LowLevelCommand cmd;
-  cmd.Initialize(robot->na());
-
-  wbc::IDSolution sol;
-  sol.tau_cmd = Eigen::VectorXd::Zero(robot->na());
-  sol.qddot_sol = Eigen::VectorXd::Zero(robot->nv());
-
-  const bool ok = adapter.fromSolution(sol, *robot, cmd);
-
-  EXPECT_FALSE(ok);
+  EXPECT_EQ(cmd.q.size(), robot->nq_joints());
+  EXPECT_EQ(cmd.qdot.size(), robot->nv_joints());
+  EXPECT_EQ(cmd.tau.size(), robot->na());
 }
 
 int main(int argc, char** argv) {

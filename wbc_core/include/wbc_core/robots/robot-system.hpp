@@ -18,12 +18,14 @@
 #ifndef WBC_CORE_ROBOTS_ROBOT_SYSTEM_HPP_
 #define WBC_CORE_ROBOTS_ROBOT_SYSTEM_HPP_
 
-#include "wbc_core/deprecated.hh"
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/fwd.hpp"
+#include "wbc_core/robots/robot-state.hpp"
 
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>
+#include <pinocchio/spatial/motion.hpp>
+#include <pinocchio/spatial/se3.hpp>
 #include <pinocchio/spatial/fwd.hpp>
 
 #include <string>
@@ -32,15 +34,6 @@
 namespace wbc {
 namespace robots {
 
-/// Generalized robot state snapshot owned by RobotSystem.
-struct RobotState {
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  math::Vector q;     ///< Generalized configuration, size nq().
-  math::Vector qdot;  ///< Generalized velocity, size nv().
-  double time{0.0};   ///< State timestamp in seconds.
-};
-
 ///
 /// \brief Pinocchio-backed robot model helper.
 ///
@@ -48,25 +41,11 @@ class RobotSystem {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  typedef math::Scalar Scalar;
-  typedef pinocchio::Model Model;
-  typedef pinocchio::Data Data;
-  typedef pinocchio::Motion Motion;
-  typedef pinocchio::Frame Frame;
-  typedef pinocchio::SE3 SE3;
-  typedef math::Vector Vector;
-  typedef math::Vector3 Vector3;
-  typedef math::Vector6 Vector6;
-  typedef math::Matrix Matrix;
-  typedef math::Matrix3x Matrix3x;
-  typedef math::RefVector RefVector;
-  typedef math::ConstRefVector ConstRefVector;
-
   /* Possible root joints */
-  typedef enum e_RootJointType {
+  enum RootJointType {
     FIXED_BASE_SYSTEM = 0,
     FLOATING_BASE_SYSTEM = 1,
-  } RootJointType;
+  };
 
   RobotSystem(const std::string& filename,
               const std::vector<std::string>& package_dirs,
@@ -77,15 +56,15 @@ class RobotSystem {
               const pinocchio::JointModelVariant& rootJoint,
               bool verbose = false);
 
-  TSID_DEPRECATED RobotSystem(const Model& m, bool verbose = false);
-
-  RobotSystem(const Model& m, RootJointType rootJoint, bool verbose = false);
+  RobotSystem(const pinocchio::Model& m, RootJointType rootJoint,
+              bool verbose = false);
 
   virtual ~RobotSystem() = default;
 
   virtual int nq() const;
-  virtual int nq_actuated() const;
+  virtual int nq_joints() const;
   virtual int nv() const;
+  virtual int nv_joints() const;
   virtual int na() const;
   virtual bool is_fixed_base() const;
   virtual bool hasState() const;
@@ -95,117 +74,148 @@ class RobotSystem {
   ///
   /// \returns a const reference on the model.
   ///
-  const Model& model() const;
-  Model& model();
+  const pinocchio::Model& model() const;
+  pinocchio::Model& model();
 
-  void updateState(ConstRefVector q, ConstRefVector qdot);
-  void updateState(ConstRefVector q, ConstRefVector qdot, double time);
-  void updateState(const RobotState& state);
+  void updateState(const JointState& joint);
+  void updateState(const JointState& joint, const BaseState& base);
+  void updateState(const GeneralizedState& generalized);
+  void updateState(const GeneralizedState& generalized,
+                   math::ConstRefVector tau_actuated);
+
   const RobotState& state() const;
-  const Vector& q() const;
-  const Vector& qdot() const;
+  const JointState& jointState() const;
+  const BaseState& baseState() const;
+
+  const math::Vector& generalized_q() const;
+  const math::Vector& generalized_v() const;
+  const math::Vector& tau_actuated() const;
+  math::Vector generalized_actuation_force() const;
   double time() const;
+  void setTime(double time);
 
-  void computeAllTerms(Data& data, const Vector& q, const Vector& v) const;
+  bool isValidJointState(const JointState& joint) const;
+  bool isValidBaseState(const BaseState& base) const;
+  bool isValidGeneralizedState(const GeneralizedState& generalized) const;
 
-  const Vector& rotor_inertias() const;
-  const Vector& gear_ratios() const;
+  void computeAllTerms(pinocchio::Data& data, const math::Vector& q,
+                       const math::Vector& v) const;
 
-  bool rotor_inertias(ConstRefVector rotor_inertias);
-  bool gear_ratios(ConstRefVector gear_ratios);
+  const math::Vector& rotor_inertias() const;
+  const math::Vector& gear_ratios() const;
 
-  void com(const Data& data, RefVector com_pos, RefVector com_vel,
-           RefVector com_acc) const;
+  bool rotor_inertias(math::ConstRefVector rotor_inertias);
+  bool gear_ratios(math::ConstRefVector gear_ratios);
 
-  const Vector3& com(const Data& data) const;
+  void com(const pinocchio::Data& data, math::RefVector com_pos,
+           math::RefVector com_vel, math::RefVector com_acc) const;
 
-  const Vector3& com_vel(const Data& data) const;
+  const math::Vector3& com(const pinocchio::Data& data) const;
 
-  const Vector3& com_acc(const Data& data) const;
+  const math::Vector3& com_vel(const pinocchio::Data& data) const;
 
-  const Matrix3x& Jcom(const Data& data) const;
+  const math::Vector3& com_acc(const pinocchio::Data& data) const;
 
-  const Matrix& mass(const Data& data);
+  const math::Matrix3x& Jcom(const pinocchio::Data& data) const;
 
-  const Vector& nonLinearEffects(const Data& data) const;
+  const math::Matrix& mass(const pinocchio::Data& data);
 
-  const SE3& position(const Data& data, const Model::JointIndex index) const;
+  const math::Vector& nonLinearEffects(const pinocchio::Data& data) const;
 
-  const Motion& velocity(const Data& data, const Model::JointIndex index) const;
+  const pinocchio::SE3& position(const pinocchio::Data& data,
+                                 pinocchio::Model::JointIndex index) const;
 
-  const Motion& acceleration(const Data& data,
-                             const Model::JointIndex index) const;
+  const pinocchio::Motion& velocity(
+      const pinocchio::Data& data, pinocchio::Model::JointIndex index) const;
 
-  void jacobianWorld(const Data& data, const Model::JointIndex index,
-                     Data::Matrix6x& J) const;
+  const pinocchio::Motion& acceleration(
+      const pinocchio::Data& data, pinocchio::Model::JointIndex index) const;
 
-  void jacobianLocal(const Data& data, const Model::JointIndex index,
-                     Data::Matrix6x& J) const;
+  void jacobianWorld(const pinocchio::Data& data,
+                     pinocchio::Model::JointIndex index,
+                     pinocchio::Data::Matrix6x& J) const;
 
-  SE3 framePosition(const Data& data, const Model::FrameIndex index) const;
+  void jacobianLocal(const pinocchio::Data& data,
+                     pinocchio::Model::JointIndex index,
+                     pinocchio::Data::Matrix6x& J) const;
 
-  void framePosition(const Data& data, const Model::FrameIndex index,
-                     SE3& framePosition) const;
+  pinocchio::SE3 framePosition(const pinocchio::Data& data,
+                               pinocchio::Model::FrameIndex index) const;
 
-  Motion frameVelocity(const Data& data, const Model::FrameIndex index) const;
+  void framePosition(const pinocchio::Data& data,
+                     pinocchio::Model::FrameIndex index,
+                     pinocchio::SE3& framePosition) const;
 
-  Motion frameVelocityWorldOriented(const Data& data,
-                                    const Model::FrameIndex index) const;
+  pinocchio::Motion frameVelocity(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  void frameVelocity(const Data& data, const Model::FrameIndex index,
-                     Motion& frameVelocity) const;
+  pinocchio::Motion frameVelocityWorldOriented(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  Motion frameAcceleration(const Data& data,
-                           const Model::FrameIndex index) const;
+  void frameVelocity(const pinocchio::Data& data,
+                     pinocchio::Model::FrameIndex index,
+                     pinocchio::Motion& frameVelocity) const;
 
-  Motion frameAccelerationWorldOriented(const Data& data,
-                                        const Model::FrameIndex index) const;
+  pinocchio::Motion frameAcceleration(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  void frameAcceleration(const Data& data, const Model::FrameIndex index,
-                         Motion& frameAcceleration) const;
+  pinocchio::Motion frameAccelerationWorldOriented(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  Motion frameClassicAcceleration(const Data& data,
-                                  const Model::FrameIndex index) const;
+  void frameAcceleration(const pinocchio::Data& data,
+                         pinocchio::Model::FrameIndex index,
+                         pinocchio::Motion& frameAcceleration) const;
 
-  Motion frameClassicAccelerationWorldOriented(
-      const Data& data, const Model::FrameIndex index) const;
+  pinocchio::Motion frameClassicAcceleration(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  void frameClassicAcceleration(const Data& data, const Model::FrameIndex index,
-                                Motion& frameAcceleration) const;
+  pinocchio::Motion frameClassicAccelerationWorldOriented(
+      const pinocchio::Data& data, pinocchio::Model::FrameIndex index) const;
 
-  void frameJacobianWorld(Data& data, const Model::FrameIndex index,
-                          Data::Matrix6x& J) const;
+  void frameClassicAcceleration(const pinocchio::Data& data,
+                                pinocchio::Model::FrameIndex index,
+                                pinocchio::Motion& frameAcceleration) const;
 
-  void frameJacobianLocal(Data& data, const Model::FrameIndex index,
-                          Data::Matrix6x& J) const;
+  void frameJacobianWorld(pinocchio::Data& data,
+                          pinocchio::Model::FrameIndex index,
+                          pinocchio::Data::Matrix6x& J) const;
 
-  const Data::Matrix6x& momentumJacobian(const Data& data) const;
+  void frameJacobianLocal(pinocchio::Data& data,
+                          pinocchio::Model::FrameIndex index,
+                          pinocchio::Data::Matrix6x& J) const;
 
-  Vector3 angularMomentumTimeVariation(const Data& data) const;
+  const pinocchio::Data::Matrix6x& momentumJacobian(
+      const pinocchio::Data& data) const;
 
-  void setGravity(const Motion& gravity);
+  math::Vector3 angularMomentumTimeVariation(
+      const pinocchio::Data& data) const;
+
+  void setGravity(const pinocchio::Motion& gravity);
 
  protected:
   void init();
+  void validateJointState(const JointState& joint) const;
+  void validateBaseState(const BaseState& base) const;
+  void validateGeneralizedState(const GeneralizedState& generalized) const;
   void updateMd();
 
   /// \brief Robot model.
-  Model m_model;
+  pinocchio::Model m_model;
   std::string m_model_filename;
   bool m_verbose;
 
-  int m_nq_actuated;  /// dimension of the configuration space of the actuated
-                      /// DoF (nq for fixed-based, nq-7 for floating-base
-                      /// robots)
-  int m_na;  /// number of actuators (nv for fixed-based, nv-6 for floating-base
-             /// robots)
+  int m_nq_joints;  ///< Joint configuration dimension excluding floating base.
+  int m_nv_joints;  ///< Joint velocity dimension excluding floating base.
+  int m_na;         ///< Actuator torque dimension.
   bool m_is_fixed_base;
-  Vector m_rotor_inertias;
-  Vector m_gear_ratios;
+  math::Vector m_rotor_inertias;
+  math::Vector m_gear_ratios;
   RobotState m_state;
-  Vector m_Md;      /// diagonal part of inertia matrix due to rotor inertias
-  Matrix m_M;       /// inertia matrix including rotor inertias
-  Vector m_zero_v;  /// pre-allocated zero velocity for computeAllTerms
+  GeneralizedState m_generalized_state;
+  double m_time{0.0};
+  math::Vector m_Md;  /// diagonal part of inertia matrix due to rotor inertias
+  math::Matrix m_M;   /// inertia matrix including rotor inertias
+  math::Vector m_zero_v;  /// pre-allocated zero velocity for computeAllTerms
   bool m_has_state{false};
 };
 

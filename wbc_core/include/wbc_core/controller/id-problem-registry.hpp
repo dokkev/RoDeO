@@ -130,49 +130,91 @@ class IDProblemRegistry {
     m_hExt = h_ext;
   }
 
-  IDProblem buildProblem(double time, math::ConstRefVector q,
-                         math::ConstRefVector qdot) {
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints) {
     static const std::vector<std::string> kEmptyNames;
     static const std::vector<double> kEmptyWeights;
-    return buildProblem(time, q, qdot, kEmptyNames, kEmptyWeights, kEmptyNames);
+    return buildProblem(time, q_joints, qdot_joints, kEmptyNames,
+                        kEmptyWeights, kEmptyNames);
   }
 
-  IDProblem buildProblem(double time, math::ConstRefVector q,
-                         math::ConstRefVector qdot,
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
+                         const robots::BaseState& base) {
+    static const std::vector<std::string> kEmptyNames;
+    static const std::vector<double> kEmptyWeights;
+    return buildProblem(time, q_joints, qdot_joints, base,
+                        kEmptyNames, kEmptyWeights, kEmptyNames);
+  }
+
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
                          const std::vector<std::string>& active_task_names,
                          const std::vector<double>& task_weights,
                          const std::vector<std::string>& active_contact_names) {
     static const std::vector<int> kEmptyLevels;
-    return buildProblem(time, q, qdot, active_task_names, task_weights,
-                        kEmptyLevels, active_contact_names);
+    return buildProblem(time, q_joints, qdot_joints, active_task_names,
+                        task_weights, kEmptyLevels, active_contact_names);
   }
 
-  IDProblem buildProblem(double time, math::ConstRefVector q,
-                         math::ConstRefVector qdot,
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
+                         const robots::BaseState& base,
+                         const std::vector<std::string>& active_task_names,
+                         const std::vector<double>& task_weights,
+                         const std::vector<std::string>& active_contact_names) {
+    static const std::vector<int> kEmptyLevels;
+    return buildProblem(time, q_joints, qdot_joints, base,
+                        active_task_names, task_weights, kEmptyLevels,
+                        active_contact_names);
+  }
+
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
                          const std::vector<std::string>& active_task_names,
                          const std::vector<double>& task_weights,
                          const std::vector<int>& task_levels,
                          const std::vector<std::string>& active_contact_names) {
-    m_robot.updateState(q, qdot);
-    m_qBuffer = q;
-    m_qdotBuffer = qdot;
-    m_robot.computeAllTerms(m_data, q, qdot);
-    return buildProblemFromData(time, q, qdot, m_data, active_task_names,
-                                task_weights, task_levels,
+    m_robot.setTime(time);
+    m_robot.updateState(makeJointState(q_joints, qdot_joints));
+    m_qBuffer = m_robot.generalized_q();
+    m_vBuffer = m_robot.generalized_v();
+    m_robot.computeAllTerms(m_data, m_qBuffer, m_vBuffer);
+    return buildProblemFromData(time, m_qBuffer, m_vBuffer, m_data,
+                                active_task_names, task_weights, task_levels,
                                 active_contact_names);
   }
 
-  IDProblem buildProblem(double time, math::ConstRefVector q,
-                         math::ConstRefVector qdot, pinocchio::Data& data,
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
+                         const robots::BaseState& base,
                          const std::vector<std::string>& active_task_names,
                          const std::vector<double>& task_weights,
                          const std::vector<int>& task_levels,
                          const std::vector<std::string>& active_contact_names) {
-    m_robot.updateState(q, qdot);
-    m_qBuffer = q;
-    m_qdotBuffer = qdot;
-    return buildProblemFromData(time, q, qdot, data, active_task_names,
-                                task_weights, task_levels,
+    m_robot.setTime(time);
+    m_robot.updateState(makeJointState(q_joints, qdot_joints), base);
+    m_qBuffer = m_robot.generalized_q();
+    m_vBuffer = m_robot.generalized_v();
+    m_robot.computeAllTerms(m_data, m_qBuffer, m_vBuffer);
+    return buildProblemFromData(time, m_qBuffer, m_vBuffer, m_data,
+                                active_task_names, task_weights, task_levels,
+                                active_contact_names);
+  }
+
+  IDProblem buildProblem(double time, math::ConstRefVector q_joints,
+                         math::ConstRefVector qdot_joints,
+                         pinocchio::Data& data,
+                         const std::vector<std::string>& active_task_names,
+                         const std::vector<double>& task_weights,
+                         const std::vector<int>& task_levels,
+                         const std::vector<std::string>& active_contact_names) {
+    m_robot.setTime(time);
+    m_robot.updateState(makeJointState(q_joints, qdot_joints));
+    m_qBuffer = m_robot.generalized_q();
+    m_vBuffer = m_robot.generalized_v();
+    return buildProblemFromData(time, m_qBuffer, m_vBuffer, data,
+                                active_task_names, task_weights, task_levels,
                                 active_contact_names);
   }
 
@@ -184,8 +226,17 @@ class IDProblemRegistry {
   }
 
  private:
+  robots::JointState makeJointState(math::ConstRefVector q_joints,
+                                    math::ConstRefVector qdot_joints) const {
+    robots::JointState joint;
+    joint.q = q_joints;
+    joint.qdot = qdot_joints;
+    joint.tau = m_robot.tau_actuated();
+    return joint;
+  }
+
   IDProblem buildProblemFromData(
-      double time, math::ConstRefVector q, math::ConstRefVector qdot,
+      double time, math::ConstRefVector q, math::ConstRefVector v,
       pinocchio::Data& data, const std::vector<std::string>& active_task_names,
       const std::vector<double>& task_weights,
       const std::vector<int>& task_levels,
@@ -196,7 +247,7 @@ class IDProblemRegistry {
     problem.hierarchy = m_hierarchy;
     problem.regularization = m_regularization;
 
-    resolveReferenceAcceleration(time, q, qdot);
+    resolveReferenceAcceleration(time, q, v);
     problem.qddot_ref = &m_qddotRef;
 
     const bool use_task_filter = !active_task_names.empty();
@@ -236,7 +287,7 @@ class IDProblemRegistry {
       const double weight = weightOverride(name).value_or(entry.weight);
       const unsigned int level = levelOverride(name).value_or(entry.level);
       auto constraint =
-          computeMotionConstraint(*entry.task, time, q, qdot, data);
+          computeMotionConstraint(*entry.task, time, q, v, data);
       problem.objectives.push_back(
           ObjectiveTerm::MakeMotionConstraint(constraint, level, weight));
     };
@@ -274,14 +325,14 @@ class IDProblemRegistry {
         }
         activeContacts.push_back(it->second);
         problem.contacts.push_back(
-            snapshotContact(it->second->contact, time, q, qdot, data));
+            snapshotContact(it->second->contact, time, q, v, data));
       }
     } else {
       activeContacts.reserve(m_contacts.size());
       for (auto& [name, level] : m_contacts) {
         activeContacts.push_back(level);
         problem.contacts.push_back(
-            snapshotContact(level->contact, time, q, qdot, data));
+            snapshotContact(level->contact, time, q, v, data));
       }
     }
 
@@ -291,20 +342,20 @@ class IDProblemRegistry {
   static MotionConstraintRef computeMotionConstraint(tasks::TaskMotion& task,
                                                      double time,
                                                      math::ConstRefVector q,
-                                                     math::ConstRefVector qdot,
+                                                     math::ConstRefVector v,
                                                      pinocchio::Data& data) {
-    const auto& constraint = task.compute(time, q, qdot, data);
+    const auto& constraint = task.compute(time, q, v, data);
     return MotionConstraintRef{task.name(), &constraint};
   }
 
   static ContactConstraintData snapshotContact(contacts::ContactBase& contact,
                                                double time,
                                                math::ConstRefVector q,
-                                               math::ConstRefVector qdot,
+                                               math::ConstRefVector v,
                                                pinocchio::Data& data) {
-    contact.computeMotionConstraint(time, q, qdot, data);
-    contact.computeForceTask(time, q, qdot, data);
-    contact.computeForceRegularizationTask(time, q, qdot, data);
+    contact.computeMotionConstraint(time, q, v, data);
+    contact.computeForceTask(time, q, v, data);
+    contact.computeForceRegularizationTask(time, q, v, data);
 
     ContactConstraintData out;
     out.name = contact.name();
@@ -324,9 +375,9 @@ class IDProblemRegistry {
   }
 
   void resolveReferenceAcceleration(double time, math::ConstRefVector q,
-                                    math::ConstRefVector qdot) {
+                                    math::ConstRefVector v) {
     (void)q;
-    (void)qdot;
+    (void)v;
     if (!m_referenceAccelerationEnabled) {
       m_qddotRef.setZero(m_robot.nv());
       return;
@@ -340,7 +391,7 @@ class IDProblemRegistry {
       nominal::NominalAccelerationContext ctx;
       ctx.time = time;
       ctx.q = &m_qBuffer;
-      ctx.v = &m_qdotBuffer;
+      ctx.v = &m_vBuffer;
       ctx.nv = m_robot.nv();
       ctx.lambdaDim = 0;
       if (m_nominalProvider->compute(ctx, m_qddotRef)) {
@@ -363,7 +414,7 @@ class IDProblemRegistry {
   std::shared_ptr<nominal::NominalAccelerationProvider> m_nominalProvider;
 
   math::Vector m_qBuffer;
-  math::Vector m_qdotBuffer;
+  math::Vector m_vBuffer;
   math::Vector m_qddotRef;
   bool m_hasExternalReference{false};
   bool m_referenceAccelerationEnabled{true};

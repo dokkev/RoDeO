@@ -208,13 +208,6 @@ bool InverseDynamicsFormulationAccForce::addRigidContact(
   return true;
 }
 
-bool InverseDynamicsFormulationAccForce::addRigidContact(ContactBase& contact) {
-  std::cout << "[InverseDynamicsFormulationAccForce] Method "
-               "addRigidContact(ContactBase) is deprecated. You should use "
-               "addRigidContact(ContactBase, double) instead.\n";
-  return addRigidContact(contact, 1e-5);
-}
-
 bool InverseDynamicsFormulationAccForce::updateRigidContactWeights(
     const std::string& contact_name, double force_regularization_weight,
     double motion_weight) {

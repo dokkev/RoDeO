@@ -19,7 +19,9 @@ struct IDSolution {
   math::Vector qdot_cmd;     ///< Integrated generalized velocity command.
   math::Vector q_cmd;        ///< Integrated generalized configuration command.
   math::Vector lambda_sol;   ///< Solved contact reaction forces.
-  math::Vector tau_cmd;      ///< Solved actuator torque command.
+  math::Vector tau_ff_cmd;   ///< Model-based feedforward actuator torque.
+  math::Vector tau_fb_cmd;   ///< Host-side feedback actuator torque.
+  math::Vector tau_cmd;      ///< Final actuator torque command.
   bool success{false};
 };
 

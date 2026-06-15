@@ -66,14 +66,16 @@ void ControlArchitecture::Initialize() {
                                          config_.solver_qp_params);
   solver_->setTimingEnabled(timing_enabled_);
 
-  robot_->computeAllTerms(solver_->data(), robot_->q(), robot_->qdot());
+  robot_->computeAllTerms(solver_->data(), robot_->generalized_q(),
+                          robot_->generalized_v());
 
   BindRegistry(config_, *registry_, *robot_, solver_->data());
 
   StateMachineAssembler::Assemble(config_, fsm_handler_, *robot_,
                                   solver_->data(), state_factory_);
 
-  cmd_.Initialize(robot_->na());
+  cmd_.Initialize(*robot_);
+  logger_.Initialize(*robot_);
 
   initialized_ = true;
 }
@@ -83,7 +85,11 @@ void ControlArchitecture::Initialize() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void ControlArchitecture::Update(const robots::RobotState& state, double dt) {
-  robot_->updateState(state);
+  if (state.base) {
+    robot_->updateState(state.joint, *state.base);
+  } else {
+    robot_->updateState(state.joint);
+  }
   if (!initialized_) Initialize();
   if (!command_initialized_) {
     InitializeCommandFromRobotState();
@@ -114,7 +120,8 @@ void ControlArchitecture::Step(double dt) {
 
 void ControlArchitecture::UpdateModelTerms() {
   ScopedPhaseTimer timer(timing_enabled_, timing_stats_.model_us);
-  robot_->computeAllTerms(solver_->data(), robot_->q(), robot_->qdot());
+  robot_->computeAllTerms(solver_->data(), robot_->generalized_q(),
+                          robot_->generalized_v());
 }
 
 void ControlArchitecture::UpdateStateMachine(double current_time, double dt) {
@@ -130,7 +137,8 @@ IDProblem ControlArchitecture::BuildProblem(double current_time) {
 
   const StateConfig* sc = ActiveStateConfig();
   return registry_->buildProblem(
-      current_time, robot_->q(), robot_->qdot(), solver_->data(),
+      current_time, robot_->generalized_q(), robot_->generalized_v(),
+      solver_->data(),
       sc ? sc->task_names : kEmptyNames, sc ? sc->task_weights : kEmptyWeights,
       sc ? sc->task_levels : kEmptyLevels,
       sc ? sc->contact_names : kEmptyNames);
@@ -148,30 +156,68 @@ void ControlArchitecture::ApplySolution(const IDSolution& solution) {
     return;
   }
 
-  if (command_adapter_.fromSolution(solution, *robot_, cmd_)) {
-    command_initialized_ = true;
-  }
-}
-
-void ControlArchitecture::InitializeCommandFromRobotState() {
+  const int nq_joints = robot_->nq_joints();
+  const int nv_joints = robot_->nv_joints();
   const int na = robot_->na();
   const int q_offset = robot_->is_fixed_base() ? 0 : 7;
   const int v_offset = robot_->is_fixed_base() ? 0 : 6;
 
-  if (cmd_.tau.size() != na || cmd_.q.size() != na ||
-      cmd_.qdot.size() != na || cmd_.kp.size() != na ||
-      cmd_.kd.size() != na) {
-    cmd_.Initialize(na);
+  if (solution.qddot_sol.size() != robot_->nv() ||
+      !solution.qddot_sol.allFinite()) {
+    return;
   }
-
-  if (!robot_->hasState() || robot_->q().size() < q_offset + na ||
-      robot_->qdot().size() < v_offset + na) {
+  if (solution.q_cmd.size() < q_offset + nq_joints ||
+      solution.qdot_cmd.size() < v_offset + nv_joints ||
+      !solution.q_cmd.segment(q_offset, nq_joints).allFinite() ||
+      !solution.qdot_cmd.segment(v_offset, nv_joints).allFinite()) {
+    return;
+  }
+  if (solution.tau_ff_cmd.size() != na || solution.tau_fb_cmd.size() != na ||
+      solution.tau_cmd.size() != na || !solution.tau_ff_cmd.allFinite() ||
+      !solution.tau_fb_cmd.allFinite() || !solution.tau_cmd.allFinite()) {
     return;
   }
 
-  cmd_.q = robot_->q().segment(q_offset, na);
-  cmd_.qdot = robot_->qdot().segment(v_offset, na);
-  cmd_.tau.setZero(na);
+  logger_.qddot_sol = solution.qddot_sol;
+  logger_.q_cmd = solution.q_cmd.segment(q_offset, nq_joints);
+  logger_.qdot_cmd = solution.qdot_cmd.segment(v_offset, nv_joints);
+  logger_.tau_ff_cmd = solution.tau_ff_cmd;
+  logger_.tau_fb_cmd = solution.tau_fb_cmd;
+  logger_.tau_cmd = solution.tau_cmd;
+
+  cmd_.q = logger_.q_cmd;
+  cmd_.qdot = logger_.qdot_cmd;
+  cmd_.tau = logger_.tau_cmd;
+  command_initialized_ = true;
+}
+
+void ControlArchitecture::InitializeCommandFromRobotState() {
+  if (cmd_.q.size() != robot_->nq_joints() ||
+      cmd_.qdot.size() != robot_->nv_joints() ||
+      cmd_.tau.size() != robot_->na()) {
+    cmd_.Initialize(*robot_);
+  }
+  if (logger_.qddot_sol.size() != robot_->nv() ||
+      logger_.q_cmd.size() != robot_->nq_joints() ||
+      logger_.qdot_cmd.size() != robot_->nv_joints() ||
+      logger_.tau_cmd.size() != robot_->na()) {
+    logger_.Initialize(*robot_);
+  }
+
+  if (!robot_->hasState()) {
+    return;
+  }
+
+  cmd_.q = robot_->jointState().q;
+  cmd_.qdot = robot_->jointState().qdot;
+  cmd_.tau.setZero(robot_->na());
+
+  logger_.qddot_sol.setZero(robot_->nv());
+  logger_.q_cmd = cmd_.q;
+  logger_.qdot_cmd = cmd_.qdot;
+  logger_.tau_ff_cmd.setZero(robot_->na());
+  logger_.tau_fb_cmd.setZero(robot_->na());
+  logger_.tau_cmd = cmd_.tau;
   command_initialized_ = true;
 }
 

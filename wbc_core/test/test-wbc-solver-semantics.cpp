@@ -27,6 +27,7 @@ using wbc::IDProblem;
 using wbc::IDSolution;
 using wbc::math::Matrix;
 using wbc::math::Vector;
+using wbc::robots::JointState;
 using wbc::robots::RobotSystem;
 
 std::shared_ptr<wbc::math::ConstraintBase> makeSingleDoFConstraint(
@@ -118,14 +119,18 @@ class WBCSolverSemanticsTest : public ::testing::Test {
     registry = std::make_unique<wbc::IDProblemRegistry>(*robot);
 
     q = pinocchio::neutral(robot->model());
-    qdot = Vector::Zero(robot->nv());
+    qdot = Vector::Zero(robot->nv_joints());
   }
 
   static constexpr double kTol = 1e-7;
   static constexpr double kDt = 0.001;
 
   IDProblem makeProblem() {
-    robot->updateState(q, qdot);
+    JointState joint;
+    joint.q = q;
+    joint.qdot = qdot;
+    joint.tau = Vector::Zero(robot->na());
+    robot->updateState(joint);
     IDProblem problem;
     return problem;
   }

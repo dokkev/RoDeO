@@ -8,6 +8,10 @@
 
 namespace wbc {
 
+/// Hardware-interface-local command used by actuator models.
+///
+/// Unlike `RobotCommand`, this struct may carry hardware-owned gain parameters
+/// such as `kp` and `kd`.
 struct ActuatorCommand {
   ActuatorCommand(const Eigen::Ref<const Eigen::VectorXd>& q_des_in,
                   const Eigen::Ref<const Eigen::VectorXd>& qdot_des_in,
@@ -72,6 +76,7 @@ class SpringActuator : public ActuatorInterface {
     const Eigen::Index n = k_.size();
     if (d_.size() != n || tau_out.size() != n || cmd.q_des.size() != n ||
         cmd.qdot_des.size() != n || cmd.tau_ff.size() != n ||
+        cmd.kp.size() != n || cmd.kd.size() != n ||
         cmd.q_link.size() != n || cmd.qdot_link.size() != n) {
       return false;
     }

@@ -21,7 +21,6 @@
 #include <wbc_core/tasks/task-motion.hpp>
 #include <wbc_core/math/constraint-bound.hpp>
 #include <wbc_core/math/constraint-inequality.hpp>
-#include <wbc_core/deprecated.hh>
 
 /** This class has been implemented following :
  * Andrea del Prete. Joint Position and Velocity Bounds in Discrete-Time
@@ -102,8 +101,6 @@ class TaskJointPosVelAccBounds : public TaskMotion {
   void computeAccLimits(ConstRefVector q, ConstRefVector dq,
                         bool verbose = true);
 
-  TSID_DEPRECATED const Vector& mask() const;     // deprecated
-  TSID_DEPRECATED void mask(const Vector& mask);  // deprecated
   virtual void setMask(math::ConstRefVector mask) override;
 
  protected:

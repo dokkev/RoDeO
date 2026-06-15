@@ -18,7 +18,7 @@
 #ifndef __invdyn_task_contact_force_hpp__
 #define __invdyn_task_contact_force_hpp__
 
-#include <wbc_core/deprecated.hh>
+#include <wbc_core/macros.hpp>
 #include <wbc_core/tasks/task-base.hpp>
 #include <wbc_core/formulations/contact-level.hpp>
 #include <memory>

@@ -93,14 +93,6 @@ TaskJointPosVelAccBounds::TaskJointPosVelAccBounds(const std::string& name,
   }
 }
 
-const Vector& TaskJointPosVelAccBounds::mask() const { return m_mask; }
-
-void TaskJointPosVelAccBounds::mask(const Vector& m) {
-  // std::cerr<<"The method TaskJointPosVelAccBounds::mask is deprecated. Use
-  // TaskJointPosVelAccBounds::setMask instead.\n";
-  return setMask(m);
-}
-
 void TaskJointPosVelAccBounds::setMask(ConstRefVector m) {
   PINOCCHIO_CHECK_INPUT_ARGUMENT(m.size() == m_robot.na(),
                                  "The size of the mask vector needs to equal " +

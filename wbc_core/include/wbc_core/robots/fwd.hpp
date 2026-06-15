@@ -7,6 +7,11 @@
 
 namespace wbc {
 namespace robots {
+struct BaseState;
+struct GeneralizedState;
+struct JointState;
+struct RobotCommand;
+class RobotLogger;
 struct RobotState;
 class RobotSystem;
 }

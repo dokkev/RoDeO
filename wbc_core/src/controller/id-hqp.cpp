@@ -79,6 +79,8 @@ IDHQP::IDHQP(robots::RobotSystem& robot, solvers::SolverHQP solver_type,
   m_solution->qdot_cmd = Vector::Zero(m_nv);
   m_solution->q_cmd = pinocchio::neutral(robot.model());
   m_solution->lambda_sol = Vector::Zero(0);
+  m_solution->tau_ff_cmd = Vector::Zero(m_na);
+  m_solution->tau_fb_cmd = Vector::Zero(m_na);
   m_solution->tau_cmd = Vector::Zero(m_na);
 
   m_torqueLimitConstraint.preallocate(m_na);
@@ -164,9 +166,10 @@ bool IDHQP::validateInput(const IDProblem& problem, double dt) const {
 }
 
 void IDHQP::updateRobotModel() {
-  assert(m_robot.q().size() == m_robot.nq());
-  assert(m_robot.qdot().size() == m_nv);
-  m_robot.computeAllTerms(m_data, m_robot.q(), m_robot.qdot());
+  assert(m_robot.generalized_q().size() == m_robot.nq());
+  assert(m_robot.generalized_v().size() == m_nv);
+  m_robot.computeAllTerms(m_data, m_robot.generalized_q(),
+                          m_robot.generalized_v());
 }
 
 void IDHQP::prepareCycleWorkspace(const IDProblem& problem) {
@@ -439,7 +442,8 @@ const IDSolution& IDHQP::decodeSolution(const IDProblem& problem,
   recoverTorque(problem);
   m_solution->success =
       m_solution->qddot_sol.allFinite() && m_solution->qdot_cmd.allFinite() &&
-      m_solution->q_cmd.allFinite() && m_solution->tau_cmd.allFinite() &&
+      m_solution->q_cmd.allFinite() && m_solution->tau_ff_cmd.allFinite() &&
+      m_solution->tau_fb_cmd.allFinite() && m_solution->tau_cmd.allFinite() &&
       m_solution->lambda_sol.allFinite();
   return *m_solution;
 }
@@ -449,8 +453,8 @@ void IDHQP::resetFailedSolution() {
   m_solution->delta_qddot.setZero(m_nv);
   m_solution->qddot_sol = m_qddotRefCurrent;
   if (m_robot.hasState()) {
-    m_solution->q_cmd = m_robot.q();
-    m_solution->qdot_cmd = m_robot.qdot();
+    m_solution->q_cmd = m_robot.generalized_q();
+    m_solution->qdot_cmd = m_robot.generalized_v();
   } else {
     m_solution->q_cmd = pinocchio::neutral(m_robot.model());
     m_solution->qdot_cmd.setZero(m_nv);
@@ -460,19 +464,22 @@ void IDHQP::resetFailedSolution() {
   } else {
     m_solution->lambda_sol.resize(0);
   }
+  m_solution->tau_ff_cmd.setZero(m_na);
+  m_solution->tau_fb_cmd.setZero(m_na);
   m_solution->tau_cmd.setZero(m_na);
   m_solution->success = false;
 }
 
 void IDHQP::integrateSolutionState(double dt) {
   assert(m_robot.hasState());
-  assert(m_robot.q().size() == m_robot.nq());
-  assert(m_robot.qdot().size() == m_nv);
+  assert(m_robot.generalized_q().size() == m_robot.nq());
+  assert(m_robot.generalized_v().size() == m_nv);
 
-  m_solution->qdot_cmd.noalias() = m_robot.qdot() + dt * m_solution->qddot_sol;
+  m_solution->qdot_cmd.noalias() =
+      m_robot.generalized_v() + dt * m_solution->qddot_sol;
   m_integrateDelta.noalias() = dt * m_solution->qdot_cmd;
-  pinocchio::integrate(m_robot.model(), m_robot.q(), m_integrateDelta,
-                       m_solution->q_cmd);
+  pinocchio::integrate(m_robot.model(), m_robot.generalized_q(),
+                       m_integrateDelta, m_solution->q_cmd);
 }
 
 void IDHQP::recoverTorque(const IDProblem& problem) {
@@ -500,7 +507,9 @@ void IDHQP::recoverTorque(const IDProblem& problem) {
     }
   }
 
-  m_solution->tau_cmd = m_tauFull.tail(m_na);
+  m_solution->tau_ff_cmd = m_tauFull.tail(m_na);
+  m_solution->tau_fb_cmd.setZero(m_na);
+  m_solution->tau_cmd = m_solution->tau_ff_cmd + m_solution->tau_fb_cmd;
 }
 
 }  // namespace wbc

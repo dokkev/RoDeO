@@ -279,7 +279,8 @@ Role:
   - `IDHQP`
   - `FSMHandler`
   - `StateFactory`
-  - `CommandAdapter`
+  - `RobotCommand`
+  - `RobotLogger`
 
 Initialize flow:
 
@@ -309,7 +310,7 @@ Step(dt)
   -> UpdateStateMachine(current_time)
   -> BuildProblem(current_time)
   -> IDHQP::solve(problem, dt)
-  -> ApplySolution(solution)
+  -> fill RobotCommand and RobotLogger from IDSolution
 ```
 
 Rules:
@@ -368,7 +369,8 @@ Role:
 
 - Solves a ready `IDProblem`.
 - Owns HQP cascade solver backend.
-- Decodes qddot, lambda, tau, and integrated command state into `IDSolution`.
+- Decodes qddot, lambda, integrated command state, and separated torque
+  components into `IDSolution`.
 
 Rules:
 

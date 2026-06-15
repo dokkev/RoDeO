@@ -63,13 +63,18 @@ bool VectorHasSizeAndFinite(const Eigen::VectorXd& value,
          value.allFinite();
 }
 
-bool CommandHasSizeAndFinite(const wbc::LowLevelCommand& cmd,
+bool CommandHasSizeAndFinite(const wbc::robots::RobotCommand& cmd,
                              std::size_t joint_count) {
   return VectorHasSizeAndFinite(cmd.q, joint_count) &&
          VectorHasSizeAndFinite(cmd.qdot, joint_count) &&
-         VectorHasSizeAndFinite(cmd.tau, joint_count) &&
-         VectorHasSizeAndFinite(cmd.kp, joint_count) &&
-         VectorHasSizeAndFinite(cmd.kd, joint_count);
+         VectorHasSizeAndFinite(cmd.tau, joint_count);
+}
+
+bool CommandGainsHaveSizeAndFinite(const Eigen::VectorXd& kp,
+                                   const Eigen::VectorXd& kd,
+                                   std::size_t joint_count) {
+  return VectorHasSizeAndFinite(kp, joint_count) &&
+         VectorHasSizeAndFinite(kd, joint_count);
 }
 
 bool IsSupportedCommandInterface(const std::string& interface) {
@@ -80,7 +85,8 @@ bool IsSupportedCommandInterface(const std::string& interface) {
 }
 
 const Eigen::VectorXd* CommandVectorForInterface(
-    const wbc::LowLevelCommand& cmd, const std::string& interface) {
+    const wbc::robots::RobotCommand& cmd, const Eigen::VectorXd& command_kp,
+    const Eigen::VectorXd& command_kd, const std::string& interface) {
   if (interface == hardware_interface::HW_IF_POSITION) {
     return &cmd.q;
   }
@@ -91,18 +97,12 @@ const Eigen::VectorXd* CommandVectorForInterface(
     return &cmd.tau;
   }
   if (interface == kCommandInterfaceKp) {
-    return &cmd.kp;
+    return &command_kp;
   }
   if (interface == kCommandInterfaceKd) {
-    return &cmd.kd;
+    return &command_kd;
   }
   return nullptr;
-}
-
-void ApplyConfiguredGains(const Eigen::VectorXd& kp, const Eigen::VectorXd& kd,
-                          wbc::LowLevelCommand& cmd) {
-  cmd.kp = kp;
-  cmd.kd = kd;
 }
 
 }  // namespace
@@ -360,13 +360,13 @@ controller_interface::CallbackReturn WholeBodyController::on_activate(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  robot_state_.q = pinocchio::neutral(robot_->model());
-  robot_state_.qdot = Eigen::VectorXd::Zero(robot_->nv());
-  robot_state_.time = 0.0;
+  robot_state_.joint.q = pinocchio::neutral(robot_->model()).tail(
+      robot_->nq_joints());
+  robot_state_.joint.qdot = Eigen::VectorXd::Zero(robot_->nv_joints());
+  robot_state_.joint.tau = Eigen::VectorXd::Zero(robot_->na());
+  robot_->setTime(0.0);
   output_cmd_.Initialize(static_cast<Eigen::Index>(joint_count_));
   safe_cmd_.Initialize(static_cast<Eigen::Index>(joint_count_));
-  ApplyConfiguredGains(command_kp_, command_kd_, output_cmd_);
-  ApplyConfiguredGains(command_kp_, command_kd_, safe_cmd_);
   runtime_faulted_ = false;
 
   Eigen::VectorXd q0(joint_count_);
@@ -439,6 +439,7 @@ controller_interface::return_type WholeBodyController::update(
     if (!ReadRobotState(time_sec)) {
       return HandleRuntimeFault("invalid robot state sample");
     }
+    robot_->setTime(time_sec);
 
     ctrl_arch_->Update(robot_state_, dt);
 
@@ -452,7 +453,6 @@ controller_interface::return_type WholeBodyController::update(
     safe_cmd_.q = output_cmd_.q;
     safe_cmd_.qdot.setZero();
     safe_cmd_.tau.setZero();
-    ApplyConfiguredGains(command_kp_, command_kd_, safe_cmd_);
     UpdateDebugStats(time_sec);
 
     return controller_interface::return_type::OK;
@@ -463,8 +463,8 @@ controller_interface::return_type WholeBodyController::update(
   }
 }
 
-bool WholeBodyController::PrepareOutputCommand(const wbc::LowLevelCommand& cmd,
-                                               double dt) {
+bool WholeBodyController::PrepareOutputCommand(
+    const wbc::robots::RobotCommand& cmd, double dt) {
   if (!CommandHasSizeAndFinite(cmd, joint_count_) ||
       !CommandHasSizeAndFinite(output_cmd_, joint_count_)) {
     return false;
@@ -473,14 +473,12 @@ bool WholeBodyController::PrepareOutputCommand(const wbc::LowLevelCommand& cmd,
   output_cmd_.q = cmd.q;
   output_cmd_.qdot = cmd.qdot;
   output_cmd_.tau = cmd.tau;
-  ApplyConfiguredGains(command_kp_, command_kd_, output_cmd_);
 
   if (actuator_) {
+    const auto& joint_state = robot_->jointState();
     wbc::ActuatorCommand act_cmd(output_cmd_.q, output_cmd_.qdot,
-                                 output_cmd_.tau, output_cmd_.kp,
-                                 output_cmd_.kd,
-                                 robot_->q().tail(robot_->nq_actuated()),
-                                 robot_->qdot().tail(robot_->na()), dt);
+                                 output_cmd_.tau, command_kp_, command_kd_,
+                                 joint_state.q, joint_state.qdot, dt);
     return actuator_->ProcessTorque(act_cmd, output_cmd_.tau) &&
            output_cmd_.tau.allFinite();
   }
@@ -507,13 +505,13 @@ void WholeBodyController::UpdateDebugStats(double time_sec) {
 }
 
 bool WholeBodyController::ReadRobotState(double time_sec) {
-  if (!std::isfinite(time_sec) || robot_state_.q.size() != robot_->nq() ||
-      robot_state_.qdot.size() != robot_->nv()) {
+  if (!std::isfinite(time_sec) ||
+      robot_state_.joint.q.size() != robot_->nq_joints() ||
+      robot_state_.joint.qdot.size() != robot_->nv_joints() ||
+      robot_state_.joint.tau.size() != robot_->na()) {
     return false;
   }
 
-  const int q_offset = robot_->is_fixed_base() ? 0 : 7;
-  const int v_offset = robot_->is_fixed_base() ? 0 : 6;
   for (std::size_t i = 0; i < joint_count_; ++i) {
     const double q =
         state_interfaces_[InterfaceIndex(kPositionBlock, i, joint_count_)]
@@ -521,18 +519,23 @@ bool WholeBodyController::ReadRobotState(double time_sec) {
     const double qdot =
         state_interfaces_[InterfaceIndex(kVelocityBlock, i, joint_count_)]
             .get_value();
-    if (!std::isfinite(q) || !std::isfinite(qdot)) {
+    const double tau =
+        state_interfaces_[InterfaceIndex(kEffortBlock, i, joint_count_)]
+            .get_value();
+    if (!std::isfinite(q) || !std::isfinite(qdot) || !std::isfinite(tau)) {
       return false;
     }
-    robot_state_.q[q_offset + static_cast<int>(i)] = q;
-    robot_state_.qdot[v_offset + static_cast<int>(i)] = qdot;
+    robot_state_.joint.q[static_cast<int>(i)] = q;
+    robot_state_.joint.qdot[static_cast<int>(i)] = qdot;
+    robot_state_.joint.tau[static_cast<int>(i)] = tau;
   }
-  robot_state_.time = time_sec;
   return true;
 }
 
-bool WholeBodyController::WriteJointCommand(const wbc::LowLevelCommand& cmd) {
-  if (!CommandHasSizeAndFinite(cmd, joint_count_)) {
+bool WholeBodyController::WriteJointCommand(
+    const wbc::robots::RobotCommand& cmd) {
+  if (!CommandHasSizeAndFinite(cmd, joint_count_) ||
+      !CommandGainsHaveSizeAndFinite(command_kp_, command_kd_, joint_count_)) {
     return false;
   }
 
@@ -544,7 +547,8 @@ bool WholeBodyController::WriteJointCommand(const wbc::LowLevelCommand& cmd) {
   for (std::size_t block = 0; block < command_interface_names_.size();
        ++block) {
     const auto* values =
-        CommandVectorForInterface(cmd, command_interface_names_[block]);
+        CommandVectorForInterface(cmd, command_kp_, command_kd_,
+                                  command_interface_names_[block]);
     if (!values ||
         values->size() != static_cast<Eigen::Index>(joint_count_)) {
       return false;

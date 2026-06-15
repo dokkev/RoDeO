@@ -46,11 +46,6 @@
 
 namespace wbc {
 
-enum class HardTorqueLimitMode {
-  DIAGONAL_M_BOX,
-  EXACT_DENSE,
-};
-
 class IDHQP {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -85,23 +80,6 @@ class IDHQP {
   void setSolverType(solvers::SolverHQP solver_type);
   const solvers::SolverQPParams& qpParams() const { return m_qpParams; }
   void setQPParams(const solvers::SolverQPParams& qp_params);
-
-  // Compatibility shim only. Generic IDHQP always uses the current torque-limit
-  // block path and does not branch on this mode.
-  [[deprecated("HardTorqueLimitMode is not wired in generic IDHQP")]]
-  void setHardTorqueLimitMode(HardTorqueLimitMode mode) {
-    (void)mode;
-  }
-
-  [[deprecated("HardTorqueLimitMode is not wired in generic IDHQP")]]
-  HardTorqueLimitMode hardTorqueLimitMode() const {
-    return HardTorqueLimitMode::EXACT_DENSE;
-  }
-
-  [[deprecated("HardTorqueLimitMode is not wired in generic IDHQP")]]
-  void SetHardTorqueLimitMode(HardTorqueLimitMode mode) {
-    setHardTorqueLimitMode(mode);
-  }
 
  private:
   struct ObjectiveSlot {

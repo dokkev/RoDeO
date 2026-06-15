@@ -5,7 +5,6 @@
 #ifndef __invdyn_inverse_dynamics_hpp__
 #define __invdyn_inverse_dynamics_hpp__
 
-#include "wbc_core/deprecated.hh"
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/tasks/task-actuation.hpp"
@@ -96,8 +95,6 @@ class InverseDynamicsBase {
                                double force_regularization_weight,
                                double motion_weight = 1.0,
                                unsigned int motion_priority_level = 0) = 0;
-
-  TSID_DEPRECATED virtual bool addRigidContact(ContactBase& contact);
 
   virtual bool updateRigidContactWeights(const std::string& contact_name,
                                          double force_regularization_weight,

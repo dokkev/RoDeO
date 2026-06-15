@@ -21,7 +21,6 @@
 #include <wbc_core/tasks/task-motion.hpp>
 #include <wbc_core/trajectories/trajectory-base.hpp>
 #include <wbc_core/math/constraint-equality.hpp>
-#include <wbc_core/deprecated.hh>
 
 namespace wbc {
 namespace tasks {
@@ -52,8 +51,6 @@ class TaskJointPosture : public TaskMotion {
   const Vector& getDesiredAcceleration() const override;
   Vector getAcceleration(ConstRefVector dv) const override;
 
-  TSID_DEPRECATED const Vector& mask() const;     // deprecated
-  TSID_DEPRECATED void mask(const Vector& mask);  // deprecated
   void setMask(math::ConstRefVector mask) override;
 
   const Vector& position_error() const override;

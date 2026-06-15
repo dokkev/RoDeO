@@ -18,8 +18,6 @@
 #ifndef __invdyn_trajectory_base_hpp__
 #define __invdyn_trajectory_base_hpp__
 
-#include "wbc_core/deprecated.hh"
-#include "wbc_core/macros.hpp"
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/math/utils.hpp"
 
@@ -35,10 +33,8 @@ class TrajectorySample {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   // TODO rename pos, vel, acc → value, derivative, second_derivative
-  TSID_DEPRECATED math::Vector pos, vel, acc;
+  math::Vector pos, vel, acc;
 
-  TSID_DISABLE_WARNING_PUSH
-  TSID_DISABLE_WARNING_DEPRECATED
   // getters / setters with updated names for math::Vector
   const math::Vector& getValue() const { return pos; }
   const math::Vector& getDerivative() const { return vel; }
@@ -63,12 +59,8 @@ class TrajectorySample {
     acc.setZero(size_derivative);
   }
 
-  // declare default constructors / destructors to disable the deprecation
-  // message for them. TODO: Remove this after the
-  // pos/vel/acc → value/derivative/second_derivative rename
   ~TrajectorySample() = default;
   TrajectorySample(const TrajectorySample&) = default;
-  TSID_DISABLE_WARNING_POP
 };
 
 class TrajectoryBase {

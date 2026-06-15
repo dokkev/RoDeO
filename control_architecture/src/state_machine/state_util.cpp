@@ -69,7 +69,7 @@ std::optional<Eigen::Quaterniond> ReadOptionalQuaternion(
 }
 
 Eigen::VectorXd CurrentJointPosition(const wbc::robots::RobotSystem& robot) {
-  return robot.q().tail(robot.nq_actuated());
+  return robot.jointState().q;
 }
 
 void SetJointPostureReference(wbc::tasks::TaskJointPosture& task,

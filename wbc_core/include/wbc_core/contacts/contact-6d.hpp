@@ -5,7 +5,6 @@
 #ifndef __invdyn_contact_6d_hpp__
 #define __invdyn_contact_6d_hpp__
 
-#include "wbc_core/deprecated.hh"
 #include "wbc_core/contacts/contact-base.hpp"
 #include "wbc_core/tasks/task-se3-equality.hpp"
 #include "wbc_core/math/constraint-inequality.hpp"
@@ -32,12 +31,6 @@ class Contact6d : public ContactBase {
             const std::string& frameName, ConstRefMatrix contactPoints,
             ConstRefVector contactNormal, const double frictionCoefficient,
             const double minNormalForce, const double maxNormalForce);
-
-  TSID_DEPRECATED Contact6d(
-      const std::string& name, RobotSystem& robot, const std::string& frameName,
-      ConstRefMatrix contactPoints, ConstRefVector contactNormal,
-      const double frictionCoefficient, const double minNormalForce,
-      const double maxNormalForce, const double forceRegWeight);
 
   /// Return the number of motion constraints
   unsigned int n_motion() const override;

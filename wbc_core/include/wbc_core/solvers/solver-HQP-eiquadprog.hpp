@@ -18,7 +18,6 @@
 #ifndef __invdyn_solvers_hqp_eiquadprog_hpp__
 #define __invdyn_solvers_hqp_eiquadprog_hpp__
 
-#include "wbc_core/deprecated.hh"
 #include <wbc_core/solvers/solver-HQP-base.hpp>
 
 namespace wbc {
@@ -57,12 +56,12 @@ class TSID_DLLAPI SolverHQuadProg : public SolverHQPBase {
  protected:
   void sendMsg(const std::string& s);
 
-  TSID_DEPRECATED Matrix m_H;
-  TSID_DEPRECATED Vector m_g;
-  TSID_DEPRECATED Matrix m_CE;
-  TSID_DEPRECATED Vector m_ce0;
-  TSID_DEPRECATED Matrix m_CI;
-  TSID_DEPRECATED Vector m_ci0;
+  Matrix m_H;
+  Vector m_g;
+  Matrix m_CE;
+  Vector m_ce0;
+  Matrix m_CI;
+  Vector m_ci0;
   double m_objValue;
   double m_hessian_regularization;
 
