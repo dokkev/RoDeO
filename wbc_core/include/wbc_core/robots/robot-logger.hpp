@@ -11,7 +11,7 @@
 
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/robot-command.hpp"
-#include "wbc_core/robots/robot-system.hpp"
+#include "wbc_core/robots/fwd.hpp"
 
 namespace wbc {
 namespace robots {
@@ -26,18 +26,10 @@ class RobotLogger {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /// Initialize command payload and trace buffers for a robot model.
-  void Initialize(const RobotSystem& robot) {
-    cmd.Initialize(robot);
-    qddot_sol = math::Vector::Zero(robot.nv());
-    q_cmd = math::Vector::Zero(robot.nq_joints());
-    qdot_cmd = math::Vector::Zero(robot.nv_joints());
-    tau_ff_cmd = math::Vector::Zero(robot.na());
-    tau_fb_cmd = math::Vector::Zero(robot.na());
-    tau_cmd = math::Vector::Zero(robot.na());
-  }
+  void Initialize(const RobotSystem& robot);
 
   /// Update final model-side command payload.
-  void UpdateCommand(const RobotCommand& command) { cmd = command; }
+  void UpdateCommand(const RobotCommand& command);
 
   RobotCommand cmd;         ///< Final model-side command payload.
   math::Vector qddot_sol;   ///< Solved generalized acceleration, size nv().

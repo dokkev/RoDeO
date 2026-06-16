@@ -4,6 +4,9 @@
 
 #include <Eigen/Dense>
 #include <pinocchio/multibody/model.hpp>
+
+#include "wbc_core/contacts/contact-base.hpp"
+#include "wbc_core/contacts/contact-level.hpp"
 #include "wbc_core/tasks/task-contact-force-equality.hpp"
 
 namespace wbc {

@@ -3,7 +3,7 @@
 //
 
 #include "wbc_core/solvers/utils.hpp"
-#include "wbc_core/math/constraint-base.hpp"
+#include "wbc_core/math/constraints/constraint-base.hpp"
 
 #include <iostream>
 

@@ -19,7 +19,6 @@
 #define __invdyn_trajectory_base_hpp__
 
 #include "wbc_core/math/fwd.hpp"
-#include "wbc_core/math/utils.hpp"
 
 #include <string>
 

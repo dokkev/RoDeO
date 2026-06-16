@@ -20,9 +20,10 @@
 
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/fwd.hpp"
-#include "wbc_core/math/constraint-base.hpp"
 
 #include <pinocchio/multibody/fwd.hpp>
+
+#include <string>
 
 namespace wbc {
 namespace tasks {

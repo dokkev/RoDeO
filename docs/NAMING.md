@@ -582,9 +582,8 @@ Use `_cmd` for the model-side command handed to the hardware interface. Use
 explicit hardware-specific names only inside the hardware interface or actuator
 driver implementation.
 
-A hardware-interface-local payload such as `ActuatorCommand` may carry
-`command_kp` and `command_kd` as `kp` and `kd` after the `RobotCommand`
-boundary.
+Hardware-interface-local code may still carry `command_kp` and `command_kd`
+after the `RobotCommand` boundary.
 
 ---
 

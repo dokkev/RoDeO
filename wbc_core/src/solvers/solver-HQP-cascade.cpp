@@ -10,7 +10,7 @@
 
 #include <Eigen/QR>
 
-#include "wbc_core/math/constraint-equality.hpp"
+#include "wbc_core/math/constraints/constraint-equality.hpp"
 #include "wbc_core/solvers/solver-HQP-factory.hpp"
 
 namespace wbc {

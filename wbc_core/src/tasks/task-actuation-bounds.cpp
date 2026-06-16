@@ -3,6 +3,7 @@
 //
 
 #include <wbc_core/tasks/task-actuation-bounds.hpp>
+#include "wbc_core/math/linear_algebra/selection.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 
 namespace wbc {
@@ -25,18 +26,9 @@ void TaskActuationBounds::mask(const Vector& m) {
       m.size() == m_robot.na(),
       "The size of the mask needs to equal " + std::to_string(m_robot.na()));
   m_mask = m;
-  const Vector::Index dim = static_cast<Vector::Index>(m.sum());
-  Matrix S = Matrix::Zero(dim, m_robot.na());
-  m_activeAxes.resize(dim);
-  unsigned int j = 0;
-  for (unsigned int i = 0; i < m.size(); i++)
-    if (m(i) != 0.0) {
-      PINOCCHIO_CHECK_INPUT_ARGUMENT(
-          m(i) == 1.0, "The mask entries need to equal either 0.0 or 1.0");
-      S(j, i) = 1.0;
-      m_activeAxes(j) = i;
-      j++;
-    }
+  Matrix S;
+  buildSelectionMatrix(m, m_robot.na(), 0, m_activeAxes, S);
+  const Vector::Index dim = S.rows();
   m_constraint.resize((unsigned int)dim, m_robot.na());
   m_constraint.setMatrix(S);
 }

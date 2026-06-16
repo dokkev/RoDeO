@@ -2,9 +2,11 @@
 // Copyright (c) 2017-2020 CNRS, NYU, MPI Tübingen, Inria
 //
 
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/lie_group/se3.hpp"
 #include "wbc_core/tasks/task-se3-equality.hpp"
 #include "wbc_core/robots/robot-system.hpp"
+
+#include <pinocchio/macros.hpp>
 
 namespace wbc {
 namespace tasks {
@@ -79,15 +81,14 @@ void TaskSE3Equality::setReference(TrajectorySample& ref) {
   m_ref = ref;
   PINOCCHIO_CHECK_INPUT_ARGUMENT(
       ref.pos.size() == 12, "The size of the reference vector needs to be 12");
-  m_M_ref.translation(ref.pos.head<3>());
-  m_M_ref.rotation(MapMatrix3(&ref.pos(3), 3, 3));
+  vectorToSE3(ref.pos, m_M_ref);
   m_v_ref = Motion(ref.getDerivative());
   m_a_ref = Motion(ref.getSecondDerivative());
 }
 
 void TaskSE3Equality::setReference(const SE3& ref) {
   TrajectorySample s(12, 6);
-  wbc::math::SE3ToVector(ref, s.pos);
+  wbc::math::se3ToVector(ref, s.pos);
   setReference(s);
 }
 
@@ -139,9 +140,9 @@ const ConstraintBase& TaskSE3Equality::compute(const double, ConstRefVector,
   // we could do all computations in world frame
   m_robot.frameJacobianLocal(data, m_frame_id, m_J);
 
-  errorInSE3(oMi, m_M_ref, m_p_error);  // pos err in local frame
-  SE3ToVector(m_M_ref, m_p_ref);
-  SE3ToVector(oMi, m_p);
+  poseError(oMi, m_M_ref, m_p_error);  // pos err in local frame
+  se3ToVector(m_M_ref, m_p_ref);
+  se3ToVector(oMi, m_p);
 
   // Transformation from local to world
   m_wMl.rotation(oMi.rotation());
@@ -180,15 +181,16 @@ const ConstraintBase& TaskSE3Equality::compute(const double, ConstRefVector,
   m_v_error_vec = m_v_error.toVector();
   m_v_ref_vec = m_v_ref.toVector();
   m_v = v_frame.toVector();
+  const Vector6 drift = m_drift.toVector();
 
   int idx = 0;
   for (int i = 0; i < 6; i++) {
     if (m_mask(i) != 1.) continue;
 
     m_constraint.matrix().row(idx) = m_J.row(i);
-    m_constraint.vector().row(idx) = (m_a_des - m_drift.toVector()).row(i);
+    m_constraint.vector().row(idx) = (m_a_des - drift).row(i);
     m_a_des_masked(idx) = m_a_des(i);
-    m_drift_masked(idx) = m_drift.toVector()(i);
+    m_drift_masked(idx) = drift(i);
     m_p_error_masked_vec(idx) = m_p_error_vec(i);
     m_v_error_masked_vec(idx) = m_v_error_vec(i);
 

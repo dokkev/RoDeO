@@ -9,10 +9,10 @@
 
 #include <optional>
 
-#include "wbc_core/solvers/solver-HQP-base.hpp"
-
 namespace wbc {
 namespace solvers {
+
+class SolverHQPBase;
 
 struct SolverQPParams {
   std::optional<unsigned int> max_iter;

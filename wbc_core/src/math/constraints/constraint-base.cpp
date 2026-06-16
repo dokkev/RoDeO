@@ -2,7 +2,7 @@
 // Copyright (c) 2017 CNRS
 //
 
-#include <wbc_core/math/constraint-base.hpp>
+#include <wbc_core/math/constraints/constraint-base.hpp>
 
 using namespace wbc::math;
 

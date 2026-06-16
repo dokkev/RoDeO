@@ -5,8 +5,10 @@
 #ifndef WBC_CORE_CONTACTS_CONTACT_LEVEL_HPP_
 #define WBC_CORE_CONTACTS_CONTACT_LEVEL_HPP_
 
+#include <memory>
+
+#include "wbc_core/contacts/fwd.hpp"
 #include "wbc_core/math/fwd.hpp"
-#include "wbc_core/contacts/contact-base.hpp"
 
 namespace wbc {
 

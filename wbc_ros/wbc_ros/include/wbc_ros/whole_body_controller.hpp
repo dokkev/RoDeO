@@ -14,7 +14,6 @@
 #include "control_architecture/state_machine/robot_control_profile.hpp"
 #include "wbc_core/robots/robot-command.hpp"
 #include "wbc_core/robots/robot-system.hpp"
-#include "wbc_core/utils/actuator_interface.hpp"
 
 namespace wbc_ros {
 
@@ -62,7 +61,6 @@ class WholeBodyController : public controller_interface::ControllerInterface {
       const std::string& yaml_path);
   bool ConfigureCommandInterfaces();
   bool ConfigureCommandGains();
-  bool ConfigureActuator();
   bool PrepareOutputCommand(const wbc::robots::RobotCommand& cmd, double dt);
   void UpdateDebugStats(double time_sec);
   void LogAvailableStates() const;
@@ -80,7 +78,6 @@ class WholeBodyController : public controller_interface::ControllerInterface {
   std::shared_ptr<wbc::robots::RobotSystem> robot_;
   std::unique_ptr<wbc::ControlArchitecture> ctrl_arch_;
   std::unique_ptr<wbc::RobotControlProfile> control_profile_;
-  std::unique_ptr<wbc::ActuatorInterface> actuator_;
   wbc::robots::RobotState robot_state_;
   wbc::robots::RobotCommand output_cmd_;
   wbc::robots::RobotCommand safe_cmd_;

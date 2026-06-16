@@ -5,6 +5,8 @@
 #ifndef __invdyn_math_fwd_hpp__
 #define __invdyn_math_fwd_hpp__
 
+#include <cstddef>
+
 #include <Eigen/Core>
 
 #ifdef EIGEN_RUNTIME_NO_MALLOC

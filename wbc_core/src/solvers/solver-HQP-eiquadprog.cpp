@@ -3,7 +3,8 @@
 //
 
 #include "wbc_core/solvers/solver-HQP-eiquadprog.hpp"
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/constraints/constraint-base.hpp"
+#include "wbc_core/utils/formatting.hpp"
 #include "eiquadprog/eiquadprog.hpp"
 #include "wbc_core/utils/stop-watch.hpp"
 
@@ -31,23 +32,23 @@ void SolverHQuadProg::resize(unsigned int n, unsigned int neq,
 
   if (resizeEq) {
 #ifndef NDEBUG
-    sendMsg("Resizing equality constraints from " + toString(m_neq) + " to " +
-            toString(neq));
+    sendMsg("Resizing equality constraints from " + wbc::toString(m_neq) + " to " +
+            wbc::toString(neq));
 #endif
     m_qpData.CE.resize(neq, n);
     m_qpData.ce0.resize(neq);
   }
   if (resizeIn) {
 #ifndef NDEBUG
-    sendMsg("Resizing inequality constraints from " + toString(m_nin) + " to " +
-            toString(nin));
+    sendMsg("Resizing inequality constraints from " + wbc::toString(m_nin) + " to " +
+            wbc::toString(nin));
 #endif
     m_qpData.CI.resize(2 * nin, n);
     m_qpData.ci0.resize(2 * nin);
   }
   if (resizeVar) {
 #ifndef NDEBUG
-    sendMsg("Resizing Hessian from " + toString(m_n) + " to " + toString(n));
+    sendMsg("Resizing Hessian from " + wbc::toString(m_n) + " to " + wbc::toString(n));
 #endif
     m_qpData.H.resize(n, n);
     m_qpData.g.resize(n);
@@ -235,22 +236,22 @@ const HQPOutput& SolverHQuadProg::solve(const HQPData& problemData) {
       for (ConstraintLevel::const_iterator it = cl0.begin(); it != cl0.end();
            it++) {
         auto constr = it->second;
-        if (constr->checkConstraint(x) == false) {
+        if (constr->isSatisfied(x) == false) {
           if (constr->isEquality()) {
             sendMsg("Equality " + constr->name() + " violated: " +
-                    toString((constr->matrix() * x - constr->vector()).norm()));
+                    wbc::toString((constr->matrix() * x - constr->vector()).norm()));
           } else if (constr->isInequality()) {
             sendMsg(
                 "Inequality " + constr->name() + " violated: " +
-                toString(
+                wbc::toString(
                     (constr->matrix() * x - constr->lowerBound()).minCoeff()) +
                 "\n" +
-                toString(
+                wbc::toString(
                     (constr->upperBound() - constr->matrix() * x).minCoeff()));
           } else if (constr->isBound()) {
             sendMsg("Bound " + constr->name() + " violated: " +
-                    toString((x - constr->lowerBound()).minCoeff()) + "\n" +
-                    toString((constr->upperBound() - x).minCoeff()));
+                    wbc::toString((x - constr->lowerBound()).minCoeff()) + "\n" +
+                    wbc::toString((constr->upperBound() - x).minCoeff()));
           }
         }
       }

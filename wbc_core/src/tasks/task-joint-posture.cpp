@@ -3,6 +3,7 @@
 //
 
 #include <wbc_core/tasks/task-joint-posture.hpp>
+#include "wbc_core/math/linear_algebra/selection.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include <pinocchio/algorithm/joint-configuration.hpp>
 
@@ -29,19 +30,10 @@ void TaskJointPosture::setMask(ConstRefVector m) {
       "The size of the mask needs to equal " +
           std::to_string(m_robot.nv_joints()));
   m_mask = m;
-  const Vector::Index dim = static_cast<Vector::Index>(m.sum());
-  Matrix S = Matrix::Zero(dim, m_robot.nv());
-  m_activeAxes.resize(dim);
-  unsigned int j = 0;
-  for (unsigned int i = 0; i < m.size(); i++)
-    if (m(i) != 0.0) {
-      PINOCCHIO_CHECK_INPUT_ARGUMENT(
-          m(i) == 1.0, "Valid mask values are either 0.0 or 1.0 received: " +
-                           std::to_string(m(i)));
-      S(j, m_robot.nv() - m_robot.nv_joints() + i) = 1.0;
-      m_activeAxes(j) = i;
-      j++;
-    }
+  Matrix S;
+  buildSelectionMatrix(m, m_robot.nv(), m_robot.nv() - m_robot.nv_joints(),
+                       m_activeAxes, S);
+  const Vector::Index dim = S.rows();
   m_constraint.resize((unsigned int)dim, m_robot.nv());
   m_constraint.setMatrix(S);
 }

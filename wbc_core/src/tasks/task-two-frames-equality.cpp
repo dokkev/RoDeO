@@ -2,7 +2,7 @@
 // Copyright (c) 2023 MIPT
 //
 
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/lie_group/se3.hpp"
 #include "wbc_core/tasks/task-two-frames-equality.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 
@@ -125,7 +125,7 @@ const ConstraintBase& TaskTwoFramesEquality::compute(const double,
   m_robot.frameJacobianLocal(data, m_frame_id2, m_J2);
 
   // Doing all calculations in local-world-aligned frame
-  errorInSE3(oMi1, oMi2, m_p_error);  // pos err in local oMi1 frame
+  poseError(oMi1, oMi2, m_p_error);  // pos err in local oMi1 frame
   m_p_error_vec = m_wMl1.toActionMatrix() *
                   m_p_error.toVector();  // pos err in local-world-aligned frame
 

@@ -3,7 +3,7 @@
 //
 
 #include <stdexcept>
-#include <wbc_core/math/constraint-inequality.hpp>
+#include <wbc_core/math/constraints/constraint-inequality.hpp>
 
 using namespace wbc::math;
 
@@ -71,7 +71,7 @@ bool ConstraintInequality::setUpperBound(ConstRefVector ub) {
   return true;
 }
 
-bool ConstraintInequality::checkConstraint(ConstRefVector x, double tol) const {
+bool ConstraintInequality::isSatisfied(ConstRefVector x, double tol) const {
   return ((m_A * x).array() <= m_ub.array() + tol).all() &&
          ((m_A * x).array() >= m_lb.array() - tol).all();
 }

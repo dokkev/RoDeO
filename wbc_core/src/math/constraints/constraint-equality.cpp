@@ -16,7 +16,7 @@
 //
 
 #include <stdexcept>
-#include <wbc_core/math/constraint-equality.hpp>
+#include <wbc_core/math/constraints/constraint-equality.hpp>
 
 using namespace wbc::math;
 
@@ -80,6 +80,6 @@ bool ConstraintEquality::setUpperBound(ConstRefVector) {
   throw std::runtime_error("ConstraintEquality: accessor not supported");
 }
 
-bool ConstraintEquality::checkConstraint(ConstRefVector x, double tol) const {
+bool ConstraintEquality::isSatisfied(ConstRefVector x, double tol) const {
   return (m_A * x - m_b).norm() < tol;
 }

@@ -59,8 +59,8 @@ function are not implemented yet"` 경로로 실패한다.
 
 권장 수정:
 
-- hard feasibility로 들어가야 하는 inequality는 `IDBase::addConstraint()`로
-  들어가도록 `IDProblem` schema를 분리한다.
+- hard feasibility로 들어가야 하는 inequality는 `IDHQP` 내부 hard-constraint
+  조립 경로로 들어가도록 `IDProblem` schema를 분리한다.
 - soft objective로 허용할 수 있는 항은 equality/least-squares로 제한하고,
   `validateHierarchy()`나 별도 `validateProblem()`에서 inequality objective를
   명시적으로 reject한다.
@@ -77,9 +77,10 @@ function are not implemented yet"` 경로로 실패한다.
 - `wbc_core/src/controller/id-hqp.cpp:483`
 
 `IDHQP::solve()`는 `validateInput()` 전에 `beginCycle()`을 호출한다.
-`beginCycle()`은 `problem.qddot_ref` 크기를 `assert`로만 확인하고 바로
-`m_qddotRefCurrent`에 복사한다. release build에서 잘못된 크기가 들어오면
-내부 vector가 잘못 resize된 뒤 이후 block build나 torque recovery에서
+현재 구현은 `problem.qddot_ref`를 별도 current state로 복사하지 않고
+`IDProblem`의 solve input으로 직접 사용한다. 다만 `problem.qddot_ref`,
+`h_ext`, torque bound, contact matrix/vector 크기는 여전히 `assert` 중심이라
+release build에서 잘못된 입력이 들어오면 block build나 torque 계산에서
 dimension mismatch가 발생할 수 있다.
 
 같은 문제가 `joint_torque_limits.lower/upper`, `h_ext`, contact matrix/vector

@@ -47,6 +47,7 @@ struct IDProblem {
 
   // Per-cycle view consumed immediately by IDHQP::solve().
   // MotionObjective and ContactConstraintData come from task/contact layers.
+  // Runtime assembly should provide qddot_ref; nullptr is treated as zero.
   const math::Vector* qddot_ref{nullptr};
   const math::Vector* h_ext{nullptr};
   constraints::JointTorqueLimits joint_torque_limits;

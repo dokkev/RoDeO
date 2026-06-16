@@ -14,10 +14,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "wbc_core/bias/joint-accel-bias.hpp"
+#include "wbc_core/contacts/contact-base.hpp"
 #include "wbc_core/contacts/contact-level.hpp"
 #include "wbc_core/formulations/id-problem.hpp"
-#include "wbc_core/math/constraint-inequality.hpp"
+#include "wbc_core/math/constraints/constraint-inequality.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/tasks/task-motion.hpp"
 
@@ -42,31 +42,22 @@ class IDProblemRegistry {
     m_qddotRef.setZero(robot.nv());
   }
 
-  void addTask(tasks::TaskMotion& task, unsigned int level, double weight) {
+  void registerTask(tasks::TaskMotion& task, unsigned int level,
+                    double weight) {
     if (m_tasks.find(task.name()) == m_tasks.end()) {
       m_taskOrder.push_back(task.name());
     }
     m_tasks[task.name()] = {&task, level, weight};
   }
 
-  void addJointAccelerationObjective(const std::string& name,
-                                     const math::Vector* qddot_target,
-                                     unsigned int level, double weight) {
+  void registerJointAccelerationObjective(const std::string& name,
+                                          const math::Vector* qddot_target,
+                                          unsigned int level, double weight) {
     m_jointAccelerationObjectives.emplace_back(name, qddot_target, level,
                                                weight);
   }
 
-  void addJointAccelBias(const bias::JointAccelBias& bias) {
-    addJointAccelerationObjective(bias.name, bias.qddot_bias, bias.level,
-                                  bias.weight);
-  }
-
-  void addJointAccelBias(const bias::JointAccelBias& bias, unsigned int level) {
-    addJointAccelerationObjective(bias.name, bias.qddot_bias, level,
-                                  bias.weight);
-  }
-
-  void addContact(contacts::ContactBase& contact) {
+  void registerContact(contacts::ContactBase& contact) {
     if (m_contacts.find(contact.name()) == m_contacts.end()) {
       m_contactOrder.push_back(contact.name());
     }

@@ -8,8 +8,8 @@
 #include "wbc_core/contacts/contact-base.hpp"
 #include "wbc_core/tasks/task-se3-equality.hpp"
 #include "wbc_core/tasks/task-two-frames-equality.hpp"
-#include "wbc_core/math/constraint-inequality.hpp"
-#include "wbc_core/math/constraint-equality.hpp"
+#include "wbc_core/math/constraints/constraint-inequality.hpp"
+#include "wbc_core/math/constraints/constraint-equality.hpp"
 
 namespace wbc {
 namespace contacts {

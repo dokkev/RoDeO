@@ -18,6 +18,7 @@ find_package(eiquadprog REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
 set(wbc_solver_sources
+  src/solvers/hqp-data-utils.cpp
   src/solvers/solver-HQP-base.cpp
   src/solvers/solver-HQP-factory.cpp
   src/solvers/solver-HQP-cascade.cpp
@@ -30,12 +31,14 @@ set(wbc_solver_sources
 
 set(${PROJECT_NAME}_SOURCES
   src/utils/stop-watch.cpp
-  src/utils/math_util.cpp
-  src/math/constraint-base.cpp
-  src/math/constraint-equality.cpp
-  src/math/constraint-inequality.cpp
-  src/math/constraint-bound.cpp
-  src/math/utils.cpp
+  src/math/lie_group/se3.cpp
+  src/math/linear_algebra/matrix.cpp
+  src/math/linear_algebra/selection.cpp
+  src/math/linear_algebra/svd.cpp
+  src/math/constraints/constraint-base.cpp
+  src/math/constraints/constraint-equality.cpp
+  src/math/constraints/constraint-inequality.cpp
+  src/math/constraints/constraint-bound.cpp
   src/tasks/task-base.cpp
   src/tasks/task-motion.cpp
   src/tasks/task-actuation.cpp
@@ -64,6 +67,8 @@ set(${PROJECT_NAME}_SOURCES
   src/trajectories/interpolation.cpp
   src/trajectories/joint_integrator.cpp
   ${wbc_solver_sources}
+  src/robots/robot-command.cpp
+  src/robots/robot-logger.cpp
   src/robots/robot-system.cpp
   src/contacts/contact-level.cpp
   src/controller/id-hqp.cpp

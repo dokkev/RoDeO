@@ -19,9 +19,12 @@
 #define __invdyn_task_contact_force_hpp__
 
 #include <wbc_core/macros.hpp>
+#include <wbc_core/contacts/fwd.hpp>
 #include <wbc_core/tasks/task-base.hpp>
-#include <wbc_core/contacts/contact-level.hpp>
+
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace wbc {
 namespace tasks {

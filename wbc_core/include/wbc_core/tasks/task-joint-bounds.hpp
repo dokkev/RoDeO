@@ -19,7 +19,7 @@
 #define __invdyn_task_joint_bounds_hpp__
 
 #include <wbc_core/tasks/task-motion.hpp>
-#include <wbc_core/math/constraint-bound.hpp>
+#include <wbc_core/math/constraints/constraint-bound.hpp>
 
 namespace wbc {
 namespace tasks {

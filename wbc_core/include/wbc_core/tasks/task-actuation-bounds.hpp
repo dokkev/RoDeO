@@ -20,7 +20,7 @@
 
 #include <wbc_core/tasks/task-actuation.hpp>
 #include <wbc_core/trajectories/trajectory-base.hpp>
-#include <wbc_core/math/constraint-inequality.hpp>
+#include <wbc_core/math/constraints/constraint-inequality.hpp>
 
 namespace wbc {
 namespace tasks {

@@ -5,6 +5,8 @@
 #ifndef __invdyn_measured_force_base_hpp__
 #define __invdyn_measured_force_base_hpp__
 
+#include <string>
+
 #include <pinocchio/multibody/fwd.hpp>
 
 #include "wbc_core/math/fwd.hpp"

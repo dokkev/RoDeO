@@ -2,9 +2,9 @@
 // Copyright (c) 2017 CNRS, NYU, MPI Tübingen
 //
 
-#include "wbc_core/math/utils.hpp"
 #include "wbc_core/contacts/contact-6d.hpp"
 
+#include <pinocchio/macros.hpp>
 #include <pinocchio/spatial/skew.hpp>
 
 using namespace wbc;

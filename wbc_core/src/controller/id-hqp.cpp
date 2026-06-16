@@ -6,11 +6,12 @@
 
 #include "wbc_core/controller/id-hqp.hpp"
 
-#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <memory>
 
+#include "wbc_core/solvers/hqp-data-utils.hpp"
 #include "wbc_core/solvers/solver-HQP-cascade.hpp"
 #include "wbc_core/solvers/solver-HQP-factory.hpp"
 #include "wbc_core/solvers/solver-qp-params.hpp"
@@ -37,14 +38,12 @@ std::unique_ptr<solvers::SolverHQPBase> makeSolver(
   return solver;
 }
 
-constexpr unsigned int kPhysicsLevel = 0u;
-
 bool isObjectiveLevelValid(unsigned int level) {
-  return level > kPhysicsLevel;
+  return level > solvers::hqp::kLevel0;
 }
 
 unsigned int regularizationLevel(unsigned int max_objective_level) {
-  return std::max(kPhysicsLevel, max_objective_level) + 1u;
+  return max_objective_level + 1u;
 }
 
 unsigned int numHierarchyLevels(unsigned int max_objective_level) {
@@ -60,8 +59,7 @@ IDHQP::IDHQP(robots::RobotSystem& robot, solvers::SolverHQP solver_type)
 
 IDHQP::IDHQP(robots::RobotSystem& robot, solvers::SolverHQP solver_type,
              const solvers::SolverQPParams& qp_params)
-    : m_robot(robot),
-      m_data(robot.model()),
+    : InverseDynamicsBase(robot),
       m_solverType(solver_type),
       m_qpParams(qp_params),
       m_dynamicsConstraint(0),
@@ -70,21 +68,6 @@ IDHQP::IDHQP(robots::RobotSystem& robot, solvers::SolverHQP solver_type,
       m_jointTorqueLimitConstraint(0),
       m_accelerationRegularization(0, 1e-4),
       m_lambdaRegularization(0, 1e-5) {
-  m_nv = robot.nv();
-  m_na = robot.na();
-  m_nvFloat = m_nv - m_na;
-
-  m_zeroQddotRef = Vector::Zero(m_nv);
-  m_qddotRefCurrent = Vector::Zero(m_nv);
-  m_zero_h_ext = Vector::Zero(m_nv);
-  m_tauFull = Vector::Zero(m_nv);
-  m_solution = std::make_unique<IDSolution>();
-  m_solution->qddot_ref = Vector::Zero(m_nv);
-  m_solution->delta_qddot_sol = Vector::Zero(m_nv);
-  m_solution->qddot_sol = Vector::Zero(m_nv);
-  m_solution->lambda_sol = Vector::Zero(0);
-  m_solution->tau_sol = Vector::Zero(m_na);
-
   m_jointTorqueLimitConstraint.preallocate(m_na);
 
   m_solver = makeSolver(m_solverType, m_qpParams);
@@ -120,7 +103,7 @@ const IDSolution& IDHQP::solve(const IDProblem& problem, double dt) {
   }
 
   updateRobotModel();
-  prepareCycleWorkspace(problem);
+  prepareSolveWorkspace(problem);
   buildHardConstraints(problem);
   buildRegularizationBlocks(problem);
   buildObjectiveBlocks(problem);
@@ -141,23 +124,12 @@ const IDSolution& IDHQP::solve(const IDProblem& problem, double dt) {
 }
 
 void IDHQP::beginCycle(const IDProblem& problem) {
-  m_solution->success = false;
-  m_cycle = CycleWorkspace{};
-
-  if (problem.qddot_ref) {
-    assert(problem.qddot_ref->size() == m_nv);
-    m_qddotRefCurrent = *problem.qddot_ref;
-  } else {
-    m_qddotRefCurrent = m_zeroQddotRef;
-  }
-
-  m_solution->qddot_ref = m_qddotRefCurrent;
-  resetFailedSolution();
+  m_workspace = SolveWorkspace{};
+  beginSolveCycle(problem);
 }
 
 bool IDHQP::validateInput(const IDProblem& problem, double dt) const {
-  return m_robot.hasState() && std::isfinite(dt) && dt >= 0.0 &&
-         validateHierarchy(problem);
+  return validateBaseInput(dt) && validateHierarchy(problem);
 }
 
 bool IDHQP::validateHierarchy(const IDProblem& problem) const {
@@ -171,44 +143,39 @@ bool IDHQP::validateHierarchy(const IDProblem& problem) const {
       return false;
     }
   }
-  return kPhysicsLevel < regularizationLevel(problem.maxObjectiveLevel());
+  return solvers::hqp::kLevel0 <
+         regularizationLevel(problem.maxObjectiveLevel());
 }
 
-void IDHQP::updateRobotModel() {
-  assert(m_robot.generalized_q().size() == m_robot.nq());
-  assert(m_robot.generalized_v().size() == m_nv);
-  m_robot.computeAllTerms(m_data, m_robot.generalized_q(),
-                          m_robot.generalized_v());
-}
-
-void IDHQP::prepareCycleWorkspace(const IDProblem& problem) {
-  stackContactData(problem);
+void IDHQP::prepareSolveWorkspace(const IDProblem& problem) {
+  stackContactData(m_workspace.contacts, problem.contacts);
 
   m_jointTorqueLimits = problem.joint_torque_limits;
   m_h_ext = problem.h_ext;
 
-  m_cycle.hasContactForces = (m_cycle.lambdaDim > 0);
-  m_cycle.hasContactKinematics = (m_cycle.Jc.rows() > 0);
-  m_cycle.hasFrictionConstraints =
-      m_cycle.hasContactForces && (m_cycle.Uf.rows() > 0);
-  m_cycle.hasJointTorqueLimits = m_jointTorqueLimits.enabled();
-  m_cycle.regularizeLambda =
-      m_cycle.hasContactForces && (problem.regularization.w_lambda > 0.0);
+  m_workspace.hasContactForces = m_workspace.contacts.hasContactForces();
+  m_workspace.hasContactKinematics =
+      m_workspace.contacts.hasContactKinematics();
+  m_workspace.hasFrictionConstraints =
+      m_workspace.contacts.hasFrictionConstraints();
+  m_workspace.hasJointTorqueLimits = m_jointTorqueLimits.enabled();
+  m_workspace.regularizeLambda =
+      m_workspace.hasContactForces && (problem.regularization.w_lambda > 0.0);
 
-  resetFailedSolution();
-  buildContext(problem);
+  resetSolution(problemQddotRef(problem), m_workspace.contacts.lambdaDim);
+  buildHqpContext(problem);
 }
 
 void IDHQP::buildHardConstraints(const IDProblem& problem) {
   (void)problem;
   m_dynamicsConstraint.build(m_ctx);
-  if (m_cycle.hasContactKinematics) {
+  if (m_workspace.hasContactKinematics) {
     m_contactConsistencyConstraint.build(m_ctx);
   }
-  if (m_cycle.hasFrictionConstraints) {
+  if (m_workspace.hasFrictionConstraints) {
     m_frictionConeConstraint.build(m_ctx);
   }
-  if (m_cycle.hasJointTorqueLimits) {
+  if (m_workspace.hasJointTorqueLimits) {
     m_jointTorqueLimitConstraint.build(m_ctx);
   }
 }
@@ -216,7 +183,7 @@ void IDHQP::buildHardConstraints(const IDProblem& problem) {
 void IDHQP::buildRegularizationBlocks(const IDProblem& problem) {
   m_accelerationRegularization.setWeight(problem.regularization.w_delta_qddot);
   m_accelerationRegularization.build(m_ctx);
-  if (m_cycle.regularizeLambda) {
+  if (m_workspace.regularizeLambda) {
     m_lambdaRegularization.setWeight(problem.regularization.w_lambda);
     m_lambdaRegularization.build(m_ctx);
   }
@@ -266,219 +233,136 @@ void IDHQP::buildObjectiveBlocks(const IDProblem& problem) {
 }
 
 void IDHQP::assembleHierarchy(const IDProblem& problem) {
-  resizeHQPData(m_hqpData, numHierarchyLevels(problem.maxObjectiveLevel()));
+  solvers::hqp::resizeData(
+      m_hqpData, numHierarchyLevels(problem.maxObjectiveLevel()));
 
   if (m_nvFloat > 0) {
-    addConstraint(m_hqpData, kPhysicsLevel, 1.0,
-                  m_dynamicsConstraint.constraint());
+    solvers::hqp::addTerm(m_hqpData, solvers::hqp::kLevel0, 1.0,
+                          m_dynamicsConstraint.constraint());
   }
-  if (m_cycle.hasContactKinematics) {
-    addConstraint(m_hqpData, kPhysicsLevel, 1.0,
-                  m_contactConsistencyConstraint.constraint());
+  if (m_workspace.hasContactKinematics) {
+    solvers::hqp::addTerm(m_hqpData, solvers::hqp::kLevel0, 1.0,
+                          m_contactConsistencyConstraint.constraint());
   }
-  if (m_cycle.hasFrictionConstraints) {
-    addConstraint(m_hqpData, kPhysicsLevel, 1.0,
-                  m_frictionConeConstraint.constraint());
+  if (m_workspace.hasFrictionConstraints) {
+    solvers::hqp::addTerm(m_hqpData, solvers::hqp::kLevel0, 1.0,
+                          m_frictionConeConstraint.constraint());
   }
-  if (m_cycle.hasJointTorqueLimits) {
-    addConstraint(m_hqpData, kPhysicsLevel, 1.0,
-                  m_jointTorqueLimitConstraint.constraint());
+  if (m_workspace.hasJointTorqueLimits) {
+    solvers::hqp::addTerm(m_hqpData, solvers::hqp::kLevel0, 1.0,
+                          m_jointTorqueLimitConstraint.constraint());
   }
 
   for (std::size_t i = 0; i < problem.motion_objectives.size(); ++i) {
     const auto& objective = problem.motion_objectives[i];
     if (objective.isEquality()) {
-      addTask(m_hqpData, objective.level, objective.weight,
-              m_motionObjectiveSlots[i].constraint);
+      solvers::hqp::addTerm(m_hqpData, objective.level, objective.weight,
+                            m_motionObjectiveSlots[i].constraint);
     } else {
-      addConstraint(m_hqpData, kPhysicsLevel, 1.0,
-                    m_motionObjectiveSlots[i].constraint);
+      solvers::hqp::addTerm(m_hqpData, solvers::hqp::kLevel0, 1.0,
+                            m_motionObjectiveSlots[i].constraint);
     }
   }
 
   for (std::size_t i = 0; i < problem.joint_acceleration_objectives.size();
        ++i) {
     const auto& objective = problem.joint_acceleration_objectives[i];
-    addTask(m_hqpData, objective.level, objective.weight,
-            m_jointAccelerationObjectiveSlots[i].constraint);
+    solvers::hqp::addTerm(m_hqpData, objective.level, objective.weight,
+                          m_jointAccelerationObjectiveSlots[i].constraint);
   }
 
-  const unsigned int regLevel = regularizationLevel(problem.maxObjectiveLevel());
-  addTask(m_hqpData, regLevel, problem.regularization.w_delta_qddot,
-          m_accelerationRegularization.constraint());
-  if (m_cycle.regularizeLambda) {
-    addTask(m_hqpData, regLevel, problem.regularization.w_lambda,
-            m_lambdaRegularization.constraint());
+  const unsigned int regLevel =
+      regularizationLevel(problem.maxObjectiveLevel());
+  solvers::hqp::addTerm(m_hqpData, regLevel,
+                        problem.regularization.w_delta_qddot,
+                        m_accelerationRegularization.constraint());
+  if (m_workspace.regularizeLambda) {
+    solvers::hqp::addTerm(m_hqpData, regLevel,
+                          problem.regularization.w_lambda,
+                          m_lambdaRegularization.constraint());
   }
 }
 
 void IDHQP::resizeSolverFromHQPData() {
-  unsigned int n = 0;
-  unsigned int neq = 0;
-  unsigned int nin = 0;
+  const solvers::hqp::Dimensions dimensions =
+      solvers::hqp::dimensions(m_hqpData);
 
-  for (const auto& level : m_hqpData) {
-    for (const auto& pair : level) {
-      if (n == 0 && pair.second) {
-        n = pair.second->cols();
-      }
-      if (!pair.second) {
-        continue;
-      }
-      if (pair.second->isEquality()) {
-        neq += pair.second->rows();
-      } else {
-        nin += pair.second->rows();
-      }
-    }
-  }
-
-  if (n > 0) {
-    if (!m_solver || m_solverVarDim != n || m_solverEqDim != neq ||
-        m_solverInDim != nin) {
+  if (dimensions.variables > 0) {
+    if (!m_solver || m_solverVarDim != dimensions.variables ||
+        m_solverEqDim != dimensions.equalities ||
+        m_solverInDim != dimensions.inequalities) {
       m_solver = makeSolver(m_solverType, m_qpParams);
-      m_solverVarDim = n;
-      m_solverEqDim = neq;
-      m_solverInDim = nin;
+      m_solverVarDim = dimensions.variables;
+      m_solverEqDim = dimensions.equalities;
+      m_solverInDim = dimensions.inequalities;
     }
-    m_solver->resize(n, neq, nin);
+    m_solver->resize(dimensions.variables, dimensions.equalities,
+                     dimensions.inequalities);
   }
 }
 
-void IDHQP::stackContactData(const IDProblem& problem) {
-  m_cycle.contactLayout.clear();
-  m_cycle.lambdaDim = 0;
-
-  int totalLambdaDim = 0;
-  int totalUfRows = 0;
-  int totalMotionDim = 0;
-  for (const auto& contact : problem.contacts) {
-    totalLambdaDim += contact.lambdaDim();
-    totalUfRows += static_cast<int>(contact.Uf.rows());
-    totalMotionDim += contact.motionDim();
-  }
-
-  m_cycle.Jc.setZero(totalMotionDim, m_nv);
-  m_cycle.contact_motion_rhs.setZero(totalMotionDim);
-  m_cycle.Uf.setZero(totalUfRows, totalLambdaDim);
-  m_cycle.uf_lb.setZero(totalUfRows);
-  m_cycle.uf_ub.setZero(totalUfRows);
-
-  int motionRow = 0;
-  int lambdaOffset = 0;
-  int ufRow = 0;
-
-  for (const auto& contact : problem.contacts) {
-    const int motionDim = contact.motionDim();
-    const int lambdaDim = contact.lambdaDim();
-
-    assert(contact.Jc.cols() == m_nv);
-    assert(contact.motion_rhs.size() == motionDim);
-    assert(contact.T.cols() == lambdaDim);
-    if (motionDim > 0) {
-      m_cycle.Jc.block(motionRow, 0, motionDim, m_nv) = contact.Jc;
-      m_cycle.contact_motion_rhs.segment(motionRow, motionDim) =
-          contact.motion_rhs;
-    }
-
-    if (lambdaDim > 0) {
-      assert(contact.Uf.cols() == lambdaDim);
-      assert(contact.uf_lb.size() == contact.Uf.rows());
-      assert(contact.uf_ub.size() == contact.Uf.rows());
-      m_cycle.Uf.block(ufRow, lambdaOffset, contact.Uf.rows(), lambdaDim) =
-          contact.Uf;
-      m_cycle.uf_lb.segment(ufRow, contact.Uf.rows()) = contact.uf_lb;
-      m_cycle.uf_ub.segment(ufRow, contact.Uf.rows()) = contact.uf_ub;
-    }
-
-    m_cycle.contactLayout[contact.name] = {lambdaOffset, lambdaDim};
-    motionRow += motionDim;
-    lambdaOffset += lambdaDim;
-    ufRow += static_cast<int>(contact.Uf.rows());
-  }
-
-  m_cycle.lambdaDim = totalLambdaDim;
-}
-
-void IDHQP::buildContext(const IDProblem& problem) {
+void IDHQP::buildHqpContext(const IDProblem& problem) {
   m_ctx = HQPBuildContext{};
   m_ctx.M = &m_robot.mass(m_data);
   m_ctx.h = &m_robot.nonLinearEffects(m_data);
   m_ctx.nv = m_nv;
   m_ctx.na = m_na;
   m_ctx.nvFloat = m_nvFloat;
-  m_ctx.lambdaDim = m_cycle.lambdaDim;
+  m_ctx.lambdaDim = m_workspace.contacts.lambdaDim;
 
   m_ctx.contactInfos.reserve(problem.contacts.size());
   for (const auto& contact : problem.contacts) {
-    auto it = m_cycle.contactLayout.find(contact.name);
-    assert(it != m_cycle.contactLayout.end());
+    auto it = m_workspace.contacts.contactLayout.find(contact.name);
+    assert(it != m_workspace.contacts.contactLayout.end());
     m_ctx.contactInfos.push_back({&contact.Jc, &contact.T,
                                   it->second.lambdaOffset,
                                   it->second.lambdaDim});
   }
 
-  if (m_cycle.hasContactKinematics) {
-    m_ctx.Jc = &m_cycle.Jc;
-    m_ctx.contact_motion_rhs = &m_cycle.contact_motion_rhs;
+  if (m_workspace.hasContactKinematics) {
+    m_ctx.Jc = &m_workspace.contacts.Jc;
+    m_ctx.contact_motion_rhs = &m_workspace.contacts.contact_motion_rhs;
   }
-  if (m_cycle.hasContactForces) {
-    m_ctx.Uf = &m_cycle.Uf;
-    m_ctx.uf_lb = &m_cycle.uf_lb;
-    m_ctx.uf_ub = &m_cycle.uf_ub;
+  if (m_workspace.hasContactForces) {
+    m_ctx.Uf = &m_workspace.contacts.Uf;
+    m_ctx.uf_lb = &m_workspace.contacts.uf_lb;
+    m_ctx.uf_ub = &m_workspace.contacts.uf_ub;
   }
 
-  m_ctx.h_ext = m_h_ext ? m_h_ext : &m_zero_h_ext;
+  m_ctx.h_ext = m_h_ext ? m_h_ext : &zeroExternalWrench();
 
-  if (m_cycle.hasJointTorqueLimits) {
+  if (m_workspace.hasJointTorqueLimits) {
     m_ctx.enableJointTorqueLimits = true;
     m_ctx.tau_lb = m_jointTorqueLimits.lower;
     m_ctx.tau_ub = m_jointTorqueLimits.upper;
   }
 
-  m_ctx.qddot_ref = &m_qddotRefCurrent;
+  m_ctx.qddot_ref = &problemQddotRef(problem);
 }
 
 const IDSolution& IDHQP::decodeSolution(const IDProblem& problem,
                                         const solvers::HQPOutput& hqpSol) {
   if (hqpSol.status != solvers::HQP_STATUS_OPTIMAL ||
-      hqpSol.x.size() < m_nv + m_cycle.lambdaDim) {
-    resetFailedSolution();
+      hqpSol.x.size() < m_nv + m_workspace.contacts.lambdaDim) {
+    resetSolution(problemQddotRef(problem), m_workspace.contacts.lambdaDim);
     return fail();
   }
 
-  m_solution->delta_qddot_sol = hqpSol.x.head(m_nv);
-  m_solution->qddot_sol = m_qddotRefCurrent + m_solution->delta_qddot_sol;
+  setAccelerationSolution(problemQddotRef(problem), hqpSol.x.head(m_nv));
 
-  if (m_cycle.hasContactForces) {
-    m_solution->lambda_sol = hqpSol.x.segment(m_nv, m_cycle.lambdaDim);
+  if (m_workspace.hasContactForces) {
+    m_solution->lambda_sol =
+        hqpSol.x.segment(m_nv, m_workspace.contacts.lambdaDim);
   } else {
     m_solution->lambda_sol.resize(0);
   }
 
-  recoverTorque(problem);
-  m_solution->success = m_solution->qddot_ref.allFinite() &&
-                        m_solution->delta_qddot_sol.allFinite() &&
-                        m_solution->qddot_sol.allFinite() &&
-                        m_solution->lambda_sol.allFinite() &&
-                        m_solution->tau_sol.allFinite();
+  computeModelTorque(problem);
+  m_solution->success = solutionVectorsFinite();
   return *m_solution;
 }
 
-void IDHQP::resetFailedSolution() {
-  m_solution->qddot_ref = m_qddotRefCurrent;
-  m_solution->delta_qddot_sol.setZero(m_nv);
-  m_solution->qddot_sol = m_qddotRefCurrent;
-  if (m_cycle.lambdaDim > 0) {
-    m_solution->lambda_sol.setZero(m_cycle.lambdaDim);
-  } else {
-    m_solution->lambda_sol.resize(0);
-  }
-  m_solution->tau_sol.setZero(m_na);
-  m_solution->success = false;
-}
-
-void IDHQP::recoverTorque(const IDProblem& problem) {
+void IDHQP::computeModelTorque(const IDProblem& problem) {
   const Matrix& M = m_robot.mass(m_data);
   const Vector& h = m_robot.nonLinearEffects(m_data);
 
@@ -489,10 +373,11 @@ void IDHQP::recoverTorque(const IDProblem& problem) {
     m_tauFull -= *m_h_ext;
   }
 
-  if (m_cycle.hasContactForces) {
+  if (m_workspace.hasContactForces) {
     for (const auto& contact : problem.contacts) {
-      auto it = m_cycle.contactLayout.find(contact.name);
-      if (it == m_cycle.contactLayout.end() || it->second.lambdaDim == 0) {
+      auto it = m_workspace.contacts.contactLayout.find(contact.name);
+      if (it == m_workspace.contacts.contactLayout.end() ||
+          it->second.lambdaDim == 0) {
         continue;
       }
 

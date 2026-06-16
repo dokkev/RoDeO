@@ -20,10 +20,10 @@
 
 #include "wbc_core/solvers/fwd.hpp"
 #include "wbc_core/solvers/solver-HQP-output.hpp"
-#include "wbc_core/math/constraint-base.hpp"
 
-#include <vector>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace wbc {
 namespace solvers {

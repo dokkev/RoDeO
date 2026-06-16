@@ -14,7 +14,7 @@
 
 #include <wbc_core/controller/id-hqp.hpp>
 #include <wbc_core/controller/base/id-problem-registry.hpp>
-#include <wbc_core/math/constraint-equality.hpp>
+#include <wbc_core/math/constraints/constraint-equality.hpp>
 #include <wbc_core/robots/robot-system.hpp>
 #include <wbc_core/tasks/task-motion.hpp>
 
@@ -270,7 +270,7 @@ TEST_F(PublicIDHQPTest, PublicIDHQPChoosesMinimumNormFeasibleLambda) {
 TEST_F(PublicIDHQPTest, RegistryBuildsProblemForPublicIDHQP) {
   MockMotionTask task("mock-task", *robot);
   task.setSingleDoFTarget(0, 0.75);
-  registry->addTask(task, 1u, 2.0);
+  registry->registerTask(task, 1u, 2.0);
 
   IDProblem problem = registry->buildProblem(0.0, q, qdot);
   ASSERT_EQ(problem.motion_objectives.size(), 1u);

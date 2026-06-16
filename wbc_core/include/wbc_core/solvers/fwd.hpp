@@ -70,6 +70,7 @@ enum TSID_DLLAPI HQPStatus {
 class HQPOutput;
 
 class TSID_DLLAPI SolverHQPBase;
+struct SolverQPParams;
 
 template <int nVars, int nEqCon, int nIneqCon>
 class TSID_DLLAPI SolverHQuadProgRT;

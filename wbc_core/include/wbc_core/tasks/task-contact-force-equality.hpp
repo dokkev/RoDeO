@@ -18,11 +18,15 @@
 #ifndef __invdyn_task_contact_force_equality_hpp__
 #define __invdyn_task_contact_force_equality_hpp__
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "wbc_core/contacts/fwd.hpp"
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/tasks/task-contact-force.hpp"
 #include "wbc_core/trajectories/trajectory-base.hpp"
-#include "wbc_core/math/constraint-equality.hpp"
-#include "wbc_core/contacts/contact-base.hpp"
+#include "wbc_core/math/constraints/constraint-equality.hpp"
 
 namespace wbc {
 namespace tasks {

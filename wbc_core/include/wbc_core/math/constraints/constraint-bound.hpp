@@ -5,7 +5,7 @@
 #ifndef __invdyn_math_constraint_bound_hpp__
 #define __invdyn_math_constraint_bound_hpp__
 
-#include "wbc_core/math/constraint-base.hpp"
+#include "wbc_core/math/constraints/constraint-base.hpp"
 
 namespace wbc {
 namespace math {
@@ -41,7 +41,7 @@ class ConstraintBound : public ConstraintBase {
   bool setLowerBound(ConstRefVector lb) override;
   bool setUpperBound(ConstRefVector ub) override;
 
-  bool checkConstraint(ConstRefVector x, double tol = 1e-6) const override;
+  bool isSatisfied(ConstRefVector x, double tol = 1e-6) const override;
 
  protected:
   Vector m_lb;

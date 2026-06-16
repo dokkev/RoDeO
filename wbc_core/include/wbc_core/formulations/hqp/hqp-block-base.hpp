@@ -15,7 +15,7 @@
 #include <utility>
 
 #include "wbc_core/formulations/hqp/hqp-build-context.hpp"
-#include "wbc_core/math/constraint-base.hpp"
+#include "wbc_core/math/fwd.hpp"
 
 namespace wbc {
 

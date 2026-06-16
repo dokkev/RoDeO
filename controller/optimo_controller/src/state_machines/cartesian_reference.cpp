@@ -10,7 +10,7 @@
 #include <Eigen/Geometry>
 
 #include "control_architecture/state_machine/state_util.hpp"
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/lie_group/se3.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/trajectories/trajectory-base.hpp"
 
@@ -98,7 +98,7 @@ void CartesianReferenceState::ApplyConfiguredPoseTarget() {
 }
 
 void CartesianReferenceState::ApplyReference() {
-  wbc::math::SE3ToVector(target_pose_, ref_.pos);
+  wbc::math::se3ToVector(target_pose_, ref_.pos);
   ref_.vel.setZero();
   ref_.acc.setZero();
   ref_.vel.head<3>() = angular_velocity_;

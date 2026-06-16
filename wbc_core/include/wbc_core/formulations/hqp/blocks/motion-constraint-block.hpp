@@ -19,8 +19,8 @@
 #include <cassert>
 
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
-#include "wbc_core/math/constraint-equality.hpp"
-#include "wbc_core/math/constraint-inequality.hpp"
+#include "wbc_core/math/constraints/constraint-equality.hpp"
+#include "wbc_core/math/constraints/constraint-inequality.hpp"
 #include "wbc_core/tasks/motion-objective.hpp"
 
 namespace wbc {

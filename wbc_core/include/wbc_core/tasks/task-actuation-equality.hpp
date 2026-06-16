@@ -19,7 +19,7 @@
 #define __invdyn_task_actuation_equality_hpp__
 
 #include <wbc_core/tasks/task-actuation.hpp>
-#include <wbc_core/math/constraint-equality.hpp>
+#include <wbc_core/math/constraints/constraint-equality.hpp>
 
 namespace wbc {
 namespace tasks {

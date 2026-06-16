@@ -146,7 +146,7 @@ RuntimeAssembler::Assemble(compiled, robot)
 
 BindRegistry(config, registry, robot, data)
   -> registers RuntimeConfig tasks, contacts, constraints, regularization,
-     and qddot_ref policy into IDProblemRegistry
+     and qddot_ref assembly into IDProblemRegistry
 ```
 
 Rules:
@@ -198,7 +198,7 @@ The runtime wiring is intentionally split:
 ```text
 BindRegistry
   -> RuntimeConfig + IDProblemRegistry
-  -> registers tasks, contacts, constraints, regularization, qddot_ref policy
+  -> registers tasks, contacts, constraints, regularization, qddot_ref assembly
 
 StateMachineAssembler
   -> RuntimeConfig + FSMHandler + StateFactory
@@ -373,7 +373,7 @@ Role:
   layers, not owned by formulations.
 - Keep solve input/output fields with the formulation contract, not with
   controller runtime ownership.
-- Are consumed by `IDProblemRegistry`, `IDBase`, and `IDHQP`.
+- Are consumed by `IDProblemRegistry`, `InverseDynamicsBase`, and `IDHQP`.
 
 ### IDHQP
 
@@ -387,8 +387,8 @@ Role:
 
 - Solves a ready `IDProblem`.
 - Owns HQP cascade solver backend.
-- Owns the fixed hierarchy shape: physics constraints at level 0, objectives at
-  positive levels, and regularization after the deepest objective.
+- Owns the fixed hierarchy shape: hard feasibility terms at HQP level 0,
+  objectives at positive levels, and regularization after the deepest objective.
 - Decodes qddot reference/correction, contact force, and recovered model torque
   into `IDSolution`.
 - Does not integrate joint commands or build final `RobotCommand`.

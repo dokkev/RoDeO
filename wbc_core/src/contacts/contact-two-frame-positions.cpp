@@ -2,7 +2,6 @@
 // Copyright (c) 2023 MIPT
 //
 
-#include "wbc_core/math/utils.hpp"
 #include "wbc_core/contacts/contact-two-frame-positions.hpp"
 
 #include <pinocchio/spatial/skew.hpp>

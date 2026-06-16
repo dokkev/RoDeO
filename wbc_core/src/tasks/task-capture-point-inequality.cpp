@@ -3,8 +3,9 @@
 //
 
 #include <wbc_core/tasks/task-capture-point-inequality.hpp>
-#include "wbc_core/math/utils.hpp"
 #include "wbc_core/robots/robot-system.hpp"
+
+#include <pinocchio/macros.hpp>
 
 /** This class has been implemented following :
  * Ramos, O. E., Mansard, N., & Soueres, P.

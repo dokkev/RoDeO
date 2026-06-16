@@ -20,7 +20,7 @@
 
 #include <wbc_core/tasks/task-motion.hpp>
 #include <wbc_core/trajectories/trajectory-base.hpp>
-#include <wbc_core/math/constraint-inequality.hpp>
+#include <wbc_core/math/constraints/constraint-inequality.hpp>
 #include <vector>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/data.hpp>

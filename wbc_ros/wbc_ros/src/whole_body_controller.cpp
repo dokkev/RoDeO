@@ -114,10 +114,6 @@ controller_interface::CallbackReturn WholeBodyController::on_init() {
   auto_declare<std::vector<std::string>>("joints", {});
   auto_declare<std::string>("wbc_yaml_path", "");
   auto_declare<double>("control_frequency", kDefaultControlFrequencyHz);
-  auto_declare<bool>("is_simulation", false);
-  auto_declare<std::string>("actuator_model", "");
-  auto_declare<std::vector<double>>("spring_stiffness", {});
-  auto_declare<std::vector<double>>("spring_damping", {});
   auto_declare<std::vector<std::string>>("command_interfaces",
                                          DefaultCommandInterfaces());
   auto_declare<std::vector<double>>("command_kp", {});
@@ -186,9 +182,6 @@ controller_interface::CallbackReturn WholeBodyController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  if (!ConfigureActuator()) {
-    return controller_interface::CallbackReturn::ERROR;
-  }
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -290,48 +283,6 @@ bool WholeBodyController::ConfigureCommandGains() {
   }
 }
 
-bool WholeBodyController::ConfigureActuator() {
-  const bool is_simulation =
-      get_node()->get_parameter("is_simulation").as_bool();
-  std::string actuator_model =
-      get_node()->get_parameter("actuator_model").as_string();
-  if (actuator_model.empty()) {
-    actuator_model = is_simulation ? "spring" : "direct";
-  }
-
-  if (actuator_model == "direct") {
-    actuator_ = std::make_unique<wbc::DirectActuator>();
-    RCLCPP_INFO(get_node()->get_logger(),
-                "[WholeBodyController] actuator model: direct torque");
-    return true;
-  }
-
-  if (actuator_model == "spring") {
-    try {
-      const auto stiffness = ToJointVector(
-          get_node()->get_parameter("spring_stiffness").as_double_array(),
-          joint_count_, "spring_stiffness");
-      const auto damping = ToJointVector(
-          get_node()->get_parameter("spring_damping").as_double_array(),
-          joint_count_, "spring_damping");
-      actuator_ = std::make_unique<wbc::SpringActuator>(stiffness, damping);
-      RCLCPP_INFO(get_node()->get_logger(),
-                  "[WholeBodyController] actuator model: spring");
-      return true;
-    } catch (const std::exception& e) {
-      RCLCPP_ERROR(get_node()->get_logger(),
-                   "[WholeBodyController] invalid actuator parameters: %s",
-                   e.what());
-      return false;
-    }
-  }
-
-  RCLCPP_ERROR(get_node()->get_logger(),
-               "[WholeBodyController] unsupported actuator_model '%s'",
-               actuator_model.c_str());
-  return false;
-}
-
 void WholeBodyController::LogAvailableStates() const {
   std::string state_list;
   for (const auto& [id, state] : ctrl_arch_->fsmHandler()->states()) {
@@ -395,7 +346,6 @@ controller_interface::CallbackReturn WholeBodyController::on_activate(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  actuator_->Reset(q0);
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -464,7 +414,7 @@ controller_interface::return_type WholeBodyController::update(
 }
 
 bool WholeBodyController::PrepareOutputCommand(
-    const wbc::robots::RobotCommand& cmd, double dt) {
+    const wbc::robots::RobotCommand& cmd, double) {
   if (!CommandHasSizeAndFinite(cmd, joint_count_) ||
       !CommandHasSizeAndFinite(output_cmd_, joint_count_)) {
     return false;
@@ -473,15 +423,6 @@ bool WholeBodyController::PrepareOutputCommand(
   output_cmd_.q = cmd.q;
   output_cmd_.qdot = cmd.qdot;
   output_cmd_.tau = cmd.tau;
-
-  if (actuator_) {
-    const auto& joint_state = robot_->jointState();
-    wbc::ActuatorCommand act_cmd(output_cmd_.q, output_cmd_.qdot,
-                                 output_cmd_.tau, command_kp_, command_kd_,
-                                 joint_state.q, joint_state.qdot, dt);
-    return actuator_->ProcessTorque(act_cmd, output_cmd_.tau) &&
-           output_cmd_.tau.allFinite();
-  }
 
   return output_cmd_.tau.allFinite();
 }

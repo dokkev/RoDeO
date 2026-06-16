@@ -2,7 +2,7 @@
 // Copyright (c) 2017-2021 CNRS
 //
 
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/lie_group/se3.hpp"
 #include "wbc_core/trajectories/trajectory-se3.hpp"
 
 using namespace wbc::math;
@@ -17,16 +17,16 @@ TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name)
 
 TrajectorySE3Constant::TrajectorySE3Constant(const std::string& name,
                                              const SE3& M)
-  : TrajectoryBase(name) {
+    : TrajectoryBase(name) {
   m_sample.resize(12, 6);
-  wbc::math::SE3ToVector(M, m_sample.pos);
+  wbc::math::se3ToVector(M, m_sample.pos);
 }
 
 unsigned int TrajectorySE3Constant::size() const { return 6; }
 
 void TrajectorySE3Constant::setReference(const pinocchio::SE3& ref) {
   m_sample.resize(12, 6);
-  wbc::math::SE3ToVector(ref, m_sample.pos);
+  wbc::math::se3ToVector(ref, m_sample.pos);
 }
 
 const TrajectorySample& TrajectorySE3Constant::operator()(double) {

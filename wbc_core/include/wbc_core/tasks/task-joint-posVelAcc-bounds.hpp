@@ -19,8 +19,8 @@
 #define __invdyn_task_joint_posVelAcc_bounds_hpp__
 
 #include <wbc_core/tasks/task-motion.hpp>
-#include <wbc_core/math/constraint-bound.hpp>
-#include <wbc_core/math/constraint-inequality.hpp>
+#include <wbc_core/math/constraints/constraint-bound.hpp>
+#include <wbc_core/math/constraints/constraint-inequality.hpp>
 
 /** This class has been implemented following :
  * Andrea del Prete. Joint Position and Velocity Bounds in Discrete-Time

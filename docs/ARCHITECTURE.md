@@ -73,14 +73,36 @@ auditable.
 
 ### `wbc_core` Internal Boundary
 
+Shared math helpers live under `wbc_core/math`. Tasks, contacts, formulations,
+controllers, and robot-specific packages should reuse those helpers instead of
+creating local copies in `utils/` or controller directories. New reusable
+linear algebra, geometry, Lie-group, or conversion helpers should be added to
+the appropriate `wbc_core/math` subdirectory. Prefer Pinocchio's SE(3) / SO(3)
+APIs such as `SE3::actInv`, `log3`, `exp3`, `log6`, and `exp6` instead of
+reimplementing Lie-group math in this repository. Add a local helper only when
+it fixes a project-specific representation or frame convention; prefer Eigen or
+Pinocchio directly for one-line quaternion, RPY, yaw, skew, and axis operations.
+Conversion helper names should use the `sourceToTarget` form, for example
+`se3ToVector` or `vectorToSE3`; reserve Doxygen comments for detailed
+conventions, frames, and equations.
+
 Inside `wbc_core`, `controller/` is the public inverse-dynamics controller
 surface. `controller/base/` owns reusable controller base interfaces such as
-`IDBase` and reusable controller wiring helpers such as `IDProblemRegistry`;
-the top-level controller directory owns `IDHQP`. All inverse-dynamics
-controller implementations assemble solve requests as `solvers::HQPData`;
-`IDBase` owns the basic `addConstraint` and `addTask` helpers for that HQP
-construction path. `IDHQP` uses a fixed hierarchy shape: physics constraints
-at level 0, user objectives at positive levels, and regularization after the
+`InverseDynamicsBase` in `id-base.hpp`, and reusable controller wiring helpers
+such as `IDProblemRegistry`; the top-level controller directory owns concrete
+controller implementations such as `IDHQP`. `InverseDynamicsBase` is
+solver-policy agnostic: it exposes only the common inverse-dynamics controller
+surface and owns shared runtime state such as the `RobotSystem` reference,
+Pinocchio `Data`, last `IDSolution`, and timing switch. It also owns
+solver-policy-agnostic helpers for model-term updates, failed-solution reset,
+solved-acceleration assignment, finite solution checks, and stacked contact
+data assembly through `StackedContactData`. HQP, QP, analytical, or other
+inverse-dynamics controllers should not inherit HQP-specific helpers through
+`InverseDynamicsBase`. `IDHQP`
+owns the inverse-dynamics HQP hierarchy policy and uses shared
+`wbc_core/solvers/hqp-data-utils.hpp` helpers for generic `HQPData` assembly and
+dimension counting. Its fixed hierarchy shape is hard feasibility terms at HQP
+level 0, user objectives at positive levels, and regularization after the
 deepest user objective.
 
 `formulations/` owns formulation-level solve schemas and implementation-level
@@ -209,7 +231,10 @@ thin loader shims that return a robot-specific `RobotControlProfile`.
 ### ID Problem And Solver
 
 `IDProblemRegistry` stores non-owning references to already-created runtime
-tasks/contacts and snapshots the active state into an `IDProblem`.
+tasks/contacts and snapshots the active state into an `IDProblem`. The
+reference acceleration is part of that `IDProblem` solve input. `IDHQP` does
+not keep separate reference-acceleration state; it uses `problem.qddot_ref`
+directly, with a zero vector fallback for manually constructed problems.
 
 `IDHQP` solves a ready `IDProblem` and returns an `IDSolution` containing only
 solver/model outputs: `qddot_ref`, `delta_qddot_sol`, `qddot_sol`,
@@ -221,13 +246,16 @@ builds `tau_cmd` from `tau_ff_cmd` plus optional feedback.
 The intended solver style is HQP cascade for every inverse-dynamics problem.
 The YAML solver backend chooses only the inner QP implementation, for example
 `SOLVER_HQP_PROXQP` when available or an eiquadprog baseline. Hard feasibility
-terms enter the hierarchy through `IDBase::addConstraint`; weighted objective
-terms and regularization enter through `IDBase::addTask`.
+terms, weighted objectives, and regularization are assembled into `HQPData` by
+`IDHQP` through the shared `solvers::hqp` utilities. These utilities are not
+ID-specific and may be reused by future HQP users outside inverse dynamics.
+When `problem.qddot_ref` is zero, the delta-form solve is equivalent to solving
+without a nonzero reference acceleration.
 
 `IDProblem` keeps a single `motion_objectives` list for task snapshots.
 `IDHQP` routes equality motion constraints from that list as weighted soft
 objectives, and routes inequality or bound motion constraints as hard
-feasibility constraints at physics level 0. This keeps state-machine and
+feasibility constraints at HQP level 0. This keeps state-machine and
 registry code simple while avoiding unsupported inequality costs in inner QP
 backends.
 

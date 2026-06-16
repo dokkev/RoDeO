@@ -4,6 +4,8 @@
 
 #include "wbc_core/solvers/solver-qp-params.hpp"
 
+#include "wbc_core/solvers/solver-HQP-base.hpp"
+
 #ifdef TSID_WITH_OSQP
 #include "wbc_core/solvers/solver-osqp.hpp"
 #endif

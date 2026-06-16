@@ -3,6 +3,7 @@
 //
 
 #include <wbc_core/tasks/task-actuation-equality.hpp>
+#include "wbc_core/math/linear_algebra/selection.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 
 namespace wbc {
@@ -27,19 +28,9 @@ void TaskActuationEquality::mask(const Vector& m) {
                                      std::to_string(m_robot.na()));
   m_mask = m;
 
-  const Vector::Index dim = static_cast<Vector::Index>(m.sum());
-  Matrix S = Matrix::Zero(dim, m_robot.na());
-  m_activeAxes.resize(dim);
-  unsigned int j = 0;
-  for (unsigned int i = 0; i < m.size(); i++)
-    if (m(i) != 0.0) {
-      PINOCCHIO_CHECK_INPUT_ARGUMENT(
-          m(i) == 1.0,
-          "Entries in the mask vector need to be either 0.0 or 1.0");
-      S(j, i) = m_weights(i);
-      m_activeAxes(j) = i;
-      j++;
-    }
+  Matrix S;
+  buildWeightedSelectionMatrix(m, m_robot.na(), 0, m_weights, m_activeAxes, S);
+  const Vector::Index dim = S.rows();
   m_constraint.resize((unsigned int)dim, m_robot.na());
   m_constraint.setMatrix(S);
 

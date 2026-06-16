@@ -7,7 +7,11 @@
 
 #include "wbc_core/math/fwd.hpp"
 #include "wbc_core/robots/fwd.hpp"
-#include "wbc_core/tasks/task-se3-equality.hpp"
+#include "wbc_core/tasks/fwd.hpp"
+
+#include <pinocchio/multibody/fwd.hpp>
+
+#include <string>
 
 namespace wbc {
 namespace contacts {

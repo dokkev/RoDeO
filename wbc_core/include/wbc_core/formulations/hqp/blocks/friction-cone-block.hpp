@@ -12,7 +12,7 @@
 #include <cassert>
 
 #include "wbc_core/formulations/hqp/hqp-block-base.hpp"
-#include "wbc_core/math/constraint-inequality.hpp"
+#include "wbc_core/math/constraints/constraint-inequality.hpp"
 
 namespace wbc {
 

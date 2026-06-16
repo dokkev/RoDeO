@@ -229,7 +229,7 @@ void BindRegistry(RuntimeConfig& config, IDProblemRegistry& registry,
                   robots::RobotSystem& robot, pinocchio::Data& data) {
   registry.regularization() = config.regularization;
   registry.setReferenceAccelerationEnabled(config.qddot_ref_enabled);
-  // Contact consistency is a hard physics layer in IDHQP; keep legacy
+  // Contact consistency is a hard feasibility term at HQP level 0; keep legacy
   // w_xc_ddot parsed but intentionally unused here.
 
   for (auto& [name, contact_info] : config.contact_pool) {
@@ -239,12 +239,12 @@ void BindRegistry(RuntimeConfig& config, IDProblemRegistry& registry,
       auto frame_id = c6d->getMotionTask().frame_id();
       c6d->setReference(data.oMf[frame_id]);
     }
-    registry.addContact(*contact_info.contact);
+    registry.registerContact(*contact_info.contact);
   }
 
   for (auto& [name, task_info] : config.task_pool) {
     (void)name;
-    registry.addTask(*task_info.task, task_info.level, task_info.weight);
+    registry.registerTask(*task_info.task, task_info.level, task_info.weight);
   }
 
   for (const auto& constraint : config.constraints) {

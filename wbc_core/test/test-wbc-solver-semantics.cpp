@@ -16,8 +16,8 @@
 
 #include <wbc_core/controller/id-hqp.hpp>
 #include <wbc_core/controller/base/id-problem-registry.hpp>
-#include <wbc_core/math/constraint-equality.hpp>
-#include <wbc_core/math/constraint-inequality.hpp>
+#include <wbc_core/math/constraints/constraint-equality.hpp>
+#include <wbc_core/math/constraints/constraint-inequality.hpp>
 #include <wbc_core/robots/robot-system.hpp>
 #include <wbc_core/tasks/task-motion.hpp>
 
@@ -213,7 +213,7 @@ TEST_F(WBCSolverSemanticsTest,
        DisabledRegistryReferenceSolvesPureAccelerationProblem) {
   MockMotionTask task("mock-task", *robot);
   task.setSingleDoFTarget(0, 0.75);
-  registry->addTask(task, 1u, 1.0);
+  registry->registerTask(task, 1u, 1.0);
 
   Vector ignored_reference = Vector::Constant(robot->nv(), 10.0);
   registry->setReferenceAcceleration(ignored_reference);
@@ -608,7 +608,7 @@ TEST_F(WBCSolverSemanticsTest, UnconstrainedSupportForceFallsBackToZeroLambda) {
 TEST_F(WBCSolverSemanticsTest, RegistryBuildsProblemFromRegisteredRuntimeData) {
   MockMotionTask task("mock-task", *robot);
   task.setSingleDoFTarget(0, 0.75);
-  registry->addTask(task, 1u, 2.0);
+  registry->registerTask(task, 1u, 2.0);
 
   IDProblem problem = registry->buildProblem(0.0, q, qdot);
   ASSERT_EQ(problem.motion_objectives.size(), 1u);
@@ -627,11 +627,11 @@ TEST_F(WBCSolverSemanticsTest,
        RegistryPreservesExplicitTaskLevels) {
   MockMotionTask operationalTask("operational-task", *robot);
   operationalTask.setSingleDoFTarget(0, 0.5);
-  registry->addTask(operationalTask, 1u, 2.0);
+  registry->registerTask(operationalTask, 1u, 2.0);
 
   MockMotionTask biasTask("bias-task", *robot);
   biasTask.setSingleDoFTarget(0, -0.5);
-  registry->addTask(biasTask, 2u, 3.0);
+  registry->registerTask(biasTask, 2u, 3.0);
 
   const std::vector<std::string> activeTasks{"operational-task", "bias-task"};
   const std::vector<double> taskWeights{-1.0, -1.0};
@@ -650,7 +650,7 @@ TEST_F(WBCSolverSemanticsTest,
 TEST_F(WBCSolverSemanticsTest, RegistryThrowsOnUnknownActiveTaskName) {
   MockMotionTask task("known-task", *robot);
   task.setSingleDoFTarget(0, 0.5);
-  registry->addTask(task, 1u, 1.0);
+  registry->registerTask(task, 1u, 1.0);
 
   const std::vector<std::string> activeTasks{"missing-task"};
   const std::vector<double> taskWeights{-1.0};

@@ -10,7 +10,7 @@
 #include <Eigen/Core>
 
 #include "wbc_core/math/fwd.hpp"
-#include "wbc_core/robots/robot-system.hpp"
+#include "wbc_core/robots/fwd.hpp"
 
 namespace wbc {
 namespace robots {
@@ -27,22 +27,14 @@ struct RobotCommand {
   math::Vector tau;   ///< Actuator torque command, size na().
 
   /// Allocate zero command buffers for a robot model.
-  void Initialize(const RobotSystem& robot) {
-    Initialize(robot.nq_joints(), robot.nv_joints(), robot.na());
-  }
+  void Initialize(const RobotSystem& robot);
 
   /// Allocate zero command buffers for fixed-size joint command users.
-  void Initialize(Eigen::Index joint_dim) {
-    Initialize(joint_dim, joint_dim, joint_dim);
-  }
+  void Initialize(Eigen::Index joint_dim);
 
   /// Allocate zero command buffers with explicit model dimensions.
   void Initialize(Eigen::Index nq_joints, Eigen::Index nv_joints,
-                  Eigen::Index na) {
-    q = math::Vector::Zero(nq_joints);
-    qdot = math::Vector::Zero(nv_joints);
-    tau = math::Vector::Zero(na);
-  }
+                  Eigen::Index na);
 };
 
 }  // namespace robots

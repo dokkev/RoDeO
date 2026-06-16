@@ -55,7 +55,7 @@ class ConstraintBase {
   virtual bool setLowerBound(ConstRefVector lb) = 0;
   virtual bool setUpperBound(ConstRefVector ub) = 0;
 
-  virtual bool checkConstraint(ConstRefVector x, double tol = 1e-6) const = 0;
+  virtual bool isSatisfied(ConstRefVector x, double tol = 1e-6) const = 0;
 
  protected:
   std::string m_name;

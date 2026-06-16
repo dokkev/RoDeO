@@ -3,7 +3,8 @@
 //
 
 #include "wbc_core/solvers/solver-osqp.hpp"
-#include "wbc_core/math/utils.hpp"
+#include "wbc_core/math/constraints/constraint-base.hpp"
+#include "wbc_core/utils/formatting.hpp"
 #include "wbc_core/utils/stop-watch.hpp"
 
 namespace wbc {
@@ -56,7 +57,7 @@ void SolverOSQP::resize(unsigned int n, unsigned int neq, unsigned int nin) {
   }
   if (resizeVar) {
 #ifndef NDEBUG
-    sendMsg("Resizing Hessian from " + toString(m_n) + " to " + toString(n));
+    sendMsg("Resizing Hessian from " + wbc::toString(m_n) + " to " + wbc::toString(n));
 #endif
     m_qpData.H.resize(n, n);
     m_qpData.g.resize(n);
@@ -223,23 +224,23 @@ const HQPOutput& SolverOSQP::solve(const HQPData& problemData) {
       for (ConstraintLevel::const_iterator it = cl0.begin(); it != cl0.end();
            it++) {
         auto constr = it->second;
-        if (constr->checkConstraint(x) == false) {
+        if (constr->isSatisfied(x) == false) {
           // m_output.status = HQP_STATUS_ERROR;
           if (constr->isEquality()) {
             sendMsg("Equality " + constr->name() + " violated: " +
-                    toString((constr->matrix() * x - constr->vector()).norm()));
+                    wbc::toString((constr->matrix() * x - constr->vector()).norm()));
           } else if (constr->isInequality()) {
             sendMsg(
                 "Inequality " + constr->name() + " violated: " +
-                toString(
+                wbc::toString(
                     (constr->matrix() * x - constr->lowerBound()).minCoeff()) +
                 "\n" +
-                toString(
+                wbc::toString(
                     (constr->upperBound() - constr->matrix() * x).minCoeff()));
           } else if (constr->isBound()) {
             sendMsg("Bound " + constr->name() + " violated: " +
-                    toString((x - constr->lowerBound()).minCoeff()) + "\n" +
-                    toString((constr->upperBound() - x).minCoeff()));
+                    wbc::toString((x - constr->lowerBound()).minCoeff()) + "\n" +
+                    wbc::toString((constr->upperBound() - x).minCoeff()));
           }
         }
       }

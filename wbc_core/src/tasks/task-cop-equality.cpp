@@ -4,6 +4,10 @@
 
 #include "wbc_core/tasks/task-cop-equality.hpp"
 
+#include "wbc_core/contacts/contact-base.hpp"
+#include "wbc_core/contacts/contact-level.hpp"
+#include "wbc_core/tasks/task-se3-equality.hpp"
+
 using namespace wbc::math;
 using namespace std;
 

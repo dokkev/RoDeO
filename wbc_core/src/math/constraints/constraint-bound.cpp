@@ -3,7 +3,7 @@
 //
 
 #include <stdexcept>
-#include <wbc_core/math/constraint-bound.hpp>
+#include <wbc_core/math/constraints/constraint-bound.hpp>
 
 using namespace wbc::math;
 
@@ -71,7 +71,7 @@ bool ConstraintBound::setUpperBound(ConstRefVector ub) {
   return true;
 }
 
-bool ConstraintBound::checkConstraint(ConstRefVector x, double tol) const {
+bool ConstraintBound::isSatisfied(ConstRefVector x, double tol) const {
   return (x.array() <= m_ub.array() + tol).all() &&
          (x.array() >= m_lb.array() - tol).all();
 }

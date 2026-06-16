@@ -9,8 +9,9 @@
 #include <memory>
 #include <string>
 
-#include <wbc_core/math/constraint-bound.hpp>
-#include <wbc_core/math/constraint-equality.hpp>
+#include <wbc_core/math/constraints/constraint-bound.hpp>
+#include <wbc_core/math/constraints/constraint-equality.hpp>
+#include <wbc_core/solvers/hqp-data-utils.hpp>
 #include <wbc_core/solvers/solver-HQP-cascade.hpp>
 #include <wbc_core/solvers/solver-HQP-factory.hpp>
 #include <wbc_core/solvers/solver-HQP-factory.hxx>
@@ -29,19 +30,21 @@ using wbc::solvers::SolverHQPFactory;
 
 HQPData makeBoundedTargetProblem() {
   HQPData problem;
-  problem.resize(2);
+  wbc::solvers::hqp::resizeData(problem, 2);
 
   auto bounds = std::make_shared<ConstraintBound>("bounds", 2);
   bounds->lowerBound() = Vector::Constant(2, -5.0);
   bounds->upperBound() = Vector::Constant(2, 5.0);
-  problem[0].push_back(wbc::solvers::make_pair<double>(
-      1.0, std::static_pointer_cast<wbc::math::ConstraintBase>(bounds)));
+  wbc::solvers::hqp::addTerm(
+      problem, wbc::solvers::hqp::kLevel0, 1.0,
+      std::static_pointer_cast<wbc::math::ConstraintBase>(bounds));
 
   auto target = std::make_shared<ConstraintEquality>("target", 2, 2);
   target->matrix() = Matrix::Identity(2, 2);
   target->vector() << 1.25, -0.5;
-  problem[1].push_back(wbc::solvers::make_pair<double>(
-      1.0, std::static_pointer_cast<wbc::math::ConstraintBase>(target)));
+  wbc::solvers::hqp::addTerm(
+      problem, 1u, 1.0,
+      std::static_pointer_cast<wbc::math::ConstraintBase>(target));
 
   return problem;
 }
@@ -57,20 +60,22 @@ std::shared_ptr<wbc::math::ConstraintBase> makeEqualityTarget(
 
 HQPData makeConflictingThreeLevelProblem() {
   HQPData problem;
-  problem.resize(3);
+  wbc::solvers::hqp::resizeData(problem, 3);
 
   Matrix highPriority = Matrix::Zero(1, 2);
   highPriority(0, 0) = 1.0;
   Vector highTarget(1);
   highTarget << 1.0;
-  problem[1].push_back(wbc::solvers::make_pair<double>(
-      1.0, makeEqualityTarget("keep_x0_at_one", highPriority, highTarget)));
+  wbc::solvers::hqp::addTerm(
+      problem, 1u, 1.0,
+      makeEqualityTarget("keep_x0_at_one", highPriority, highTarget));
 
   Matrix lowPriority = Matrix::Identity(2, 2);
   Vector lowTarget(2);
   lowTarget << -3.0, 2.0;
-  problem[2].push_back(wbc::solvers::make_pair<double>(
-      1.0, makeEqualityTarget("prefer_full_target", lowPriority, lowTarget)));
+  wbc::solvers::hqp::addTerm(
+      problem, 2u, 1.0,
+      makeEqualityTarget("prefer_full_target", lowPriority, lowTarget));
 
   return problem;
 }
@@ -94,6 +99,15 @@ void expectFactorySolvesBoundedTarget(SolverHQP solverType,
 }
 
 }  // namespace
+
+TEST(SolverBaselineTest, HQPDataUtilsCountsProblemDimensions) {
+  const HQPData problem = makeBoundedTargetProblem();
+  const auto dimensions = wbc::solvers::hqp::dimensions(problem);
+
+  EXPECT_EQ(dimensions.variables, 2u);
+  EXPECT_EQ(dimensions.equalities, 2u);
+  EXPECT_EQ(dimensions.inequalities, 2u);
+}
 
 TEST(SolverBaselineTest, CascadeUsesSelectedInnerBackend) {
   wbc::solvers::SolverHQPCascade solver("cascade",
