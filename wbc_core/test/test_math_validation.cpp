@@ -22,7 +22,7 @@
 namespace
 {
 
-using wbc::HQPBuildContext;
+using wbc::HQPBlockContext;
 using wbc::math::ConstraintBound;
 using wbc::math::ConstraintEquality;
 using wbc::math::ConstraintInequality;
@@ -44,9 +44,9 @@ void expectEigenNear(
       << "actual:\n" << actual << "\nexpected:\n" << expected;
 }
 
-HQPBuildContext makeDecisionContext(int nv, int lambdaDim)
+HQPBlockContext makeDecisionContext(int nv, int lambdaDim)
 {
-  HQPBuildContext ctx;
+  HQPBlockContext ctx;
   ctx.nv = nv;
   ctx.na = nv;
   ctx.lambdaDim = lambdaDim;
@@ -167,7 +167,7 @@ TEST(MathValidationTest, MotionEqualityBlockBuildsDeltaFormRhs) {
 
   Vector qddot_ref(3);
   qddot_ref << 0.1, 0.2, -0.3;
-  HQPBuildContext ctx = makeDecisionContext(3, 2);
+  HQPBlockContext ctx = makeDecisionContext(3, 2);
   ctx.qddot_ref = &qddot_ref;
 
   wbc::MotionConstraintBlock block("task", 1u, 1.0);
@@ -196,7 +196,7 @@ TEST(MathValidationTest, MotionInequalityBlockOffsetsBoundsByReference) {
 
   Vector qddot_ref(3);
   qddot_ref << 0.25, -0.5, 0.75;
-  HQPBuildContext ctx = makeDecisionContext(3, 1);
+  HQPBlockContext ctx = makeDecisionContext(3, 1);
   ctx.qddot_ref = &qddot_ref;
 
   wbc::MotionConstraintBlock block("limit", 0u, 1.0);
@@ -223,7 +223,7 @@ TEST(MathValidationTest, ContactAccelerationBlockBuildsStackedDeltaConstraint) {
   Vector qddot_ref(3);
   qddot_ref << -0.2, 0.1, 0.4;
 
-  HQPBuildContext ctx = makeDecisionContext(3, 1);
+  HQPBlockContext ctx = makeDecisionContext(3, 1);
   ctx.Jc = &Jc;
   ctx.contact_motion_rhs = &contact_rhs;
   ctx.qddot_ref = &qddot_ref;
@@ -252,7 +252,7 @@ TEST(MathValidationTest, FrictionConeBlockPlacesUfAtLambdaColumns) {
   Vector upper(3);
   upper << 4.0, 2.0, 3.0;
 
-  HQPBuildContext ctx = makeDecisionContext(3, 2);
+  HQPBlockContext ctx = makeDecisionContext(3, 2);
   ctx.Uf = &Uf;
   ctx.uf_lb = &lower;
   ctx.uf_ub = &upper;
@@ -292,7 +292,7 @@ TEST(MathValidationTest, FloatingBaseDynamicsBlockUsesContactAndDeltaSigns) {
        -0.25, 1.0,
        2.0, -1.0;
 
-  HQPBuildContext ctx = makeDecisionContext(4, 2);
+  HQPBlockContext ctx = makeDecisionContext(4, 2);
   ctx.na = 2;
   ctx.nvFloat = 2;
   ctx.M = &M;
@@ -343,7 +343,7 @@ TEST(MathValidationTest, JointTorqueLimitBlockBuildsTorqueInequality) {
   Vector tau_ub(2);
   tau_ub << 6.0, 8.0;
 
-  HQPBuildContext ctx = makeDecisionContext(4, 2);
+  HQPBlockContext ctx = makeDecisionContext(4, 2);
   ctx.na = 2;
   ctx.nvFloat = 2;
   ctx.M = &M;

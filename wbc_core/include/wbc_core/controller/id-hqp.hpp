@@ -24,7 +24,7 @@
 #include "wbc_core/formulations/hqp/blocks/motion-constraint-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/qddot-regularization-block.hpp"
 #include "wbc_core/formulations/hqp/blocks/rf-regularization-block.hpp"
-#include "wbc_core/formulations/hqp/hqp-build-context.hpp"
+#include "wbc_core/formulations/hqp/hqp-block-context.hpp"
 #include "wbc_core/robots/robot-system.hpp"
 #include "wbc_core/solvers/solver-HQP-base.hpp"
 #include "wbc_core/solvers/solver-qp-params.hpp"
@@ -139,18 +139,8 @@ class IDHQP : public InverseDynamicsBase {
     std::shared_ptr<math::ConstraintBase> constraint;
   };
 
-  /// Scratch data valid only during one `solve()` call.
-  struct SolveWorkspace {
-    bool hasContactForces{false};
-    bool hasContactKinematics{false};
-    bool hasFrictionConstraints{false};
-    bool hasJointTorqueLimits{false};
-    bool regularizeLambda{false};
-    StackedContactData contacts;
-  };
-
   /// Resets per-solve scratch state and base solution buffers.
-  void beginCycle(const IDProblem& problem);
+  void beginCycle(const Vector& qddot_ref);
 
   /// Returns the current reset/failed solution without changing state.
   const IDSolution& fail() const { return *m_solution; }
@@ -161,27 +151,39 @@ class IDHQP : public InverseDynamicsBase {
   /// Checks HQP level conventions for active objectives.
   bool validateHierarchy(const IDProblem& problem) const;
 
-  /// Builds contact stacks, active flags, and per-solve solution buffers.
-  void prepareSolveWorkspace(const IDProblem& problem);
+  /// Builds contact stacks and copies per-problem options used during solve.
+  void prepareProblemAssembly(const IDProblem& problem);
 
-  /// Populates the HQP block build context from current model/problem data.
-  void buildHqpContext(const IDProblem& problem);
+  /// Returns whether contact-force regularization should be assembled.
+  bool lambdaRegularizationEnabled(
+      const IDRegularizationParams& regularization) const;
+
+  /// Creates the block-facing context view for current model/problem data.
+  HQPBlockContext makeHqpBlockContext(
+      const std::vector<ContactConstraintData>& contacts,
+      const Vector& qddot_ref);
 
   /// Builds hard feasibility constraints for HQP level 0.
-  void buildHardConstraints(const IDProblem& problem);
+  void buildHardConstraints(const HQPBlockContext& ctx);
 
   /// Builds acceleration/contact-force regularization blocks.
-  void buildRegularizationBlocks(const IDProblem& problem);
+  void buildRegularizationBlocks(const IDRegularizationParams& regularization,
+                                 const HQPBlockContext& ctx);
 
-  /// Builds weighted objective blocks from `IDProblem`.
-  void buildObjectiveBlocks(const IDProblem& problem);
+  /// Builds weighted objective blocks from active objective views.
+  void buildObjectiveBlocks(
+      const std::vector<MotionObjective>& motion_objectives,
+      const std::vector<JointAccelerationObjective>&
+          joint_acceleration_objectives,
+      const HQPBlockContext& ctx);
 
   /// Assembles the IDHQP hierarchy for the current `IDProblem`.
   void assembleHierarchy(const IDProblem& problem);
 
   /// Decodes `[delta_qddot, lambda]` and computes model torque.
   const IDSolution& decodeSolution(const IDProblem& problem,
-                                   const solvers::HQPOutput& hqpSol);
+                                   const solvers::HQPOutput& hqpSol,
+                                   const Vector& qddot_ref);
 
   /// Computes `tau_sol` from `qddot_sol`, contact forces, and model terms.
   void computeModelTorque(const IDProblem& problem);
@@ -196,7 +198,6 @@ class IDHQP : public InverseDynamicsBase {
   unsigned int m_solverVarDim{0};
   unsigned int m_solverEqDim{0};
   unsigned int m_solverInDim{0};
-  HQPBuildContext m_ctx;
   FloatingBaseDynamicsConstraint m_dynamicsConstraint;
   ContactConsistencyConstraint m_contactConsistencyConstraint;
   FrictionConeConstraint m_frictionConeConstraint;
@@ -207,7 +208,7 @@ class IDHQP : public InverseDynamicsBase {
   std::vector<MotionObjectiveSlot> m_motionObjectiveSlots;
   std::vector<JointAccelerationObjectiveSlot> m_jointAccelerationObjectiveSlots;
 
-  SolveWorkspace m_workspace;
+  StackedContactData m_contacts;
 
   constraints::JointTorqueLimits m_jointTorqueLimits;
   const Eigen::VectorXd* m_h_ext{nullptr};

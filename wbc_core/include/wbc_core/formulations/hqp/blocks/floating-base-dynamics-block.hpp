@@ -27,7 +27,7 @@ class FloatingBaseDynamicsConstraint : public HQPBlock {
         "dynamics", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     if (ctx.nvFloat == 0) {
       cst()->resize(0, ctx.qpDim());
       return;

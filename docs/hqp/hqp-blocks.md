@@ -9,7 +9,7 @@
 대상 구현:
 
 - `wbc_core/include/wbc_core/formulations/hqp/hqp-block-base.hpp`
-- `wbc_core/include/wbc_core/formulations/hqp/hqp-build-context.hpp`
+- `wbc_core/include/wbc_core/formulations/hqp/hqp-block-context.hpp`
 - `wbc_core/include/wbc_core/formulations/hqp/blocks/*.hpp`
 - `wbc_core/src/controller/id-hqp.cpp`
 - `wbc_core/include/wbc_core/solvers/hqp-data-utils.hpp`
@@ -34,7 +34,7 @@ HQPData
 ```cpp
 class HQPBlock {
  public:
-  virtual void build(const HQPBuildContext& ctx) = 0;
+  virtual void build(const HQPBlockContext& ctx) = 0;
   const std::shared_ptr<math::ConstraintBase>& constraint() const;
 };
 ```
@@ -87,9 +87,9 @@ contact force에 걸리는 항은 `nv` 이후 column에 들어간다.
 [ A_qddot  A_lambda ] * [delta_qddot; lambda]
 ```
 
-## HQPBuildContext
+## HQPBlockContext
 
-`HQPBuildContext`는 block들이 필요로 하는 per-cycle 입력 묶음이다. Controller가 한
+`HQPBlockContext`는 block들이 필요로 하는 per-cycle 입력 묶음이다. Controller가 한
 tick의 robot dynamics, contact snapshot, optional limits를 모아서 채운다.
 
 중요 필드는 다음과 같다.
@@ -106,7 +106,7 @@ tick의 robot dynamics, contact snapshot, optional limits를 모아서 채운다
 | `tau_lb`, `tau_ub` | torque limit | joint torque bounds |
 | `qddot_ref` | delta-form blocks | reference acceleration |
 
-`IDHQP::buildHqpContext()`가 이 context를 만든다.
+`IDHQP::makeHqpBlockContext()`가 이 context를 만든다.
 
 ```text
 ctx.M = mass(q)
@@ -126,12 +126,14 @@ Contact가 있으면 `contactInfos`에 contact별 `Jc`, `T`, `lambdaOffset`,
 `IDHQP::solve()`에서 block은 다음 순서로 사용된다.
 
 ```text
-beginCycle(problem)
+beginCycle(qddot_ref)
 updateRobotModel()
-prepareSolveWorkspace(problem)
-buildHardConstraints(problem)
-buildRegularizationBlocks(problem)
-buildObjectiveBlocks(problem)
+prepareProblemAssembly(problem)
+resetSolution(qddot_ref, lambdaDim)
+makeHqpBlockContext(problem.contacts, qddot_ref)
+buildHardConstraints(ctx)
+buildRegularizationBlocks(problem.regularization, ctx)
+buildObjectiveBlocks(objectives, ctx)
 assembleHierarchy(problem)
 resizeSolverFromHQPData()
 solve
@@ -140,8 +142,8 @@ decodeSolution
 
 각 단계의 역할은 다음과 같다.
 
-- `prepareSolveWorkspace`: contacts를 stack하고 어떤 block이 필요한지 flag를 세운다.
-- `buildHqpContext`: block들이 공유할 `HQPBuildContext`를 만든다.
+- `prepareProblemAssembly`: contacts를 stack하고 problem-side option을 solve 준비 값으로 복사한다.
+- `makeHqpBlockContext`: block들이 공유할 `HQPBlockContext` view를 만든다.
 - `buildHardConstraints`: dynamics/contact/friction/torque-limit block을 build한다.
 - `buildRegularizationBlocks`: `delta_qddot`, `lambda` regularization block을 build한다.
 - `buildObjectiveBlocks`: runtime motion objective와 joint acceleration objective를 build한다.

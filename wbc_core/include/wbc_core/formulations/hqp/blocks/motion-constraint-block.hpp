@@ -37,12 +37,12 @@ class MotionConstraintBlock : public HQPBlock {
     m_objective = objective;
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     assert(m_objective != nullptr);
     build(*m_objective, ctx);
   }
 
-  void build(const MotionObjective& objective, const HQPBuildContext& ctx) {
+  void build(const MotionObjective& objective, const HQPBlockContext& ctx) {
     assert(objective.isValid());
     const auto& J = objective.matrix();
     const int rows = static_cast<int>(J.rows());

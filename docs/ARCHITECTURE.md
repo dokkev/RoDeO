@@ -269,6 +269,15 @@ validation. Runtime assembly, state-machine task selection, and task/contact
 constructors own dimensional correctness; hot-path blocks keep debug asserts
 and focused tests cover the expected contracts.
 
+Avoid repeated size or dimension checks inside the control tick when the same
+invariant can be established at configuration, object construction, bind time,
+or runtime assembly boundaries. If a hot-path entry point accepts manually
+constructed data, normalize and assert the contract once near that boundary,
+then pass the resolved, already-sized view through the rest of the tick.
+Per-block debug asserts are acceptable for local misuse detection, but they
+should not become a substitute for upstream ownership of dimensional
+correctness.
+
 ## Architecture Risks
 
 - Documentation drift: `control_architecture/code_structure.md` is currently

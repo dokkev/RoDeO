@@ -32,7 +32,7 @@ class JointTorqueLimitConstraint : public HQPBlock {
         "joint-torque-limit", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     if (!ctx.hasJointTorqueLimits()) {
       cst()->resize(0, ctx.qpDim());
       return;

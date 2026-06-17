@@ -91,8 +91,8 @@ class InverseDynamicsBase {
 
   const math::Vector& zeroExternalWrench() const { return m_zero_h_ext; }
 
-  void beginSolveCycle(const IDProblem& problem) {
-    resetSolution(problemQddotRef(problem), 0);
+  void beginSolveCycle(const math::Vector& qddot_ref) {
+    resetSolution(qddot_ref, 0);
   }
 
   void stackContactData(StackedContactData& out,

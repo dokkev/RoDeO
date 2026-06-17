@@ -14,7 +14,7 @@
 #include <string>
 #include <utility>
 
-#include "wbc_core/formulations/hqp/hqp-build-context.hpp"
+#include "wbc_core/formulations/hqp/hqp-block-context.hpp"
 #include "wbc_core/math/fwd.hpp"
 
 namespace wbc {
@@ -41,7 +41,7 @@ class HQPBlock {
   }
 
   /// Updates the owned constraint object in-place from the current context.
-  virtual void build(const HQPBuildContext& ctx) = 0;
+  virtual void build(const HQPBlockContext& ctx) = 0;
 
  protected:
   HQPBlock(std::string name, unsigned int level, double weight)

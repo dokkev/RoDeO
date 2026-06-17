@@ -24,7 +24,7 @@ class AccelerationRegularization : public HQPBlock {
         "qddot-reg", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     assert(ctx.nv > 0);
 
     auto* eq = cst();

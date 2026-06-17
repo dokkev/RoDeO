@@ -609,12 +609,14 @@ constraint다.
 현재 `IDHQP::solve()`의 흐름은 크게 다음과 같다.
 
 ```text
-beginCycle(problem)
+beginCycle(qddot_ref)
 updateRobotModel()
-prepareSolveWorkspace(problem)
-buildHardConstraints(problem)
-buildRegularizationBlocks(problem)
-buildObjectiveBlocks(problem)
+prepareProblemAssembly(problem)
+resetSolution(qddot_ref, lambdaDim)
+makeHqpBlockContext(problem.contacts, qddot_ref)
+buildHardConstraints(ctx)
+buildRegularizationBlocks(problem.regularization, ctx)
+buildObjectiveBlocks(objectives, ctx)
 assembleHierarchy(problem)
 solve HQP
 decodeSolution(problem, hqpSol)

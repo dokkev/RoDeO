@@ -24,7 +24,7 @@ class ContactForceRegularization : public HQPBlock {
         "rf-reg", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     auto* eq = cst();
     if (ctx.lambdaDim == 0) {
       eq->resize(0, ctx.qpDim());

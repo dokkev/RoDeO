@@ -28,7 +28,7 @@ class ContactConsistencyConstraint : public HQPBlock {
         "contact-accel", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     if (!ctx.Jc || !ctx.contact_motion_rhs || ctx.Jc->rows() == 0) {
       cst()->resize(0, ctx.qpDim());
       return;

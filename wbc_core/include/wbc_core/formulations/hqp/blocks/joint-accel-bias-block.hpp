@@ -27,7 +27,7 @@ class JointAccelerationBias : public HQPBlock {
     m_qddot_bias = qddot_bias;
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     assert(ctx.nv > 0);
 
     auto* eq = cst();

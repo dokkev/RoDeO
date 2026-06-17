@@ -24,7 +24,7 @@ class FrictionConeConstraint : public HQPBlock {
         "friction", 0, 0);
   }
 
-  void build(const HQPBuildContext& ctx) override {
+  void build(const HQPBlockContext& ctx) override {
     if (!ctx.Uf || !ctx.uf_lb || !ctx.uf_ub || ctx.lambdaDim == 0) {
       cst()->resize(0, ctx.qpDim());
       return;
