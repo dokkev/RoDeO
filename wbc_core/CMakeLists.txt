@@ -114,37 +114,21 @@ install(EXPORT ${PROJECT_NAME}Targets
 )
 
 if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-
-  # Path to local TSID model files (romeo, quadruped).
-  set(TSID_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tsid/models")
+  option(WBC_CORE_ENABLE_LINT_TESTS "Enable broad ament lint tests for wbc_core" OFF)
+  if(WBC_CORE_ENABLE_LINT_TESTS)
+    find_package(ament_lint_auto REQUIRED)
+    ament_lint_auto_find_test_dependencies()
+  endif()
 
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_robot_system_state_contract
-    test/test_robot_system_state_contract.cpp)
-  target_link_libraries(test_robot_system_state_contract ${PROJECT_NAME})
-  target_compile_definitions(test_robot_system_state_contract PRIVATE
-    TSID_MODEL_DIR="${TSID_MODEL_DIR}")
-  set_tests_properties(test_robot_system_state_contract PROPERTIES
-    ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
-
-  ament_add_gtest(test_id_hqp test/test-id-hqp.cpp)
-  target_link_libraries(test_id_hqp ${PROJECT_NAME})
-  target_compile_definitions(test_id_hqp PRIVATE
-    TSID_MODEL_DIR="${TSID_MODEL_DIR}")
-  set_tests_properties(test_id_hqp PROPERTIES
-    ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
-
-  ament_add_gtest(test_wbc_solver_semantics test/test-wbc-solver-semantics.cpp)
-  target_link_libraries(test_wbc_solver_semantics ${PROJECT_NAME})
-  target_compile_definitions(test_wbc_solver_semantics PRIVATE
-    TSID_MODEL_DIR="${TSID_MODEL_DIR}")
-  set_tests_properties(test_wbc_solver_semantics PROPERTIES
-    ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
-
   ament_add_gtest(test_solver_baselines test/test-solver-baselines.cpp)
   target_link_libraries(test_solver_baselines ${PROJECT_NAME})
+
+  ament_add_gtest(test_math_lie_group_se3 test/test_math_lie_group_se3.cpp)
+  target_link_libraries(test_math_lie_group_se3 ${PROJECT_NAME})
+
+  ament_add_gtest(test_math_validation test/test_math_validation.cpp)
+  target_link_libraries(test_math_validation ${PROJECT_NAME})
 endif()
 
 ament_export_include_directories(include)

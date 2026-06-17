@@ -172,7 +172,7 @@ const HQPOutput& SolverHQuadProgRT<nVars, nEqCon, nIneqCon>::solve(
       for (ConstraintLevel::const_iterator it = cl0.begin(); it != cl0.end();
            it++) {
         auto constr = it->second;
-        if (constr->checkConstraint(x) == false) {
+        if (constr->isSatisfied(x) == false) {
           if (constr->isEquality()) {
             sendMsg("Equality " + constr->name() + " violated: " +
                     toString((constr->matrix() * x - constr->vector()).norm()));

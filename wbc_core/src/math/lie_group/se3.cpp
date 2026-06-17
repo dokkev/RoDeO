@@ -24,7 +24,7 @@ void vectorToSE3(ConstRefVector vector, pinocchio::SE3& transform) {
                                  "vector needs to contain 12 rows");
   transform.translation(vector.head<3>());
   typedef Eigen::Matrix<double, 3, 3> Matrix3;
-  transform.rotation(Eigen::Map<const Matrix3>(&vector(3), 3, 3));
+  transform.rotation(Eigen::Map<const Matrix3>(vector.data() + 3, 3, 3));
 }
 
 void poseError(const pinocchio::SE3& current,

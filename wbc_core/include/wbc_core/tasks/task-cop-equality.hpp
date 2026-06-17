@@ -24,6 +24,8 @@
 #include "wbc_core/trajectories/trajectory-base.hpp"
 #include "wbc_core/math/constraints/constraint-equality.hpp"
 
+#include <pinocchio/spatial/se3.hpp>
+
 namespace wbc {
 namespace tasks {
 
